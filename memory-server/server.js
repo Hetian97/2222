@@ -124,6 +124,10 @@ function normalizeMemoryFragment(body) {
     recallCount: clampNumber(body.recallCount, 0, 999999, 0),
 
     embedding: normalizeEmbedding(body.embedding),
+    embeddingModel: body.embeddingModel ? String(body.embeddingModel) : '',
+    embeddingDim: Number(body.embeddingDim || (Array.isArray(body.embedding) ? body.embedding.length : 0)),
+    embeddingUpdatedAt: body.embeddingUpdatedAt ? String(body.embeddingUpdatedAt) : '',
+
     linkedMemories: normalizeLinkedMemories(body.linkedMemories),
 
     source: body.source ? String(body.source) : 'external',

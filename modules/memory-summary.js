@@ -900,7 +900,7 @@ function bindVectorMemoryEvents(chat, container) {
       if (!newTimeStr) return;
       
       const newTime = new Date(newTimeStr).getTime();
-      window.vectorMemoryManager.editFragment(chat, id, { memoryTime: newTime });
+      await window.vectorMemoryManager.editFragment(chat, id, { memoryTime: newTime });
       await db.chats.put(chat);
       showToast('记忆时间已更新', 'success');
       // 重新渲染以排序
@@ -1073,16 +1073,22 @@ function bindVectorMemoryEvents(chat, container) {
   });
   container.querySelectorAll('.vm-edit-frag-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const frag = window.vectorMemoryManager.getFragment(chat, btn.dataset.id);
-      if (!frag) return;
-      const newContent = await showCustomPrompt('编辑记忆片段', '修改内容：', frag.content, 'textarea');
-      if (newContent !== null && newContent.trim()) {
-        window.vectorMemoryManager.editFragment(chat, btn.dataset.id, { content: newContent.trim() });
-        // 重新生成embedding
-        const embedding = await window.vectorMemoryManager.getEmbedding(newContent.trim(), chat);
-        if (embedding) frag.embedding = embedding;
+      const currentContent = btn.closest('.vm-item-row')?.querySelector('.vm-item-content')?.textContent || '';
+      const newContent = prompt('修改记忆内容', currentContent);
+
+      if (newContent !== null) {
+        const ok = await window.vectorMemoryManager.editFragment(chat, btn.dataset.id, {
+          content: newContent.trim()
+        });
+
+        if (!ok) {
+          showToast('修改失败：未找到记忆', 'error');
+          return;
+        }
+
         await db.chats.put(chat);
         renderVectorMemoryView();
+        showToast('已修改记忆', 'success');
       }
     });
   });

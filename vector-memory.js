@@ -394,11 +394,20 @@ class VariableMemoryManager {
     return id;
   }
 
-  editFragment(chat, id, updates) {
+  async editFragment(chat, id, updates) {
     const vm = this.getVariableMemory(chat);
     const frag = vm.fragments.find(f => f.id === id);
     if (!frag) return false;
-    if (updates.content !== undefined) { frag.content = updates.content; frag.embedding = null; }
+
+    const oldContent = String(frag.content || '').trim();
+    const hasContentUpdate = updates.content !== undefined;
+    const newContent = hasContentUpdate ? String(updates.content || '').trim() : oldContent;
+    const contentChanged = hasContentUpdate && newContent !== oldContent;
+
+    if (hasContentUpdate) {
+      frag.content = newContent;
+    }
+
     if (updates.tags !== undefined) frag.tags = updates.tags;
     if (updates.category !== undefined) frag.category = updates.category;
     if (updates.importance !== undefined) frag.importance = updates.importance;
@@ -406,6 +415,35 @@ class VariableMemoryManager {
     if (updates.memoryTime !== undefined) frag.memoryTime = updates.memoryTime; // 核心：修改发生时间
     if (updates.linkedMemories !== undefined) frag.linkedMemories = updates.linkedMemories;
     if (updates.context !== undefined) frag.context = updates.context;
+
+    if (contentChanged) {
+      frag.embedding = null;
+      frag.embeddingModel = '';
+      frag.embeddingDim = 0;
+      frag.embeddingUpdatedAt = '';
+
+      try {
+        const embedding = await this.getEmbedding(frag.content, chat);
+
+        if (Array.isArray(embedding) && embedding.length > 0) {
+          frag.embedding = embedding;
+          frag.embeddingModel = 'BAAI/bge-m3';
+          frag.embeddingDim = embedding.length;
+          frag.embeddingUpdatedAt = Date.now();
+
+          console.log('[变量记忆] 编辑后已重新生成 embedding:', frag.id, 'dim=', embedding.length);
+        } else {
+          console.warn('[变量记忆] 编辑后未能生成 embedding，继续保存为 BM25:', frag.id);
+        }
+      } catch (error) {
+        console.warn('[变量记忆] 编辑后重新生成 embedding 失败:', error.message);
+        frag.embedding = null;
+        frag.embeddingModel = '';
+        frag.embeddingDim = 0;
+        frag.embeddingUpdatedAt = '';
+      }
+    }
+
     vm.stats.lastUpdated = Date.now();
 
     if (this.isExternalMemoryEnabled(chat)) {
@@ -450,16 +488,16 @@ class VariableMemoryManager {
     return this.createFragment(chat, { content, category: 'C', importance: 10, tags: ['核心设定'] });
   }
 
-  editCoreMemory(chat, id, newContent) {
-    this.editFragment(chat, id, { content: newContent });
+  async editCoreMemory(chat, id, newContent) {
+    await this.editFragment(chat, id, { content: newContent });
   }
 
   deleteCoreMemory(chat, id) {
     this.deleteFragment(chat, id);
   }
 
-  pinToCoreMemory(chat, fragmentId) {
-    this.editFragment(chat, fragmentId, { category: 'C', importance: 10 });
+  async pinToCoreMemory(chat, fragmentId) {
+    await this.editFragment(chat, fragmentId, { category: 'C', importance: 10 });
   }
 
   serializeCoreMemories(chat) {
@@ -474,8 +512,6 @@ class VariableMemoryManager {
 
   async getEmbedding(text, chat) {
     if (!text || !text.trim()) return null;
-    const cacheKey = text.trim().substring(0, 200);
-    if (this.embeddingCache.has(cacheKey)) return this.embeddingCache.get(cacheKey);
 
     try {
       const vm = this.getVariableMemory(chat);
@@ -495,6 +531,13 @@ class VariableMemoryManager {
 
       if (!endpoint || !apiKey) return null; // 降级为BM25纯本地模式
 
+      this._lastEmbeddingModel = model || this.getCurrentEmbeddingModel(chat);
+
+      const cacheKey = `${this._lastEmbeddingModel}::${text.trim().substring(0, 200)}`;
+      if (this.embeddingCache.has(cacheKey)) {
+        return this.embeddingCache.get(cacheKey);
+      }
+
       const url = endpoint.endsWith('/') ? endpoint + 'v1/embeddings' : endpoint + '/v1/embeddings';
       const response = await fetch(url, {
         method: 'POST',
@@ -510,6 +553,23 @@ class VariableMemoryManager {
     } catch (e) {
       return null;
     }
+  }
+
+  getCurrentEmbeddingModel(chat) {
+    const vm = this.getVariableMemory(chat);
+
+    const fromLast = String(this._lastEmbeddingModel || '').trim();
+    const fromSettings = String(vm.settings?.embeddingModel || '').trim();
+    const fromInput = String(document.getElementById('vm-embedding-model-input')?.value || '').trim();
+    const fromSelect = String(document.getElementById('vm-embedding-model-select')?.value || '').trim();
+
+    return (
+      fromLast ||
+      fromSettings ||
+      fromInput ||
+      fromSelect ||
+      'text-embedding-3-small'
+    );
   }
 
   // ==================== 检索引擎（BM25 + Vector + Time + Importance） ====================
