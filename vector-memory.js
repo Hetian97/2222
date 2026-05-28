@@ -824,10 +824,24 @@ ${formattedHistory}
         row.className = 'vm-item-row';
         
         // 格式化时间为 datetime-local 可用的格式
-        const dateObj = new Date(frag.memoryTime);
+        let rawTime = Number(frag.memoryTime || frag.createdAt || Date.now());
+
+        if (!Number.isFinite(rawTime)) {
+          rawTime = Date.now();
+        }
+
+        const dateObj = new Date(rawTime);
+        
         // 处理时区偏移
-        const tzOffset = dateObj.getTimezoneOffset() * 60000;
-        const localISOTime = (new Date(dateObj - tzOffset)).toISOString().slice(0,16);
+        let localISOTime = '';
+        if (!Number.isNaN(dateObj.getTime())) {
+          const tzOffset = dateObj.getTimezoneOffset() * 60000;
+          localISOTime = new Date(dateObj.getTime() - tzOffset).toISOString().slice(0, 16);
+        } else {
+          const fallbackDate = new Date();
+          const tzOffset = fallbackDate.getTimezoneOffset() * 60000;
+          localISOTime = new Date(fallbackDate.getTime() - tzOffset).toISOString().slice(0, 16);
+        }
 
         row.innerHTML = `
           <input type="checkbox" class="vm-batch-element vm-item-checkbox" style="display:none; margin-right:10px; width: 16px; height: 16px; flex-shrink: 0; align-self: flex-start; margin-top: 4px;" data-id="${frag.id}" data-type="${code === 'C' ? 'core' : 'fragment'}">
