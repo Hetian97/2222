@@ -258,6 +258,76 @@ class VariableMemoryManager {
     }
   }
 
+  async loadFragmentsFromExternalServer(chat) {
+    if (!this.isExternalMemoryEnabled(chat)) return null;
+
+    try {
+      const result = await this.externalMemoryRequest(chat, '/memory/list', {
+        method: 'GET'
+      });
+
+      if (!result?.ok || !Array.isArray(result.memories)) {
+        return null;
+      }
+
+      const vm = this.getVariableMemory(chat);
+
+      // 外部存储模式：用 memory-server 的内容覆盖本地 UI 缓存
+      // 注意：这里只作为前端显示缓存，真正数据以 memory-server 为准
+      vm.fragments = result.memories.map(memory => ({
+        ...memory,
+        embedding: memory.embedding || null,
+        _externalCache: true
+      }));
+
+      vm.stats.totalFragments = vm.fragments.length;
+      vm.stats.lastUpdated = Date.now();
+      vm._externalListLoadedAt = Date.now();
+
+      console.log('[变量记忆] 已从外部 memory-server 加载记忆列表:', vm.fragments.length);
+
+      return vm.fragments;
+    } catch (error) {
+      console.warn('[变量记忆] 从外部 memory-server 加载列表失败，继续使用本地缓存:', error.message);
+      return null;
+    }
+  }
+
+  async reloadExternalMemoryFromSettings() {
+    const chat = this.getActiveChatForExternalMemory();
+    const statusEl = document.getElementById('vm-external-memory-status');
+
+    if (!chat) {
+      if (statusEl) statusEl.textContent = '❌ 未找到当前聊天对象';
+      return;
+    }
+
+    this.syncExternalMemorySettingsFromUI(chat);
+
+    if (statusEl) {
+      statusEl.textContent = '正在从服务器重新加载记忆...';
+      statusEl.style.color = '#999';
+    }
+
+    try {
+      const fragments = await this.loadFragmentsFromExternalServer(chat);
+
+      if (Array.isArray(fragments)) {
+        if (statusEl) {
+          statusEl.textContent = `✅ 已从服务器加载 ${fragments.length} 条记忆。请关闭并重新打开长期记忆面板查看。`;
+          statusEl.style.color = '#22c55e';
+        }
+      } else {
+        throw new Error('服务器没有返回记忆列表');
+      }
+    } catch (error) {
+      if (statusEl) {
+        statusEl.textContent = `❌ 重新加载失败：${error.message}`;
+        statusEl.style.color = '#ef4444';
+      }
+    }
+  }
+
   // ==================== 记忆片段增删改查 ====================
 
   createFragment(chat, data) {
@@ -877,6 +947,12 @@ ${formattedHistory}
               type="button"
       onclick="window.vectorMemoryManager.testExternalMemoryServerFromSettings()"
             >测试连接</button>
+            <button
+              id="vm-reload-external-memory-btn"
+              class="vm-btn-secondary"
+              type="button"
+              onclick="window.vectorMemoryManager.reloadExternalMemoryFromSettings()"
+            >从服务器重新加载</button>
           </div>
 
           <div
