@@ -53,7 +53,9 @@ class VariableMemoryManager {
           retrievalCacheEnabled: true,
           retrievalCacheInterval: 3,
           autoExtractionMsgInterval: 20,
-          lastExtractedMsgIndex: -1 // 基于消息索引，解决每轮都提取的Bug
+          lastExtractedMsgIndex: -1, // 基于消息索引，解决每轮都提取的Bug
+          externalMemoryEnabled: localStorage.getItem('vm_external_memory_enabled') === 'true',
+          externalMemoryEndpoint: localStorage.getItem('vm_external_memory_endpoint') || 'http://127.0.0.1:8765'
         },
         _customCategories: {},
         stats: { totalFragments: 0, totalRecalls: 0, lastUpdated: 0 },
@@ -66,6 +68,13 @@ class VariableMemoryManager {
     // 自动补全默认值
     if (vm.settings.autoExtractionMsgInterval === undefined) vm.settings.autoExtractionMsgInterval = 20;
     if (vm.settings.lastExtractedMsgIndex === undefined) vm.settings.lastExtractedMsgIndex = -1;
+    if (vm.settings.externalMemoryEnabled === undefined) {
+      vm.settings.externalMemoryEnabled = localStorage.getItem('vm_external_memory_enabled') === 'true';
+    }
+
+    if (vm.settings.externalMemoryEndpoint === undefined) {
+      vm.settings.externalMemoryEndpoint = localStorage.getItem('vm_external_memory_endpoint') || 'http://127.0.0.1:8765';
+    }
 
     // 无损迁移旧版 VectorMemory 数据
     if (chat.vectorMemory && !vm._migrated) {
@@ -147,6 +156,106 @@ class VariableMemoryManager {
   getCategories(chat) {
     const vm = this.getVariableMemory(chat);
     return { ...this.DEFAULT_CATEGORIES, ...(vm._customCategories || {}) };
+  }
+  isExternalMemoryEnabled(chat) {
+    const vm = this.getVariableMemory(chat);
+    return Boolean(vm.settings?.externalMemoryEnabled);
+  }
+
+  getExternalMemoryEndpoint(chat) {
+    const vm = this.getVariableMemory(chat);
+    return (
+      vm.settings?.externalMemoryEndpoint ||
+      'http://127.0.0.1:8765'
+    ).replace(/\/$/, '');
+  }
+
+  async externalMemoryRequest(chat, path, options = {}) {
+    const endpoint = this.getExternalMemoryEndpoint(chat);
+    const url = endpoint + path;
+
+    const response = await fetch(url, {
+      method: options.method || 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
+
+    if (!response.ok) {
+      throw new Error(`External memory server error: ${response.status}`);
+    }
+
+    return await response.json();
+  }
+
+  getActiveChatForExternalMemory() {
+    const state = window.state || {};
+    if (state.activeChatId && state.chats && state.chats[state.activeChatId]) {
+      return state.chats[state.activeChatId];
+    }
+
+    const chats = state.chats || {};
+    const firstChatId = Object.keys(chats)[0];
+    return firstChatId ? chats[firstChatId] : null;
+  }
+
+  syncExternalMemorySettingsFromUI(chat) {
+    const vm = this.getVariableMemory(chat);
+
+    const enabledEl = document.getElementById('vm-external-memory-enabled');
+    const endpointEl = document.getElementById('vm-external-memory-endpoint');
+
+    if (enabledEl) {
+      vm.settings.externalMemoryEnabled = enabledEl.checked;
+      localStorage.setItem('vm_external_memory_enabled', enabledEl.checked ? 'true' : 'false');
+    }
+
+    if (endpointEl) {
+      const endpoint = endpointEl.value.trim() || 'http://127.0.0.1:8765';
+      vm.settings.externalMemoryEndpoint = endpoint;
+      localStorage.setItem('vm_external_memory_endpoint', endpoint);
+    }
+
+    return vm.settings;
+  }
+
+  async testExternalMemoryServerFromSettings() {
+    const chat = this.getActiveChatForExternalMemory();
+    const statusEl = document.getElementById('vm-external-memory-status');
+
+    if (!chat) {
+      if (statusEl) statusEl.textContent = '❌ 未找到当前聊天对象';
+      return;
+    }
+
+    const settings = this.syncExternalMemorySettingsFromUI(chat);
+    const endpoint = (settings.externalMemoryEndpoint || 'http://127.0.0.1:8765').replace(/\/$/, '');
+
+    if (statusEl) {
+      statusEl.textContent = '正在测试连接...';
+      statusEl.style.color = '#999';
+    }
+
+    try {
+      const res = await fetch(`${endpoint}/health`);
+      const data = await res.json();
+
+      if (data?.ok) {
+        if (statusEl) {
+          statusEl.textContent = `✅ 连接成功：${data.service || 'memory-server'}`;
+          statusEl.style.color = '#22c55e';
+        }
+      } else {
+        throw new Error('health 返回异常');
+      }
+    } catch (error) {
+      if (statusEl) {
+        statusEl.textContent = `❌ 连接失败：${error.message}`;
+        statusEl.style.color = '#ef4444';
+      }
+    }
   }
 
   // ==================== 记忆片段增删改查 ====================
@@ -737,6 +846,46 @@ ${formattedHistory}
               <button id="vm-fetch-models-btn" class="vm-btn-secondary" style="white-space:nowrap; padding:0 12px;">拉取模型</button>
             </div>
             <div style="font-size:11px;color:#999;margin-top:4px;text-align:right;cursor:pointer;" id="vm-toggle-model-input">切换为手动输入</div>
+          </div>
+        </div>
+
+        <div class="vm-settings-group">
+          <h4>外部 memory-server（实验）</h4>
+
+          <div class="vm-setting-row">
+            <span>使用外部 memory-server</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="vm-external-memory-enabled" ${s.externalMemoryEnabled ? 'checked' : ''}>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div style="margin-top:8px;">
+            <input
+              type="text"
+              id="vm-external-memory-endpoint"
+              value="${this._escapeHtml(s.externalMemoryEndpoint || 'http://127.0.0.1:8765')}"
+              placeholder="http://127.0.0.1:8765"
+              class="vm-input-full"
+            >
+          </div>
+
+          <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+            <button
+              id="vm-test-external-memory-btn"
+              class="vm-btn-secondary"
+              type="button"
+      onclick="window.vectorMemoryManager.testExternalMemoryServerFromSettings()"
+            >测试连接</button>
+          </div>
+
+          <div
+            id="vm-external-memory-status"
+            style="font-size:12px;color:#999;margin-top:6px;"
+          ></div>
+
+          <div style="font-size:11px;color:#999;margin-top:6px;line-height:1.5;">
+            开启后，后续可连接本地 SQLite memory-server。电脑端通常使用 http://127.0.0.1:8765，手机端可使用 Tailscale 地址。
           </div>
         </div>
 
