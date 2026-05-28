@@ -367,8 +367,14 @@ class VariableMemoryManager {
   createFragment(chat, data) {
     const vm = this.getVariableMemory(chat);
     const id = 'mem_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+
+    const embedding = Array.isArray(data.embedding) && data.embedding.length > 0
+      ? data.embedding
+      : null;
+
     const fragment = {
       id,
+      chatId: chat.id || chat.chatId || window.state?.activeChatId || null,
       content: data.content,
       tags: data.tags || [],
       category: data.category || 'E',
@@ -378,11 +384,15 @@ class VariableMemoryManager {
       memoryTime: data.memoryTime || Date.now(), // 发生时间（可自由修改）
       lastRecalled: 0,
       recallCount: 0,
-      embedding: data.embedding || null,
+      embedding,
+      embeddingModel: embedding ? 'BAAI/bge-m3' : '',
+      embeddingDim: embedding ? embedding.length : 0,
+      embeddingUpdatedAt: embedding ? Date.now() : '',
       linkedMemories: data.linkedMemories || [],
       source: data.source || 'auto',
       context: data.context || ''
     };
+
     vm.fragments.push(fragment);
 
     if (this.isExternalMemoryEnabled(chat)) {
@@ -415,6 +425,10 @@ class VariableMemoryManager {
     if (updates.memoryTime !== undefined) frag.memoryTime = updates.memoryTime; // 核心：修改发生时间
     if (updates.linkedMemories !== undefined) frag.linkedMemories = updates.linkedMemories;
     if (updates.context !== undefined) frag.context = updates.context;
+
+    if (!frag.chatId) {
+      frag.chatId = chat.id || chat.chatId || window.state?.activeChatId || null;
+    }
 
     if (contentChanged) {
       frag.embedding = null;

@@ -1065,7 +1065,7 @@ function bindVectorMemoryEvents(chat, container) {
   // 钉选/编辑/删除记忆片段
   container.querySelectorAll('.vm-pin-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
-      window.vectorMemoryManager.pinToCoreMemory(chat, btn.dataset.id);
+      await window.vectorMemoryManager.pinToCoreMemory(chat, btn.dataset.id);
       await db.chats.put(chat);
       renderVectorMemoryView();
       showToast('已钉选为核心记忆', 'success');
@@ -1074,11 +1074,109 @@ function bindVectorMemoryEvents(chat, container) {
   container.querySelectorAll('.vm-edit-frag-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const currentContent = btn.closest('.vm-item-row')?.querySelector('.vm-item-content')?.textContent || '';
-      const newContent = prompt('修改记忆内容', currentContent);
 
-      if (newContent !== null) {
+      const modal = document.createElement('div');
+      modal.className = 'custom-modal-overlay';
+      modal.style.cssText = `
+        position: fixed;
+        inset: 0;
+        z-index: 999999;
+        background: rgba(0,0,0,0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        box-sizing: border-box;
+      `;
+
+      modal.innerHTML = `
+        <div style="
+          width: min(520px, 94vw);
+          background: #fff;
+          border-radius: 18px;
+          box-shadow: 0 18px 50px rgba(0,0,0,0.22);
+          overflow: hidden;
+        ">
+          <div style="
+            padding: 18px 20px 10px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: 700;
+          ">编辑记忆片段</div>
+
+          <div style="padding: 12px 24px 18px;">
+            <div style="font-size: 14px; margin-bottom: 8px; text-align:center;">修改内容：</div>
+            <textarea id="vm-edit-frag-textarea" style="
+              width: 100%;
+              min-height: 130px;
+              resize: vertical;
+              padding: 10px;
+              box-sizing: border-box;
+              border-radius: 10px;
+              border: 1px solid #ccc;
+              font-size: 15px;
+              line-height: 1.5;
+            "></textarea>
+          </div>
+
+          <div style="
+            display: flex;
+            border-top: 1px solid rgba(0,0,0,0.08);
+          ">
+            <button id="vm-edit-frag-cancel" style="
+              flex: 1;
+              padding: 14px 0;
+              border: none;
+              background: #fff;
+              color: #007aff;
+              font-size: 16px;
+              cursor: pointer;
+              border-right: 1px solid rgba(0,0,0,0.08);
+            ">取消</button>
+
+            <button id="vm-edit-frag-confirm" style="
+              flex: 1;
+              padding: 14px 0;
+              border: none;
+              background: #fff;
+              color: #007aff;
+              font-size: 16px;
+              font-weight: 700;
+              cursor: pointer;
+            ">确定</button>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(modal);
+
+      const textarea = modal.querySelector('#vm-edit-frag-textarea');
+      const cancelBtn = modal.querySelector('#vm-edit-frag-cancel');
+      const confirmBtn = modal.querySelector('#vm-edit-frag-confirm');
+
+      textarea.value = currentContent;
+      textarea.focus();
+
+      const closeModal = () => {
+        modal.remove();
+      };
+
+      cancelBtn.addEventListener('click', closeModal);
+
+      modal.addEventListener('click', (event) => {
+        if (event.target === modal) closeModal();
+      });
+
+      confirmBtn.addEventListener('click', async () => {
+        const newContent = textarea.value.trim();
+
+        if (!newContent) {
+          showToast('记忆内容不能为空', 'error');
+          return;
+        }
+
         const ok = await window.vectorMemoryManager.editFragment(chat, btn.dataset.id, {
-          content: newContent.trim()
+          content: newContent
         });
 
         if (!ok) {
@@ -1087,9 +1185,10 @@ function bindVectorMemoryEvents(chat, container) {
         }
 
         await db.chats.put(chat);
+        closeModal();
         renderVectorMemoryView();
         showToast('已修改记忆', 'success');
-      }
+      });
     });
   });
   container.querySelectorAll('.vm-delete-frag-btn').forEach(btn => {
