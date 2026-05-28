@@ -1,0 +1,221 @@
+111 SQLite memory-server 合并说明
+用于未来将 111-memory-server-test 的 SQLite 外置记忆功能合并进 2222。
+
+一、当前状态
+
+当前 111 的 SQLite memory-server 版本已经完成并合并进 main。
+
+已完成功能：
+1. memory-server 从 JSON 存储升级为 SQLite memory.db 存储。
+2. 支持 JSON → SQLite 迁移脚本。
+3. 支持 /health、/memory/list、/memory/add、/memory/delete、/memory/clear。
+4. 支持 /memory/list 筛选参数：chatId、category、minImportance、maxImportance、query、limit。
+5. 支持 /memory/stats，显示总数、分类统计、embedding 数量、embeddingModel、embeddingDim 等。
+6. 支持 /memory/unembedded，查找未向量化记忆。
+7. 支持 /memory/backup，手动备份 memory.db。
+8. 支持批量重新向量化脚本 memory-server/reembed-unembedded.js。
+9. 支持 SQLite 混合语义检索 /memory/search：
+   query embedding + cosine similarity + keyword fallback + importance/emotionalWeight 加权。
+10. 搜索结果隐藏完整 embedding，只显示 embedding: "[hidden:1024d]"。
+11. 每条记忆新增 embedding 元信息字段：
+   embeddingModel
+   embeddingDim
+   embeddingUpdatedAt
+12. 前端编辑记忆后，embedding 可持久写回 SQLite。
+13. 前端 Embedding API Key 默认隐藏，支持显示/隐藏。
+14. 前端支持“测试向量化”按钮，成功时显示向量维度。
+15. 前端记忆列表显示 tags，最多 3 个，超过显示 +N。
+16. 前端记忆列表支持搜索框，可搜索 content、tags、category、source、context。
+17. 前端支持分类、向量状态、最低重要度筛选。
+18. 前端每条记忆增加“详情”按钮，已改成自定义弹窗，可滚动、可复制、可关闭。
+19. 批量删除增加强确认，必须输入 DELETE 才会真正删除。
+20. 搜索/筛选后不会导致上方工具栏按钮失效。
+21. 本地专用启动脚本 start-111-tailscale-local.bat 可用于本机保存真实 embedding key，但不提交 Git。
+22. start-111-tailscale-local.bat 已加入 .gitignore。
+
+当前测试结果：
+1. 电脑端通过。
+2. 手机端 Tailscale 访问通过。
+3. memory-server 可访问。
+4. 前端可访问。
+5. 从服务器重新加载通过。
+6. tags 显示通过。
+7. 详情弹窗通过。
+8. 搜索框中文输入通过。
+9. 分类/向量/重要度筛选通过。
+10. 筛选后上方按钮不失效。
+11. 批量删除取消时不误删、不误提示。
+12. /memory/search semantic-hybrid 可用。
+
+二、核心文件清单
+
+未来合并进 2222 时重点比较/迁移这些文件：
+
+根目录：
+.gitignore
+vector-memory.js
+start-111-tailscale.bat
+
+memory-server 目录：
+memory-server/server.js
+memory-server/db.js
+memory-server/migrate-json-to-sqlite.js
+memory-server/reembed-unembedded.js
+memory-server/package.json
+memory-server/package-lock.json
+
+modules 目录：
+modules/memory-summary.js
+
+迁移包说明：
+README-SQLite版.txt
+MERGE-NOTES-111-to-2222-SQLite.txt
+
+三、不要迁移/不要提交的文件
+
+以下文件是真实数据或本地环境文件，不应提交 Git，也不应放进通用迁移包：
+
+memory-server/memory.db
+memory-server/memory.db-shm
+memory-server/memory.db-wal
+memory-server/memory.backup.db
+memory-server/memory.backup.json
+memory-server/backups/
+memory-server/node_modules/
+memory-server/server.json-version.backup.js
+start-111-tailscale-local.bat
+
+其中 start-111-tailscale-local.bat 可以保留在本机，但不能提交，因为里面可能包含真实 API Key。
+
+四、未来合并到 2222 的建议顺序
+
+不要直接整包覆盖 2222。建议分模块合并：
+
+第一步：先备份 2222
+1. 备份 2222 整个目录。
+2. 确认 2222 当前 Git 状态。
+3. 新建合并分支，例如：
+   git checkout -b merge-sqlite-memory-server
+
+第二步：迁移 memory-server 后端
+重点迁移：
+memory-server/db.js
+memory-server/server.js
+memory-server/migrate-json-to-sqlite.js
+memory-server/reembed-unembedded.js
+memory-server/package.json
+memory-server/package-lock.json
+
+注意：
+1. 不要复制 memory.db。
+2. 不要复制 node_modules。
+3. 在 2222 的 memory-server 目录运行 npm install。
+4. 如果 2222 已经有自己的 memory-server，要用 diff/merge，不要直接覆盖。
+
+第三步：迁移前端 vector-memory.js 中相关功能
+重点迁移以下功能段：
+1. 外部 memory-server 连接逻辑。
+2. 从服务器重新加载逻辑。
+3. add/edit/delete 同步到 memory-server 逻辑。
+4. 编辑记忆后重新生成 embedding 并写回 SQLite。
+5. embeddingModel、embeddingDim、embeddingUpdatedAt 元信息写入。
+6. Embedding API Key 隐藏/显示按钮。
+7. 测试向量化按钮。
+8. tags 轻量显示。
+9. 搜索框和筛选条。
+10. 详情自定义弹窗。
+11. 搜索/筛选只隐藏/显示记忆行，不重绘整个面板。
+
+注意：
+2222 最近已经修复了向量转换失败、向量每轮提取、长期记忆精简等功能。
+合并时不要直接覆盖 2222 的新版逻辑，需要逐段对比。
+
+第四步：迁移 modules/memory-summary.js 中 UI 绑定修复
+重点迁移：
+1. 批量删除调用 batchDelete 后检查返回值。
+2. 如果 batchDelete 返回 false，不显示“已删除 X 条记忆”。
+3. 保留 2222 已有的 memory-summary 新功能，避免覆盖。
+
+第五步：迁移 .gitignore
+确保包含：
+
+memory-server/memory.db
+memory-server/memory.db-shm
+memory-server/memory.db-wal
+memory-server/memory.backup.db
+memory-server/backups/
+memory-server/node_modules/
+memory-server/server.json-version.backup.js
+start-111-tailscale-local.bat
+
+六、正式记忆库迁移建议
+
+如果未来要将正式记忆导入 SQLite：
+
+1. 先启动 memory-server。
+2. 先备份：
+   curl -X POST http://127.0.0.1:8765/memory/backup
+
+3. 如果要清空测试库，可在前端批量删除，输入 DELETE。
+   删除后检查：
+   http://127.0.0.1:8765/memory/stats
+
+4. 如果旧记忆带有旧 embedding，但旧 embedding 不是 BAAI/bge-m3 生成的，不建议直接混用。
+   推荐导入内容后清空旧 embedding，再用当前模型重新向量化。
+
+清空旧 embedding 的命令：
+cd /d D:\app\111EPhone\111-memory-server-test\memory-server
+node -e "const {db}=require('./db'); const r=db.prepare(`UPDATE memories SET embedding=NULL, embeddingModel='', embeddingDim=0, embeddingUpdatedAt=''`).run(); console.log('cleared=', r.changes);"
+
+5. 批量重新向量化：
+进入 memory-server 目录：
+
+cd /d D:\app\111EPhone\111-memory-server-test\memory-server
+
+设置环境变量：
+set EMBEDDING_ENDPOINT=你的 endpoint
+set EMBEDDING_API_KEY=你的 key
+set EMBEDDING_MODEL=BAAI/bge-m3
+
+测试 1 条：
+set REEMBED_LIMIT=1
+set REEMBED_DRY_RUN=true
+node reembed-unembedded.js
+
+正式分批处理：
+set REEMBED_LIMIT=100
+set REEMBED_DRY_RUN=false
+set REEMBED_DELAY_MS=800
+node reembed-unembedded.js
+
+6. 每跑一批后检查：
+http://127.0.0.1:8765/memory/stats
+
+目标状态：
+withoutEmbedding = 0
+byEmbeddingModel = BAAI/bge-m3
+byEmbeddingDim = 1024
+
+七、Chroma / MCP 暂缓原因
+
+暂时不建议继续在 111 上做 Chroma / MCP。
+
+原因：
+1. 2222 近期正在更新长期记忆、向量转换、每轮提取、长期总结精简等功能。
+2. 如果继续在 111 上做 Chroma/MCP，未来合并到 2222 时冲突会更大。
+3. 当前 SQLite memory-server 已经具备存储、向量化、语义检索、筛选、详情、备份等基础能力，足够作为稳定迁移模块。
+4. Chroma / MCP 应等 2222 记忆系统稳定，并成功合并 SQLite memory-server 后再继续。
+
+未来推荐架构：
+SQLite = 主记忆数据库 / 真实记忆档案
+Chroma = 向量索引 / 大规模语义检索
+MCP = 给其他聊天软件读取/写入记忆的统一接口
+
+八、当前建议
+
+现在先冻结 111 SQLite 版本，不继续大改。
+等 2222 更新稳定后，再按本文件逐项合并。
+
+合并前不要正式整理大量 550+ 记忆，避免之后还要重复迁移。
+可以先保留测试库或清空测试库。
+正式记忆整理建议等 2222 合并完成后再进行。

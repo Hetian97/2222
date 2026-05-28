@@ -1,0 +1,10 @@
+# SQLite memory-server local data
+memory-server/memory.db
+memory-server/memory.db-shm
+memory-server/memory.db-wal
+memory-server/memory.backup.db
+memory-server/memory.backup.json
+memory-server/backups/
+memory-server/node_modules/
+memory-server/server.json-version.backup.js
+start-2222-tailscale-local.bat
