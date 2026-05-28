@@ -293,6 +293,40 @@ class VariableMemoryManager {
     }
   }
 
+  async saveFragmentToExternalServer(chat, fragment) {
+    if (!this.isExternalMemoryEnabled(chat)) return null;
+
+    try {
+      const result = await this.externalMemoryRequest(chat, '/memory/add', {
+        method: 'POST',
+        body: fragment
+      });
+
+      console.log('[变量记忆] 已同步到外部 memory-server:', result?.memory?.id || fragment.id);
+      return result;
+    } catch (error) {
+      console.warn('[变量记忆] 外部 memory-server 写入失败，已保留内置记忆:', error.message);
+      return null;
+    }
+  }
+
+  async deleteFragmentFromExternalServer(chat, id) {
+    if (!this.isExternalMemoryEnabled(chat)) return null;
+
+    try {
+      const result = await this.externalMemoryRequest(chat, '/memory/delete', {
+        method: 'POST',
+        body: { id }
+      });
+
+      console.log('[变量记忆] 已从外部 memory-server 删除:', id);
+      return result;
+    } catch (error) {
+      console.warn('[变量记忆] 外部 memory-server 删除失败，已保留本地删除:', error.message);
+      return null;
+    }
+  }
+
   async reloadExternalMemoryFromSettings() {
     const chat = this.getActiveChatForExternalMemory();
     const statusEl = document.getElementById('vm-external-memory-status');
@@ -350,6 +384,11 @@ class VariableMemoryManager {
       context: data.context || ''
     };
     vm.fragments.push(fragment);
+
+    if (this.isExternalMemoryEnabled(chat)) {
+      this.saveFragmentToExternalServer(chat, fragment);
+    }
+
     vm.stats.totalFragments = vm.fragments.length;
     vm.stats.lastUpdated = Date.now();
     return id;
@@ -368,6 +407,11 @@ class VariableMemoryManager {
     if (updates.linkedMemories !== undefined) frag.linkedMemories = updates.linkedMemories;
     if (updates.context !== undefined) frag.context = updates.context;
     vm.stats.lastUpdated = Date.now();
+
+    if (this.isExternalMemoryEnabled(chat)) {
+      this.saveFragmentToExternalServer(chat, frag);
+    }
+
     return true;
   }
 
@@ -380,6 +424,10 @@ class VariableMemoryManager {
     });
     vm.stats.totalFragments = vm.fragments.length;
     vm.stats.lastUpdated = Date.now();
+
+    if (this.isExternalMemoryEnabled(chat)) {
+      this.deleteFragmentFromExternalServer(chat, id);
+    }
   }
 
   getFragment(chat, id) {
