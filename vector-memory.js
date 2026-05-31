@@ -523,6 +523,21 @@ class VariableMemoryManager {
       fragments
     }, null, 2);
   }
+  
+    // 导出全部向量记忆
+  exportMemory(chat) {
+    const vm = this.getVariableMemory(chat);
+
+    return JSON.stringify({
+      type: 'vector-memory',
+      version: '2222-sqlite-preview',
+      exportedAt: Date.now(),
+      chatId: chat.id || chat.chatId || window.state?.activeChatId || null,
+      settings: vm.settings || {},
+      stats: vm.stats || {},
+      fragments: (vm.fragments || []).map(f => ({ ...f }))
+    }, null, 2);
+  }
 
   // 批量删除
   batchDelete(chat, selectedItems) {
@@ -552,6 +567,82 @@ class VariableMemoryManager {
     return deletedIds.length > 0;
   }
   
+    // 导入向量记忆
+  async importMemory(chat, jsonText, mode = 'merge') {
+    let data;
+
+    try {
+      data = JSON.parse(jsonText);
+    } catch (error) {
+      throw new Error('JSON 格式错误');
+    }
+
+    let fragments = [];
+
+    if (Array.isArray(data)) {
+      fragments = data;
+    } else if (Array.isArray(data.fragments)) {
+      fragments = data.fragments;
+    } else if (Array.isArray(data.memories)) {
+      fragments = data.memories;
+    } else if (data.variableMemory && Array.isArray(data.variableMemory.fragments)) {
+      fragments = data.variableMemory.fragments;
+    } else {
+      throw new Error('未找到可导入的 fragments / memories');
+    }
+
+    const vm = this.getVariableMemory(chat);
+
+    if (mode === 'replace') {
+      const oldIds = vm.fragments.map(f => f.id).filter(Boolean);
+
+      vm.fragments = [];
+
+      if (this.isExternalMemoryEnabled(chat)) {
+        oldIds.forEach(id => this.deleteFragmentFromExternalServer(chat, id));
+      }
+    }
+
+    let count = 0;
+
+    for (const item of fragments) {
+      const content = String(item.content || '').trim();
+      if (!content) continue;
+
+      let embedding = Array.isArray(item.embedding) && item.embedding.length > 0
+        ? item.embedding
+        : null;
+
+      if (!embedding) {
+        try {
+          embedding = await this.getEmbedding(content, chat);
+        } catch (error) {
+          embedding = null;
+        }
+      }
+
+      this.createFragment(chat, {
+        content,
+        tags: Array.isArray(item.tags) ? item.tags : [],
+        category: item.category || 'E',
+        importance: Number(item.importance || 5),
+        emotionalWeight: Number(item.emotionalWeight || 3),
+        memoryTime: item.memoryTime || item.createdAt || Date.now(),
+        embedding,
+        linkedMemories: Array.isArray(item.linkedMemories) ? item.linkedMemories : [],
+        source: item.source || 'import',
+        context: item.context || ''
+      });
+
+      count++;
+    }
+
+    vm.stats.totalFragments = vm.fragments.length;
+    vm.stats.lastUpdated = Date.now();
+
+    return count;
+  }
+
   getFragment(chat, id) {
     const vm = this.getVariableMemory(chat);
     return vm.fragments.find(f => f.id === id) || null;
@@ -960,6 +1051,8 @@ ${formattedHistory}
       <button class="vm-toolbar-btn vm-primary" id="vm-summary-btn" title="剩余 ${stats.remainingToAuto} 条消息后自动触发">
         提取记忆 (${stats.unextractedMessages}/${stats.autoInterval})
       </button>
+      <button class="vm-toolbar-btn" id="vm-export-btn">导出全部</button>
+      <button class="vm-toolbar-btn" id="vm-import-btn">导入</button>
       <button class="vm-toolbar-btn" id="vm-settings-btn">设置</button>
       <button class="vm-toolbar-btn" id="vm-guide-btn">便携教程</button>
     `;
