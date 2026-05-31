@@ -481,7 +481,77 @@ class VariableMemoryManager {
       this.deleteFragmentFromExternalServer(chat, id);
     }
   }
+  
+    // 获取批量选中的记忆文本
+  getSelectedItemsText(chat, selectedItems) {
+    const vm = this.getVariableMemory(chat);
+    const lines = [];
 
+    selectedItems.forEach(item => {
+      const frag = vm.fragments.find(f => f.id === item.id);
+      if (!frag) return;
+
+      const category = frag.category || 'E';
+      const tags = Array.isArray(frag.tags) && frag.tags.length > 0
+        ? ` #${frag.tags.join(' #')}`
+        : '';
+      const timeValue = Number(frag.memoryTime || frag.createdAt || 0);
+      const time = Number.isFinite(timeValue) && timeValue > 0
+        ? new Date(timeValue).toLocaleString('zh-CN')
+        : '';
+
+      lines.push(`[${category}]${tags}${time ? ` (${time})` : ''}\n${frag.content || ''}`);
+    });
+
+    return lines.join('\n\n---\n\n');
+  }
+
+  // 导出批量选中的记忆
+  exportSelected(chat, selectedItems) {
+    const vm = this.getVariableMemory(chat);
+    const selectedIds = new Set(selectedItems.map(item => item.id));
+
+    const fragments = vm.fragments
+      .filter(f => selectedIds.has(f.id))
+      .map(f => ({ ...f }));
+
+    return JSON.stringify({
+      type: 'vector-memory-partial',
+      version: '2222-sqlite-preview',
+      exportedAt: Date.now(),
+      chatId: chat.id || chat.chatId || window.state?.activeChatId || null,
+      fragments
+    }, null, 2);
+  }
+
+  // 批量删除
+  batchDelete(chat, selectedItems) {
+    const vm = this.getVariableMemory(chat);
+    const selectedIds = new Set(selectedItems.map(item => item.id));
+    const deletedIds = [];
+
+    vm.fragments = vm.fragments.filter(f => {
+      if (selectedIds.has(f.id)) {
+        deletedIds.push(f.id);
+        return false;
+      }
+      return true;
+    });
+
+    vm.fragments.forEach(f => {
+      f.linkedMemories = (f.linkedMemories || []).filter(lid => !deletedIds.includes(lid));
+    });
+
+    vm.stats.totalFragments = vm.fragments.length;
+    vm.stats.lastUpdated = Date.now();
+
+    if (this.isExternalMemoryEnabled(chat)) {
+      deletedIds.forEach(id => this.deleteFragmentFromExternalServer(chat, id));
+    }
+
+    return deletedIds.length > 0;
+  }
+  
   getFragment(chat, id) {
     const vm = this.getVariableMemory(chat);
     return vm.fragments.find(f => f.id === id) || null;

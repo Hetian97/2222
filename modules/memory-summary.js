@@ -771,39 +771,80 @@ function renderVectorMemoryView() {
 }
 
 function bindVectorMemoryEvents(chat, container) {
-  // ===== 批量操作状态 =====
+    // ===== 批量操作状态 =====
   let vmBatchMode = false;
   let vmSelectedItems = []; // [{type: 'core'|'fragment', id}]
+
+  function vmGetAllItemCheckboxes() {
+    return Array.from(container.querySelectorAll('.vm-item-checkbox'));
+  }
+
+  function vmSyncSelectedFromDOM() {
+    vmSelectedItems = vmGetAllItemCheckboxes()
+      .filter(cb => cb.checked)
+      .map(cb => ({
+        type: cb.dataset.type,
+        id: cb.dataset.id
+      }))
+      .filter(item => item.type && item.id);
+
+    vmUpdateBatchCount();
+  }
 
   function vmUpdateBatchCount() {
     const countEl = container.querySelector('#vm-batch-selected-count');
     if (countEl) countEl.textContent = vmSelectedItems.length;
   }
 
+  function vmUpdateRowSelectedState(cb) {
+    const row = cb.closest('.vm-item-row');
+    if (row) row.classList.toggle('selected', !!cb.checked);
+  }
+
+  function vmUpdateSectionSelectAllState(section) {
+    if (!section) return;
+
+    const sectionCheckbox = section.querySelector('.vm-section-select-all');
+    const itemCheckboxes = Array.from(section.querySelectorAll('.vm-item-checkbox'));
+
+    if (!sectionCheckbox || itemCheckboxes.length === 0) return;
+
+    const checkedCount = itemCheckboxes.filter(cb => cb.checked).length;
+
+    sectionCheckbox.checked = checkedCount === itemCheckboxes.length;
+    sectionCheckbox.indeterminate = checkedCount > 0 && checkedCount < itemCheckboxes.length;
+  }
+
+  function vmUpdateAllSectionSelectAllStates() {
+    container.querySelectorAll('.vm-section').forEach(section => {
+      vmUpdateSectionSelectAllState(section);
+    });
+  }
+
+  function vmSetBatchVisible(enable) {
+    container.querySelectorAll('.vm-batch-element').forEach(el => {
+      el.style.display = enable ? 'inline-flex' : 'none';
+    });
+  }
+
   function vmToggleBatchMode(enable) {
     vmBatchMode = enable;
     vmSelectedItems = [];
+
     const batchBar = container.querySelector('#vm-batch-toolbar');
     if (batchBar) batchBar.style.display = enable ? 'flex' : 'none';
-    container.querySelectorAll('.vm-batch-element').forEach(el => {
-      el.style.display = enable ? 'flex' : 'none';
-      el.classList.remove('checked');
+
+    vmSetBatchVisible(enable);
+
+    container.querySelectorAll('.vm-item-checkbox, .vm-section-select-all').forEach(cb => {
+      cb.checked = false;
+      cb.indeterminate = false;
     });
-    container.querySelectorAll('.vm-item-row').forEach(row => row.classList.remove('selected'));
-    vmUpdateBatchCount();
-  }
 
-  function vmIsSelected(type, id) {
-    return vmSelectedItems.some(i => i.type === type && i.id === id);
-  }
+    container.querySelectorAll('.vm-item-row').forEach(row => {
+      row.classList.remove('selected');
+    });
 
-  function vmToggleItem(type, id) {
-    const idx = vmSelectedItems.findIndex(i => i.type === type && i.id === id);
-    if (idx >= 0) {
-      vmSelectedItems.splice(idx, 1);
-    } else {
-      vmSelectedItems.push({ type, id });
-    }
     vmUpdateBatchCount();
   }
 
@@ -812,6 +853,7 @@ function bindVectorMemoryEvents(chat, container) {
   if (batchToggleBtn) {
     batchToggleBtn.addEventListener('click', () => vmToggleBatchMode(true));
   }
+
   const batchCancelBtn = container.querySelector('#vm-batch-cancel-btn');
   if (batchCancelBtn) {
     batchCancelBtn.addEventListener('click', () => vmToggleBatchMode(false));
@@ -821,74 +863,124 @@ function bindVectorMemoryEvents(chat, container) {
   const batchSelectAllBtn = container.querySelector('#vm-batch-select-all-btn');
   if (batchSelectAllBtn) {
     batchSelectAllBtn.addEventListener('click', () => {
-      vmSelectedItems = [];
-      container.querySelectorAll('.vm-item-checkbox').forEach(cb => {
-        vmSelectedItems.push({ type: cb.dataset.type, id: cb.dataset.id });
-        cb.classList.add('checked');
-        const row = cb.closest('.vm-item-row');
-        if (row) row.classList.add('selected');
+      vmGetAllItemCheckboxes().forEach(cb => {
+        cb.checked = true;
+        vmUpdateRowSelectedState(cb);
       });
-      container.querySelectorAll('.vm-section-select-all').forEach(sa => sa.classList.add('checked'));
-      vmUpdateBatchCount();
+
+      container.querySelectorAll('.vm-section-select-all').forEach(cb => {
+        cb.checked = true;
+        cb.indeterminate = false;
+      });
+
+      vmSyncSelectedFromDOM();
     });
   }
 
-  // 复制选中
+  // 批量复制
   const batchCopyBtn = container.querySelector('#vm-batch-copy-btn');
   if (batchCopyBtn) {
     batchCopyBtn.addEventListener('click', async () => {
-      if (vmSelectedItems.length === 0) { showToast('请先选择条目', 'info'); return; }
+      vmSyncSelectedFromDOM();
+
+      if (vmSelectedItems.length === 0) {
+        showToast('请先选择条目', 'info');
+        return;
+      }
+
       const text = window.vectorMemoryManager.getSelectedItemsText(chat, vmSelectedItems);
+
       try {
         await navigator.clipboard.writeText(text);
         showToast(`已复制 ${vmSelectedItems.length} 条记忆`, 'success');
       } catch (e) {
-        showToast('复制失败', 'error');
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+
+        try {
+          document.execCommand('copy');
+          showToast(`已复制 ${vmSelectedItems.length} 条记忆`, 'success');
+        } catch (err) {
+          showToast('复制失败，请手动复制导出内容', 'error');
+        } finally {
+          textarea.remove();
+        }
       }
     });
   }
 
-  // 导出选中
+  // 批量导出
   const batchExportBtn = container.querySelector('#vm-batch-export-btn');
   if (batchExportBtn) {
     batchExportBtn.addEventListener('click', () => {
-      if (vmSelectedItems.length === 0) { showToast('请先选择条目', 'info'); return; }
+      vmSyncSelectedFromDOM();
+
+      if (vmSelectedItems.length === 0) {
+        showToast('请先选择条目', 'info');
+        return;
+      }
+
       const json = window.vectorMemoryManager.exportSelected(chat, vmSelectedItems);
-      const blob = new Blob([json], { type: 'application/json' });
+      const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
+
       a.href = url;
-      a.download = `vector-memory-selected-${chat.originalName || chat.name}-${Date.now()}.json`;
+      a.download = `vector-memory-selected-${chat.originalName || chat.name || 'chat'}-${Date.now()}.json`;
+      document.body.appendChild(a);
       a.click();
+      a.remove();
+
       URL.revokeObjectURL(url);
       showToast(`已导出 ${vmSelectedItems.length} 条记忆`, 'success');
     });
   }
 
-  // 批量删除
+  // 批量删除：必须输入 DELETE
   const batchDeleteBtn = container.querySelector('#vm-batch-delete-btn');
   if (batchDeleteBtn) {
     batchDeleteBtn.addEventListener('click', async () => {
-      if (vmSelectedItems.length === 0) { showToast('请先选择条目', 'info'); return; }
-      const confirmed = await showCustomConfirm('确认批量删除', `确定要删除选中的 ${vmSelectedItems.length} 条记忆吗？此操作不可撤销。`, { confirmButtonClass: 'btn-danger', confirmText: '确认删除' });
-      if (confirmed) {
-        window.vectorMemoryManager.batchDelete(chat, vmSelectedItems);
-        await db.chats.put(chat);
-        renderVectorMemoryView();
-        showToast(`已删除 ${vmSelectedItems.length} 条记忆`, 'success');
+      vmSyncSelectedFromDOM();
+
+      if (vmSelectedItems.length === 0) {
+        showToast('请先选择条目', 'info');
+        return;
       }
+
+      const deleteCount = vmSelectedItems.length;
+
+      const confirmText = prompt(
+        `此操作会删除选中的 ${deleteCount} 条记忆。\n\n如果已启用外部 memory-server，也会同步删除 SQLite 中的记录。\n\n请输入 DELETE 确认删除：`
+      );
+
+      if (confirmText !== 'DELETE') {
+        showToast('已取消删除', 'info');
+        return;
+      }
+
+      const deleted = window.vectorMemoryManager.batchDelete(chat, vmSelectedItems);
+
+      if (!deleted) {
+        showToast('删除已取消或失败', 'info');
+        return;
+      }
+
+      await db.chats.put(chat);
+      renderVectorMemoryView();
+      showToast(`已删除 ${deleteCount} 条记忆`, 'success');
     });
   }
 
   // 复选框点击
   container.querySelectorAll('.vm-item-checkbox').forEach(cb => {
-    cb.addEventListener('click', () => {
-      const type = cb.dataset.type;
-      const id = cb.dataset.id;
-      vmToggleItem(type, id);
-      cb.classList.toggle('checked');
-      const row = cb.closest('.vm-item-row');
-      if (row) row.classList.toggle('selected');
+    cb.addEventListener('change', () => {
+      vmUpdateRowSelectedState(cb);
+      vmUpdateSectionSelectAllState(cb.closest('.vm-section'));
+      vmSyncSelectedFromDOM();
     });
   });
 
@@ -898,42 +990,31 @@ function bindVectorMemoryEvents(chat, container) {
       const id = picker.dataset.id;
       const newTimeStr = e.target.value;
       if (!newTimeStr) return;
-      
+
       const newTime = new Date(newTimeStr).getTime();
       await window.vectorMemoryManager.editFragment(chat, id, { memoryTime: newTime });
       await db.chats.put(chat);
       showToast('记忆时间已更新', 'success');
-      // 重新渲染以排序
       renderVectorMemoryView();
     });
   });
 
   // 分类全选
-  container.querySelectorAll('.vm-section-select-all').forEach(sa => {
-    sa.addEventListener('click', () => {
-      const section = sa.closest('.vm-section');
-      const checkboxes = section.querySelectorAll('.vm-item-checkbox');
-      const allChecked = Array.from(checkboxes).every(cb => cb.classList.contains('checked'));
-      checkboxes.forEach(cb => {
-        const type = cb.dataset.type;
-        const id = cb.dataset.id;
-        if (allChecked) {
-          cb.classList.remove('checked');
-          const row = cb.closest('.vm-item-row');
-          if (row) row.classList.remove('selected');
-          const sIdx = vmSelectedItems.findIndex(i => i.type === type && i.id === id);
-          if (sIdx >= 0) vmSelectedItems.splice(sIdx, 1);
-        } else {
-          if (!vmIsSelected(type, id)) {
-            vmSelectedItems.push({ type, id });
-          }
-          cb.classList.add('checked');
-          const row = cb.closest('.vm-item-row');
-          if (row) row.classList.add('selected');
-        }
+  container.querySelectorAll('.vm-section-select-all').forEach(sectionCb => {
+    sectionCb.addEventListener('change', () => {
+      const section = sectionCb.closest('.vm-section');
+      if (!section) return;
+
+      const checked = sectionCb.checked;
+      const itemCheckboxes = Array.from(section.querySelectorAll('.vm-item-checkbox'));
+
+      itemCheckboxes.forEach(cb => {
+        cb.checked = checked;
+        vmUpdateRowSelectedState(cb);
       });
-      sa.classList.toggle('checked', !allChecked);
-      vmUpdateBatchCount();
+
+      sectionCb.indeterminate = false;
+      vmSyncSelectedFromDOM();
     });
   });
 
