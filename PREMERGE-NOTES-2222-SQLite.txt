@@ -1,0 +1,387 @@
+2222 SQLite memory-server 预合并记录
+
+日期：2026/05/28
+目录：D:\app\2222EPhone-merge-new
+分支：merge-111-sqlite-preview
+
+一、当前定位
+
+这是 111 SQLite memory-server 到新版 2222 的预合并分支。
+
+本阶段目标不是正式替换 2222，也不是迁移正式记忆库，而是先验证：
+
+1. 111 的 SQLite memory-server 后端能否接入新版 2222。
+2. 2222 前端能否连接外部 memory-server。
+3. 记忆新增、编辑、删除能否同步到 SQLite。
+4. embedding 元信息能否完整写入。
+5. chatId 能否自动绑定当前聊天。
+
+暂时不做：
+
+1. Chroma
+2. MCP
+3. 正式 550+ 记忆迁移
+4. 正式记忆整理/重新总结
+5. 大规模 UI 增强
+
+二、已完成内容
+
+1. 后端 memory-server 已接入新版 2222
+
+已从 111 SQLite 迁移包复制：
+
+* memory-server/db.js
+* memory-server/server.js
+* memory-server/migrate-json-to-sqlite.js
+* memory-server/reembed-unembedded.js
+* memory-server/package.json
+* memory-server/package-lock.json
+
+已完成：
+
+* npm install
+* node server.js 可启动
+* http://127.0.0.1:8765/health 正常
+* http://127.0.0.1:8765/memory/stats 正常
+* storage = sqlite
+* 空库和测试库均可读取
+
+2. .gitignore 已新增本地数据库忽略规则
+
+忽略：
+
+* memory-server/memory.db
+* memory-server/memory.db-shm
+* memory-server/memory.db-wal
+* memory-server/memory.backup.db
+* memory-server/memory.backup.json
+* memory-server/backups/
+* memory-server/node_modules/
+* memory-server/server.json-version.backup.js
+* start-2222-tailscale-local.bat
+
+3. 前端外部 memory-server 设置区已接入
+
+在 vector-memory.js 中加入：
+
+* externalMemoryEnabled
+* externalMemoryEndpoint
+* isExternalMemoryEnabled()
+* getExternalMemoryEndpoint()
+* externalMemoryRequest()
+* getActiveChatForExternalMemory()
+* syncExternalMemorySettingsFromUI()
+* testExternalMemoryServerFromSettings()
+* loadFragmentsFromExternalServer()
+* reloadExternalMemoryFromSettings()
+
+设置面板中已显示：
+
+* 使用外部 memory-server
+* endpoint 输入框
+* 测试连接
+* 从服务器重新加载
+
+测试结果：
+
+* 测试连接成功：Aion Memory Server
+* 从服务器重新加载成功
+* SQLite 中的记忆能显示在 2222 长期记忆面板中
+
+4. 新增、编辑、删除同步 SQLite 已打通
+
+已实现：
+
+* 前端添加记忆 → 写入 SQLite
+* 前端编辑记忆 → 更新 SQLite
+* 前端删除记忆 → 删除 SQLite
+* 从服务器重新加载后，前端显示与 SQLite 一致
+
+测试结果：
+
+* /memory/stats 数量变化正常
+* /memory/list 内容变化正常
+* 前端重新加载后显示正常
+
+5. embedding 元信息已修复
+
+已修复新增和编辑两条路径：
+
+新增记忆 createFragment():
+
+* 如果 data.embedding 是有效数组，则写入：
+
+  * embeddingModel = BAAI/bge-m3
+  * embeddingDim = 1024
+  * embeddingUpdatedAt = Date.now()
+
+编辑记忆 editFragment():
+
+* 改内容后重新生成 embedding
+* 写入：
+
+  * embeddingModel = BAAI/bge-m3
+  * embeddingDim = 1024
+  * embeddingUpdatedAt = Date.now()
+
+后端 server.js 已修复：
+
+* normalizeMemoryFragment(body) 需要保留：
+
+  * embeddingModel
+  * embeddingDim
+  * embeddingUpdatedAt
+    否则前端传来的 embeddingModel 会被丢掉。
+
+当前测试结果：
+
+* 新增记忆 embeddingModel = BAAI/bge-m3
+* 编辑记忆 embeddingModel = BAAI/bge-m3
+* embeddingDim = 1024
+* embeddingUpdatedAt 正常更新
+
+6. chatId 自动写入已修复
+
+新增记忆时：
+
+* createFragment() 会写入：
+  chatId: chat.id || chat.chatId || window.state?.activeChatId || null
+
+旧记忆编辑时：
+
+* editFragment() 中已加入：
+  如果 frag.chatId 为空，则自动补当前 chatId。
+
+测试结果：
+
+* 新增记忆已有 chatId，例如 chat_1768329167004
+* 旧记忆编辑后也能补上 chatId
+* 早期测试记忆如果仍为 chatId:null 属正常旧数据，不影响当前测试
+
+7. 时间字段容错已修复
+
+问题：
+
+* 从 memory-server 拉回的外部记忆，如果 memoryTime 不合法，会导致：
+  RangeError: Invalid time value
+  长期记忆面板打不开
+
+已修复：
+
+* renderMemoryUI 中时间转换改为容错逻辑
+* 优先使用 memoryTime
+* 其次使用 createdAt
+* 再不行使用 Date.now()
+
+测试结果：
+
+* 外部记忆列表能正常打开
+* 不再因 Invalid time value 崩溃
+
+8. “改内容”弹窗已恢复
+
+问题：
+
+* 合并过程中曾把 2222 原本的自定义弹窗简化为浏览器原生 prompt
+* 原始 2222 实际使用页面内自定义弹窗
+
+已修复：
+
+* modules/memory-summary.js 中 vm-edit-frag-btn 的点击事件恢复为页面内自定义弹窗
+* 保留 async/await：
+
+  * await window.vectorMemoryManager.editFragment(...)
+  * await db.chats.put(chat)
+
+测试结果：
+
+* “改内容”已恢复为页面内弹窗
+* 保存后仍能重新生成 embedding
+* SQLite 中 embeddingModel / embeddingDim / embeddingUpdatedAt 正常
+
+三、当前已知问题 / 暂缓内容
+
+1. 2222 原版长期记忆 UI 仍有自身问题
+
+当前观察：
+
+* 批量模式中，“复制”“导出”“删除”可能不好用
+* 当前版本似乎没有“导入”
+* 这些问题属于 2222 当前前端 UI 自身问题，不建议在本预合并阶段继续修
+
+处理策略：
+
+* 暂缓 UI 大修
+* 等开发者后续更新/修复后，再决定是否迁移 111 的 UI 增强
+
+2. 暂未迁移 111 的完整 UI 增强
+
+111 已有但本阶段暂未完整迁移：
+
+* tags 轻量显示优化
+* 搜索框
+* 分类筛选
+* Vector/BM25 筛选
+* 重要度筛选
+* 详情自定义弹窗
+* 批量删除 DELETE 强确认
+* 搜索/筛选不重绘面板的优化
+* 导入/导出体验优化
+
+原因：
+
+* 2222 近期仍在更新长期记忆和 UI
+* 继续迁移 UI 容易和开发者后续更新冲突
+* 当前预合并先保证后端与基础读写链路稳定
+
+3. Chroma / MCP 暂缓
+
+暂不做：
+
+* Chroma
+* MCP
+* Chroma 与 SQLite 同步
+* MCP 读写 SQLite/Chroma
+* 给其他聊天软件接入
+
+原因：
+
+* 2222 记忆系统仍在更新
+* 当前 SQLite memory-server 已能完成基础外置记忆功能
+* 等 2222 后续更新稳定后，再做 Chroma / MCP 更稳
+
+补充待确认项：2222 原有/新增设置功能需要保留
+
+1. 向量化端点相关 UI
+
+2222 当前已经有向量化端点设置，包括：
+
+* 自定义 Embedding Endpoint
+* Embedding API Key
+* Embedding Model
+* 拉取模型
+* 模型下拉显示 / 手动输入切换
+
+后续合并 111 SQLite 功能或继续 UI 增强时，需要特别注意：
+
+* 不要覆盖 2222 已有的向量模型配置逻辑。
+* API Key 应继续支持隐藏/显示，避免明文长期暴露。
+* “拉取模型”后，模型列表应能正确显示。
+* 选择模型后，应能正确写入 vm.settings.embeddingModel。
+* 后续 embeddingModel 元信息不应长期硬编码为 BAAI/bge-m3；当前预合并阶段暂时写死 BAAI/bge-m3，是因为测试使用该模型，后续正式版应改为读取当前实际选择的 embeddingModel。
+* 如果 2222 后续修复了“向量转换失败，需要配置向量模型”的相关逻辑，合并时应优先保留 2222 新逻辑，再把 SQLite 写入部分接进去。
+
+2. 自定义提示词 / 恢复默认
+
+2222 当前已有或计划保留长期记忆相关的自定义提示词功能，包括：
+
+* 自定义长期记忆提取提示词
+* 自定义总结/精简提示词
+* 恢复默认提示词
+* 可能与 2222 新增的“长期总结精简反馈渠道”联动
+
+后续合并时需要注意：
+
+* 不要用 111 的旧设置面板覆盖 2222 的自定义提示词逻辑。
+* “恢复默认”按钮应继续可用。
+* 如果 2222 新版支持多轮反馈修改长期总结/精简结果，应保留该流程。
+* SQLite memory-server 只负责外置存储、读取、检索与同步，不应破坏 2222 原有的提示词编辑、恢复默认、反馈修正逻辑。
+* 后续如果需要把自定义提示词与外置 memory-server 结合，应单独做小分支测试，不要和基础后端迁移混在一起。
+
+四、当前测试通过清单
+
+后端：
+
+* node server.js 可启动
+* /health 正常
+* /memory/stats 正常
+* /memory/list 正常
+* storage = sqlite
+* memory.db 本地存储正常
+
+前端：
+
+* 2222 页面可打开
+* 长期记忆面板可打开
+* 设置中可测试连接 memory-server
+* 可从服务器重新加载
+* 外部记忆可显示
+* 添加记忆可同步 SQLite
+* 编辑记忆可同步 SQLite
+* 删除记忆可同步 SQLite
+* 改内容弹窗为自定义弹窗
+* 新增/编辑后 embeddingModel = BAAI/bge-m3
+* embeddingDim = 1024
+* embeddingUpdatedAt 正常
+* 新增记忆有 chatId
+* 旧记忆编辑后可补 chatId
+
+五、当前建议
+
+现在不要继续大改 UI。
+当前阶段可视为：
+
+2222 SQLite memory-server 预合并：基础链路完成。
+
+后续建议顺序：
+
+1. 保留当前分支作为预合并原型。
+2. 暂不迁移正式 550+ 记忆。
+3. 暂不做 Chroma / MCP。
+4. 等 2222 后续更新稳定后，再继续：
+
+   * 对比新版 2222
+   * 合并当前 SQLite memory-server 分支
+   * 再决定是否迁移 111 的 UI 增强
+   * 最后再做正式记忆库迁移和批量向量化
+
+六、重要提醒
+
+不要把当前预合并改动直接推到 main。
+main 应继续保留为可同步开发者更新的分支。
+
+推荐结构：
+
+* main：跟随 2222 原始更新
+* merge-111-sqlite-preview：当前 SQLite 预合并原型
+
+当前本地目录：
+D:\app\2222EPhone-merge-new
+
+当前分支：
+merge-111-sqlite-preview
+
+当前阶段：
+基础后端迁移 + 外部 memory-server 基础读写链路完成。
+
+
+
+补充说明：embeddingModel 当前为临时写死，后续需改为读取当前选择模型
+
+当前预合并阶段，为了先跑通 SQLite memory-server 的新增、编辑、重新向量化与元信息写入流程，vector-memory.js 中新增/编辑记忆后的 embeddingModel 暂时写死为：
+
+embeddingModel = BAAI/bge-m3
+
+这是因为当前测试使用的 embedding 模型就是 BAAI/bge-m3，且需要先确认：
+
+* 新增记忆能写入 embeddingModel
+* 编辑记忆能重新生成 embedding
+* embeddingDim 能写入 1024
+* embeddingUpdatedAt 能正常更新
+* server.js 不再丢失 embeddingModel 字段
+
+后续正式版不应长期硬编码 BAAI/bge-m3。应改为读取当前设置中实际选择的 embedding 模型，例如：
+
+* vm.settings.embeddingModel
+* 向量化端点设置中的模型输入框
+* “拉取模型”后选择的模型下拉值
+
+目标效果：
+
+* 如果当前选择 BAAI/bge-m3，则新增/编辑记忆后 embeddingModel = BAAI/bge-m3
+* 如果当前选择 Qwen/Qwen3-Embedding-8B，则新增/编辑记忆后 embeddingModel = Qwen/Qwen3-Embedding-8B
+* 如果未来更换 embedding 模型，可以通过 /memory/stats 区分不同模型生成的记忆，并判断是否需要重新向量化
+
+该项暂缓原因：
+2222 当前已经有向量化端点、拉取模型、模型选择、API Key 配置等逻辑，后续需要保留 2222 的新版设置逻辑，不能直接用 111 的旧逻辑覆盖。等 2222 后续更新稳定后，再把 embeddingModel 从“写死值”改为“读取当前实际模型”。
+
