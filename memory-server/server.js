@@ -30,7 +30,7 @@ function sendJson(res, statusCode, data) {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key'
   });
   res.end(JSON.stringify(data, null, 2));
 }
@@ -230,7 +230,7 @@ async function createQueryEmbedding({ endpoint, apiKey, model, input }) {
       errorText = await response.text();
     } catch {}
 
-    throw new Error(`Embedding query failed: HTTP ${response.status}${errorText ? ': ' + errorText.slice(0, 160) : ''}`);
+    throw new Error(`Embedding query failed: HTTP ${response.status}${errorText ? ': ' + errorText.slice(0, 160) : ''}`);backupSqliteDb
   }
 
   const data = await response.json();
@@ -370,6 +370,381 @@ async function backupSqliteDb() {
   }
 }
 
+function mcpResult(id, result) {
+  return {
+    jsonrpc: '2.0',
+    id: id ?? null,
+    result
+  };
+}
+
+function mcpError(id, code, message, data = undefined) {
+  return {
+    jsonrpc: '2.0',
+    id: id ?? null,
+    error: {
+      code,
+      message,
+      ...(data !== undefined ? { data } : {})
+    }
+  };
+}
+
+function memoryToMcpText(memory) {
+  if (!memory) return '';
+
+  const tags = Array.isArray(memory.tags) && memory.tags.length > 0
+    ? ` #${memory.tags.join(' #')}`
+    : '';
+
+  const parts = [
+    `ID: ${memory.id || ''}`,
+    memory.chatId ? `chatId: ${memory.chatId}` : '',
+    `category: ${memory.category || 'E'}`,
+    `importance: ${memory.importance ?? 5}`,
+    `emotionalWeight: ${memory.emotionalWeight ?? 3}`,
+    tags ? `tags:${tags}` : '',
+    memory.memoryTime ? `memoryTime: ${memory.memoryTime}` : '',
+    '',
+    memory.content || ''
+  ].filter(part => part !== '');
+
+  return parts.join('\n');
+}
+
+function sanitizeMemoryForMcp(memory) {
+  if (!memory) return memory;
+
+  const embedding = safeParseEmbedding(memory.embedding);
+
+  return {
+    ...memory,
+    embedding: embedding ? `[hidden:${embedding.length}d]` : null,
+    _hasEmbedding: Boolean(embedding),
+    _embeddingDim: embedding ? embedding.length : 0
+  };
+}
+
+function mcpToolSchema() {
+  return [
+    {
+      name: 'search_memory',
+      description: 'Search long-term vector memories from the local SQLite memory database. Use this to recall relevant facts, events, preferences, relationship history, promises, and settings.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Search query. Can be a keyword or natural-language question.'
+          },
+          chatId: {
+            type: 'string',
+            description: 'Optional chatId to restrict search to one role/chat.'
+          },
+          category: {
+            type: 'string',
+            description: 'Optional category code: U/A/R/E/I/L/P/T/M/C.'
+          },
+          limit: {
+            type: 'number',
+            description: 'Maximum number of memories to return. Default 10.'
+          },
+          candidateLimit: {
+            type: 'number',
+            description: 'Maximum candidate memories before ranking. Default 1000.'
+          },
+          embeddingEndpoint: {
+            type: 'string',
+            description: 'Optional embedding endpoint for semantic search.'
+          },
+          embeddingApiKey: {
+            type: 'string',
+            description: 'Optional embedding API key for semantic search.'
+          },
+          embeddingModel: {
+            type: 'string',
+            description: 'Optional embedding model name.'
+          }
+        },
+        required: ['query']
+      }
+    },
+    {
+      name: 'add_memory',
+      description: 'Add a new long-term memory to the local SQLite memory database.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          content: {
+            type: 'string',
+            description: 'Memory content.'
+          },
+          chatId: {
+            type: 'string',
+            description: 'Optional chatId for the memory.'
+          },
+          tags: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional tags.'
+          },
+          category: {
+            type: 'string',
+            description: 'Category code: U/A/R/E/I/L/P/T/M/C. Default E.'
+          },
+          importance: {
+            type: 'number',
+            description: 'Importance from 1 to 10. Default 5.'
+          },
+          emotionalWeight: {
+            type: 'number',
+            description: 'Emotional weight from 1 to 10. Default 3.'
+          },
+          source: {
+            type: 'string',
+            description: 'Source label. Default mcp.'
+          },
+          context: {
+            type: 'string',
+            description: 'Optional context.'
+          },
+          memoryTime: {
+            type: 'number',
+            description: 'Optional memory event time as Unix milliseconds.'
+          }
+        },
+        required: ['content']
+      }
+    },
+    {
+      name: 'list_memory',
+      description: 'List long-term memories from the local SQLite memory database with optional filters.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          chatId: { type: 'string' },
+          category: { type: 'string' },
+          query: { type: 'string' },
+          limit: {
+            type: 'number',
+            description: 'Maximum number of memories to return. Default 20.'
+          },
+          minImportance: { type: 'number' },
+          maxImportance: { type: 'number' }
+        }
+      }
+    },
+    {
+      name: 'get_memory',
+      description: 'Get one memory by id.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' }
+        },
+        required: ['id']
+      }
+    }
+  ];
+}
+
+async function handleMcpRequest(body) {
+  const id = body?.id ?? null;
+  const method = body?.method;
+
+  if (method === 'initialize') {
+    return mcpResult(id, {
+      protocolVersion: body?.params?.protocolVersion || '2024-11-05',
+      capabilities: {
+        tools: {}
+      },
+      serverInfo: {
+        name: 'aion-sqlite-memory-server',
+        version: '0.1.0'
+      }
+    });
+  }
+
+  if (method === 'notifications/initialized') {
+    return mcpResult(id, {});
+  }
+
+  if (method === 'tools/list') {
+    return mcpResult(id, {
+      tools: mcpToolSchema()
+    });
+  }
+
+  if (method === 'tools/call') {
+    const name = body?.params?.name;
+    const args = body?.params?.arguments || {};
+
+    try {
+      if (name === 'search_memory') {
+        const memories = listMemories({
+          chatId: args.chatId || '',
+          category: args.category || '',
+          minImportance: args.minImportance || '',
+          maxImportance: args.maxImportance || '',
+          limit: args.candidateLimit || 1000
+        });
+
+        const embeddingConfig = {
+          endpoint: args.embeddingEndpoint || process.env.EMBEDDING_ENDPOINT || '',
+          apiKey: args.embeddingApiKey || process.env.EMBEDDING_API_KEY || '',
+          model: args.embeddingModel || process.env.EMBEDDING_MODEL || 'BAAI/bge-m3'
+        };
+
+        const results = await simpleSearch(memories, args.query || '', args.limit || 10, {
+          embedding: embeddingConfig
+        });
+
+        const text = results.length > 0
+          ? results.map(memoryToMcpText).join('\n\n---\n\n')
+          : 'No matching memories found.';
+
+        return mcpResult(id, {
+          content: [
+            {
+              type: 'text',
+              text
+            }
+          ],
+          structuredContent: {
+            ok: true,
+            query: args.query || '',
+            count: results.length,
+            memories: results
+          }
+        });
+      }
+
+      if (name === 'add_memory') {
+        const content = String(args.content || '').trim();
+
+        if (!content) {
+          return mcpError(id, -32602, 'content is required');
+        }
+
+        const embeddingConfig = {
+          endpoint: args.embeddingEndpoint || process.env.EMBEDDING_ENDPOINT || '',
+          apiKey: args.embeddingApiKey || process.env.EMBEDDING_API_KEY || '',
+          model: args.embeddingModel || process.env.EMBEDDING_MODEL || 'BAAI/bge-m3'
+        };
+
+        let generatedEmbedding = null;
+
+        if (embeddingConfig.endpoint && embeddingConfig.apiKey) {
+          try {
+            generatedEmbedding = await createQueryEmbedding({
+              endpoint: embeddingConfig.endpoint,
+              apiKey: embeddingConfig.apiKey,
+              model: embeddingConfig.model,
+              input: content
+            });
+          } catch (error) {
+            console.warn('[mcp] add_memory embedding failed, save as BM25:', error.message);
+          }
+        }
+
+        await backupSqliteDb();
+
+        const memory = normalizeMemoryFragment({
+          ...args,
+          content,
+          source: args.source || 'mcp',
+          embedding: generatedEmbedding,
+          embeddingModel: generatedEmbedding ? embeddingConfig.model : '',
+          embeddingDim: generatedEmbedding ? generatedEmbedding.length : 0,
+          embeddingUpdatedAt: generatedEmbedding ? String(now()) : '',
+          createdAt: args.createdAt || now(),
+          updatedAt: now()
+        });
+
+        const savedMemory = addMemory({
+          ...memory,
+          updatedAt: now()
+        });
+
+        return mcpResult(id, {
+          content: [
+            {
+              type: 'text',
+              text: `Memory added.\n\n${memoryToMcpText(savedMemory)}`
+            }
+          ],
+          structuredContent: {
+            ok: true,
+            memory: savedMemory
+          }
+        });
+      }
+
+      if (name === 'list_memory') {
+        const memories = listMemories({
+          chatId: args.chatId || '',
+          category: args.category || '',
+          minImportance: args.minImportance || '',
+          maxImportance: args.maxImportance || '',
+          query: args.query || '',
+          limit: args.limit || 20
+        });
+
+        const text = memories.length > 0
+          ? memories.map(memoryToMcpText).join('\n\n---\n\n')
+          : 'No memories found.';
+
+        return mcpResult(id, {
+          content: [
+            {
+              type: 'text',
+              text
+            }
+          ],
+          structuredContent: {
+            ok: true,
+            count: memories.length,
+            memories: memories.map(sanitizeMemoryForMcp)
+          }
+        });
+      }
+
+      if (name === 'get_memory') {
+        const idArg = String(args.id || '').trim();
+
+        if (!idArg) {
+          return mcpError(id, -32602, 'id is required');
+        }
+
+        const memory = listMemories({ limit: 5000 }).find(item => item.id === idArg);
+
+        if (!memory) {
+          return mcpError(id, -32004, 'Memory not found');
+        }
+
+        return mcpResult(id, {
+          content: [
+            {
+              type: 'text',
+              text: memoryToMcpText(memory)
+            }
+          ],
+          structuredContent: {
+            ok: true,
+            memory: sanitizeMemoryForMcp(memory)
+          }
+        });
+      }
+
+      return mcpError(id, -32601, `Unknown tool: ${name}`);
+    } catch (error) {
+      return mcpError(id, -32000, error.message);
+    }
+  }
+
+  return mcpError(id, -32601, `Method not found: ${method}`);
+}
+
 const server = http.createServer(async (req, res) => {
   const pathname = getPath(req);
 
@@ -377,9 +752,32 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key'
     });
     res.end();
+    return;
+  }
+
+  if (pathname === '/mcp' && req.method === 'GET') {
+    sendJson(res, 200, {
+      ok: true,
+      service: 'Aion Memory MCP Endpoint',
+      transport: 'http-jsonrpc',
+      endpoint: '/mcp',
+      methods: ['initialize', 'tools/list', 'tools/call'],
+      tools: mcpToolSchema().map(tool => tool.name)
+    });
+    return;
+  }
+
+  if (pathname === '/mcp' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      const result = await handleMcpRequest(body);
+      sendJson(res, 200, result);
+    } catch (error) {
+      sendJson(res, 400, mcpError(null, -32700, error.message));
+    }
     return;
   }
 
