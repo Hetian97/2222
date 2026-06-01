@@ -1024,13 +1024,49 @@ function bindVectorMemoryEvents(chat, container) {
     addFragBtn.addEventListener('click', async () => {
       const content = await showCustomPrompt('添加记忆片段', '输入记忆内容：', '', 'textarea');
       if (!content || !content.trim()) return;
-      const tags = await showCustomPrompt('添加标签', '输入关键词标签（逗号分隔）：', '');
+
+      const tags = await showCustomPrompt('添加标签', '输入关键词标签（逗号分隔，可留空）：', '');
       const tagArr = tags ? tags.split(/[,，]/).map(t => t.trim()).filter(Boolean) : [];
+
+      const categories = window.vectorMemoryManager.getCategories(chat);
+      const categoryOptionsText = Object.entries(categories)
+        .map(([code, cat]) => `${code} = ${cat.name}`)
+        .join('\n');
+
+      let category = await showCustomPrompt(
+        '选择分类',
+        `请输入分类代码：\n${categoryOptionsText}\n\n例如：E`,
+        'E'
+      );
+
+      category = String(category || 'E').trim().toUpperCase();
+      if (!categories[category]) {
+        showToast(`未知分类 ${category}，已自动使用 E`, 'info');
+        category = 'E';
+      }
+
+      let importance = await showCustomPrompt('设置重要度', '请输入 1-10 的数字：', '5');
+      importance = parseInt(importance, 10);
+      if (!Number.isFinite(importance)) importance = 5;
+      importance = Math.max(1, Math.min(10, importance));
+
+      let emotionalWeight = await showCustomPrompt('设置情绪权重', '请输入 1-10 的数字：', '3');
+      emotionalWeight = parseInt(emotionalWeight, 10);
+      if (!Number.isFinite(emotionalWeight)) emotionalWeight = 3;
+      emotionalWeight = Math.max(1, Math.min(10, emotionalWeight));
+
       const embedding = await window.vectorMemoryManager.getEmbedding(content.trim(), chat);
+
       window.vectorMemoryManager.createFragment(chat, {
-        content: content.trim(), tags: tagArr, category: 'E', importance: 5,
-        emotionalWeight: 3, embedding, source: 'manual'
+        content: content.trim(),
+        tags: tagArr,
+        category,
+        importance,
+        emotionalWeight,
+        embedding,
+        source: 'manual'
       });
+
       await db.chats.put(chat);
       renderVectorMemoryView();
       showToast('记忆片段已添加', 'success');
