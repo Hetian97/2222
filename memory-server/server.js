@@ -239,6 +239,155 @@ async function createQueryEmbedding({ endpoint, apiKey, model, input }) {
   return Array.isArray(embedding) && embedding.length > 0 ? embedding : null;
 }
 
+async function createChatCompletion({ endpoint, apiKey, model, messages, temperature = 0.2 }) {
+  const base = String(endpoint || '').replace(/\/$/, '');
+  const url = base.endsWith('/v1/chat/completions')
+    ? base
+    : `${base}/v1/chat/completions`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`Chat completion failed: HTTP ${response.status}${errorText ? ': ' + errorText.slice(0, 200) : ''}`);
+  }
+
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content;
+
+  if (!content || typeof content !== 'string') {
+    throw new Error('Chat completion returned empty content');
+  }
+
+  return content;
+}
+
+function buildRawIngestPrompt({ combinedText, scene, timeRange, source, roleName = '角色', userName = '她' }) {
+  return `
+你是一个长期记忆提取器。请从下面的聊天原文中提取值得长期保存的记忆，并输出严格 JSON 数组。
+
+你的任务：
+- 以当前角色的第一人称视角写长期记忆。
+- 用“我”指代当前角色。
+- 用“她”或“${userName}”指代用户。
+- 不要用“用户”“角色名”“当前角色”等第三人称称呼来写 content，除非原文本身需要区分其他人物。
+- 对话中出现的其他人，使用其全名指代。
+- 如实记录事件经过、人物状态、关系变化和重要信息，禁止编造或改写原文信息。
+
+当前角色：${roleName}
+用户称呼：${userName}
+
+请注意：
+- 只提取稳定、具体、未来仍可能有用的信息。
+- 不要记录寒暄、临时情绪、重复内容、无意义测试。
+- 每条记忆应尽量短、清楚、可独立理解。
+- content 应像“我自己的长期记忆”，而不是旁观者摘要。
+- 同一场景或同一话题尽量合并成一条完整记忆，不要拆得过碎。
+- 保留关键时间、地点、人物、承诺、关系变化、重要事件。
+- 如果是她的偏好，直接写“她喜欢/不喜欢/习惯……”，不要写“我记得她……”。
+- 如果是我的承诺或行动，直接写“我答应/我决定/我带她/我安排……”。
+- 不要把普通地点提及评为高重要度；只有长期住处、反复出现的重要场景或关系节点地点才用 L。
+- “想去/准备去/答应去某地”通常优先归为 P 或 E，而不是 L。
+
+分类只能从以下十类中选择：
+- U = 用户设定（她的外貌/性格/喜好/身份等）
+- A = 角色设定（我自己发生的改变）
+- R = 关系发展（表白/吵架/亲密举动等里程碑）
+- E = 经历/事件（我和她共同经历的事情）
+- I = 物品/礼物（送礼/买东西）
+- L = 地点/场景（去过的重要地方）
+- P = 承诺/计划（约定的未来事项）
+- T = 禁忌/规则（雷区/规矩）
+- M = 情绪/心理（强烈情感流露/阴影）
+- C = 核心灵魂（必须长期牢记的关键设定）
+
+较好示例：
+原文：“她：今晚我想回家。当前角色：好，我会安排车，也会记得你不喜欢太冷的房间。”
+输出：
+[
+  {
+    "content": "今晚她想回家，我答应安排车，并会注意房间温度不要太冷。",
+    "tags": ["回家", "安排车", "温度偏好"],
+    "category": "P",
+    "importance": 5,
+    "emotionalWeight": 3
+  }
+]
+
+较差示例：
+[
+  {
+    "content": "用户想回家",
+    "tags": ["地点"],
+    "category": "L",
+    "importance": 8,
+    "emotionalWeight": 3
+  },
+  {
+    "content": "当前角色会安排车并注意房间温度",
+    "tags": ["承诺", "用户偏好"],
+    "category": "P",
+    "importance": 7,
+    "emotionalWeight": 3
+  }
+]
+
+输出格式必须是 JSON 数组，不要解释，不要 markdown：
+
+[
+  {
+    "content": "一条以我为视角的长期记忆，简洁清楚",
+    "tags": ["标签1", "标签2"],
+    "category": "E",
+    "importance": 5,
+    "emotionalWeight": 3
+  }
+]
+
+评分规则：
+- importance: 1-10，8-10 为关键转折/重要设定，5-7 为值得记住，1-4 为轻量信息。
+- emotionalWeight: 1-10，表示情绪强度或关系影响。
+
+原文来源：${source || 'njj'}
+场景：${scene || '未提供'}
+时间范围：${timeRange || '未提供'}
+
+聊天原文：
+${combinedText}
+
+请直接输出 JSON 数组。如果没有值得记录的内容，输出 []。`;
+}
+
+function parseExtractedMemoryItems(rawText) {
+  const jsonMatch = String(rawText || '').match(/\[[\s\S]*\]/);
+  if (!jsonMatch) return [];
+
+  const arr = JSON.parse(jsonMatch[0]);
+  if (!Array.isArray(arr)) return [];
+
+  return arr
+    .filter(item => item && item.content)
+    .map(item => ({
+      content: String(item.content || '').trim(),
+      tags: normalizeTags(item.tags || []),
+      category: normalizeCategory(item.category || 'E'),
+      importance: clampNumber(item.importance, 1, 10, 5),
+      emotionalWeight: clampNumber(item.emotionalWeight, 1, 10, 3)
+    }))
+    .filter(item => item.content);
+}
+
 function memoryToSearchText(memory) {
   return [
     memory.content,
@@ -598,7 +747,27 @@ function mcpToolSchema() {
           source: {
             type: 'string',
             description: 'Source label. Default njj.'
-          }
+          },
+        dryRun: {
+          type: 'boolean',
+          description: 'If true, only preview extraction and do not write memories. Default false.'
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of extracted memories to save. Default 8.'
+        },
+        llmEndpoint: {
+          type: 'string',
+          description: 'Optional chat completion endpoint for extraction.'
+        },
+        llmApiKey: {
+          type: 'string',
+          description: 'Optional chat completion API key for extraction.'
+        },
+        llmModel: {
+          type: 'string',
+          description: 'Optional chat completion model name.'
+        }
         }
       }
     }
@@ -811,33 +980,164 @@ async function handleMcpRequest(body) {
 
         const charCount = combinedText.length;
         const messageCount = messages.length || combinedText.split(/\n+/).filter(Boolean).length;
+        const dryRun = args.dryRun === true || String(args.dryRun || '').toLowerCase() === 'true';
+        const limit = clampNumber(args.limit, 1, 30, 8);
+
+        const llmConfig = {
+          endpoint: args.llmEndpoint || process.env.LLM_ENDPOINT || process.env.EMBEDDING_ENDPOINT || '',
+          apiKey: args.llmApiKey || process.env.LLM_API_KEY || process.env.EMBEDDING_API_KEY || '',
+          model: args.llmModel || process.env.LLM_MODEL || 'Qwen/Qwen3-8B'
+        };
+
+        if (!llmConfig.endpoint || !llmConfig.apiKey) {
+          return mcpError(id, -32001, 'LLM endpoint/apiKey is required for ingest_raw extraction. Set LLM_ENDPOINT and LLM_API_KEY, or pass llmEndpoint/llmApiKey.');
+        }
+
+        let extractedItems = [];
+
+        try {
+          const prompt = buildRawIngestPrompt({
+            combinedText,
+            scene: args.scene || '',
+            timeRange: args.timeRange || '',
+            source: args.source || 'njj',
+            roleName: args.roleName || args.actor || args._actor || '角色',
+            userName: args.userName || args.userNickname || '她'
+          });
+
+          const rawExtraction = await createChatCompletion({
+            endpoint: llmConfig.endpoint,
+            apiKey: llmConfig.apiKey,
+            model: llmConfig.model,
+            messages: [
+              {
+                role: 'system',
+                content: '你是严格的 JSON 记忆提取器。只输出 JSON 数组。'
+              },
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            temperature: 0.2
+          });
+
+          extractedItems = parseExtractedMemoryItems(rawExtraction).slice(0, limit);
+        } catch (error) {
+          return mcpError(id, -32002, `ingest_raw extraction failed: ${error.message}`);
+        }
+
+        if (dryRun) {
+          return mcpResult(id, {
+            content: [
+              {
+                type: 'text',
+                text: [
+                  '已完成原文记忆提取预览，但未写入 SQLite。',
+                  `字符数：${charCount}`,
+                  `消息/行数：${messageCount}`,
+                  `提取条数：${extractedItems.length}`,
+                  '',
+                  extractedItems.length > 0
+                    ? extractedItems.map((item, index) => `${index + 1}. [${item.category}] ${item.content} #${item.tags.join(' #')} 重要度:${item.importance} 情绪:${item.emotionalWeight}`).join('\n')
+                    : '没有提取到值得长期保存的记忆。'
+                ].join('\n')
+              }
+            ],
+            structuredContent: {
+              ok: true,
+              dryRun: true,
+              source: args.source || 'njj',
+              chatId: args.chatId || '',
+              scene: args.scene || '',
+              timeRange: args.timeRange || '',
+              charCount,
+              messageCount,
+              extractedCount: extractedItems.length,
+              extractedItems
+            }
+          });
+        }
+
+        await backupSqliteDb();
+
+        const embeddingConfig = {
+          endpoint: args.embeddingEndpoint || process.env.EMBEDDING_ENDPOINT || '',
+          apiKey: args.embeddingApiKey || process.env.EMBEDDING_API_KEY || '',
+          model: args.embeddingModel || process.env.EMBEDDING_MODEL || 'BAAI/bge-m3'
+        };
+
+        const savedMemories = [];
+
+        for (const item of extractedItems) {
+          let generatedEmbedding = null;
+
+          if (embeddingConfig.endpoint && embeddingConfig.apiKey) {
+            try {
+              generatedEmbedding = await createQueryEmbedding({
+                endpoint: embeddingConfig.endpoint,
+                apiKey: embeddingConfig.apiKey,
+                model: embeddingConfig.model,
+                input: item.content
+              });
+            } catch (error) {
+              console.warn('[mcp] ingest_raw embedding failed, save as BM25:', error.message);
+            }
+          }
+
+          const memory = normalizeMemoryFragment({
+            ...item,
+            chatId: args.chatId || '',
+            source: args.source || 'njj_raw',
+            context: [
+              args.scene ? `scene=${args.scene}` : '',
+              args.timeRange ? `timeRange=${args.timeRange}` : ''
+            ].filter(Boolean).join('; '),
+            memoryTime: args.memoryTime || now(),
+            embedding: generatedEmbedding,
+            embeddingModel: generatedEmbedding ? embeddingConfig.model : '',
+            embeddingDim: generatedEmbedding ? generatedEmbedding.length : 0,
+            embeddingUpdatedAt: generatedEmbedding ? String(now()) : '',
+            createdAt: now(),
+            updatedAt: now()
+          });
+
+          const savedMemory = addMemory({
+            ...memory,
+            updatedAt: now()
+          });
+
+          savedMemories.push(savedMemory);
+        }
 
         return mcpResult(id, {
           content: [
             {
               type: 'text',
               text: [
-                '已收到原始对话内容。',
+                '已从原始对话中提取并写入长期记忆。',
                 `字符数：${charCount}`,
                 `消息/行数：${messageCount}`,
-                args.chatId ? `chatId：${args.chatId}` : '',
-                args.scene ? `场景：${args.scene}` : '',
-                args.timeRange ? `时间范围：${args.timeRange}` : '',
+                `写入条数：${savedMemories.length}`,
                 '',
-                '当前 ingest_raw 仍是接收测试版：不会写入 SQLite，也不会生成长期记忆。'
-              ].filter(Boolean).join('\n')
+                savedMemories.length > 0
+                  ? savedMemories.map((item, index) => `${index + 1}. ${item.content}`).join('\n')
+                  : '没有写入新的长期记忆。'
+              ].join('\n')
             }
           ],
           structuredContent: {
             ok: true,
-            dryRun: true,
+            dryRun: false,
             source: args.source || 'njj',
             chatId: args.chatId || '',
             scene: args.scene || '',
             timeRange: args.timeRange || '',
             charCount,
             messageCount,
-            preview: combinedText.slice(0, 500)
+            extractedCount: extractedItems.length,
+            savedCount: savedMemories.length,
+            memories: savedMemories.map(sanitizeMemoryForMcp)
           }
         });
       }
