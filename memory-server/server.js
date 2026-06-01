@@ -560,6 +560,47 @@ function mcpToolSchema() {
         },
         required: ['id']
       }
+    },
+   {
+      name: 'ingest_raw',
+      description: 'Receive raw dialogue text from an external chat app for later memory extraction. This first version only validates and reports received content; it does not write memories yet.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          rawText: {
+            type: 'string',
+            description: 'Raw dialogue text to ingest.'
+          },
+          messages: {
+            type: 'array',
+            description: 'Optional message array if the client sends structured chat messages.',
+            items: {
+              type: 'object',
+              properties: {
+                role: { type: 'string' },
+                content: { type: 'string' },
+                time: { type: 'string' }
+              }
+            }
+          },
+          chatId: {
+            type: 'string',
+            description: 'Optional chatId or role/session identifier.'
+          },
+          scene: {
+            type: 'string',
+            description: 'Optional scene label, such as private chat, group chat, outing, forum, etc.'
+          },
+          timeRange: {
+            type: 'string',
+            description: 'Optional time range for the raw dialogue.'
+          },
+          source: {
+            type: 'string',
+            description: 'Source label. Default njj.'
+          }
+        }
+      }
     }
   ];
 }
@@ -748,11 +789,64 @@ async function handleMcpRequest(body) {
         });
       }
 
-      return mcpError(id, -32601, `Unknown tool: ${name}`);
-    } catch (error) {
-      return mcpError(id, -32000, error.message);
+      if (name === 'ingest_raw') {
+        const rawText = String(args.rawText || args.text || args.content || '').trim();
+        const messages = Array.isArray(args.messages) ? args.messages : [];
+
+        const messageText = messages
+          .map((msg, index) => {
+            const role = String(msg.role || msg.sender || `message_${index + 1}`).trim();
+            const content = String(msg.content || msg.text || '').trim();
+            const time = msg.time || msg.timestamp || '';
+            return content ? `[${time || 'no-time'}] ${role}: ${content}` : '';
+          })
+          .filter(Boolean)
+          .join('\n');
+
+        const combinedText = rawText || messageText;
+
+        if (!combinedText) {
+          return mcpError(id, -32602, 'rawText or messages is required');
+        }
+
+        const charCount = combinedText.length;
+        const messageCount = messages.length || combinedText.split(/\n+/).filter(Boolean).length;
+
+        return mcpResult(id, {
+          content: [
+            {
+              type: 'text',
+              text: [
+                '已收到原始对话内容。',
+                `字符数：${charCount}`,
+                `消息/行数：${messageCount}`,
+                args.chatId ? `chatId：${args.chatId}` : '',
+                args.scene ? `场景：${args.scene}` : '',
+                args.timeRange ? `时间范围：${args.timeRange}` : '',
+                '',
+                '当前 ingest_raw 仍是接收测试版：不会写入 SQLite，也不会生成长期记忆。'
+              ].filter(Boolean).join('\n')
+            }
+          ],
+          structuredContent: {
+            ok: true,
+            dryRun: true,
+            source: args.source || 'njj',
+            chatId: args.chatId || '',
+            scene: args.scene || '',
+            timeRange: args.timeRange || '',
+            charCount,
+            messageCount,
+            preview: combinedText.slice(0, 500)
+          }
+        });
+      }
+
+        return mcpError(id, -32601, `Unknown tool: ${name}`);
+      } catch (error) {
+        return mcpError(id, -32000, error.message);
+      }
     }
-  }
 
   return mcpError(id, -32601, `Method not found: ${method}`);
 }
