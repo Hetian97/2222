@@ -385,7 +385,7 @@ class VariableMemoryManager {
       lastRecalled: 0,
       recallCount: 0,
       embedding,
-      embeddingModel: embedding ? 'BAAI/bge-m3' : '',
+      embeddingModel: embedding ? this.getCurrentEmbeddingModel(chat) : '',
       embeddingDim: embedding ? embedding.length : 0,
       embeddingUpdatedAt: embedding ? Date.now() : '',
       linkedMemories: data.linkedMemories || [],
@@ -441,7 +441,7 @@ class VariableMemoryManager {
 
         if (Array.isArray(embedding) && embedding.length > 0) {
           frag.embedding = embedding;
-          frag.embeddingModel = 'BAAI/bge-m3';
+          frag.embeddingModel = this.getCurrentEmbeddingModel(chat);
           frag.embeddingDim = embedding.length;
           frag.embeddingUpdatedAt = Date.now();
 

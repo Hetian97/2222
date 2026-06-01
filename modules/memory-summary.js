@@ -1359,6 +1359,7 @@ function bindVectorMemoryEvents(chat, container) {
 }
 
 async function openVectorMemorySettings(chat, defaultTab = 'settings') {
+  const vm = window.vectorMemoryManager.getVariableMemory(chat);
   const settingsHtml = window.vectorMemoryManager.renderSettingsPanel(chat);
 
   const guideHtml = window.vectorMemoryManager.renderGuide ? window.vectorMemoryManager.renderGuide() : '<div style="padding:20px;text-align:center;">暂无教程内容</div>';
