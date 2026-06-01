@@ -1050,6 +1050,73 @@ function bindVectorMemoryEvents(chat, container) {
     });
   }
 
+  // 搜索 / 筛选
+  const searchInput = container.querySelector('#vm-search-input');
+  const searchBtn = container.querySelector('#vm-search-btn');
+  const categoryFilter = container.querySelector('#vm-category-filter');
+  const vectorFilter = container.querySelector('#vm-vector-filter');
+  const importanceFilter = container.querySelector('#vm-importance-filter');
+  const resetFilterBtn = container.querySelector('#vm-reset-filter-btn');
+
+  function vmApplyPanelFiltersFromUI() {
+    const vm = window.vectorMemoryManager.getVariableMemory(chat);
+
+    vm._panelFilters = {
+      query: searchInput ? searchInput.value.trim() : '',
+      category: categoryFilter ? categoryFilter.value : '',
+      vector: vectorFilter ? vectorFilter.value : '',
+      minImportance: importanceFilter ? importanceFilter.value : ''
+    };
+
+    renderVectorMemoryView();
+  }
+
+  if (searchBtn) {
+    searchBtn.addEventListener('click', () => {
+      vmApplyPanelFiltersFromUI();
+    });
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        vmApplyPanelFiltersFromUI();
+      }
+    });
+  }
+
+  if (categoryFilter) {
+    categoryFilter.addEventListener('change', () => {
+      vmApplyPanelFiltersFromUI();
+    });
+  }
+
+  if (vectorFilter) {
+    vectorFilter.addEventListener('change', () => {
+      vmApplyPanelFiltersFromUI();
+    });
+  }
+
+  if (importanceFilter) {
+    importanceFilter.addEventListener('change', () => {
+      vmApplyPanelFiltersFromUI();
+    });
+  }
+
+  if (resetFilterBtn) {
+    resetFilterBtn.addEventListener('click', () => {
+      const vm = window.vectorMemoryManager.getVariableMemory(chat);
+      vm._panelFilters = {
+        query: '',
+        category: '',
+        vector: '',
+        minImportance: ''
+      };
+      renderVectorMemoryView();
+    });
+  }
+
   // 设置按钮
   const settingsBtn = container.querySelector('#vm-settings-btn');
   if (settingsBtn) {

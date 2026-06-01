@@ -1074,15 +1074,76 @@ ${formattedHistory}
     `;
     container.appendChild(batchToolbar);
 
+        container.appendChild(batchToolbar);
+
+    // 搜索 / 筛选栏
+    const filterBar = document.createElement('div');
+    filterBar.className = 'vm-filter-bar';
+    filterBar.style.cssText = `
+      margin: 12px 0 14px;
+      padding: 12px;
+      border-radius: 14px;
+      background: rgba(0,0,0,0.035);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    `.replace(/\s+/g, ' ').trim();
+
+    const filters = vm._panelFilters || {
+      query: '',
+      category: '',
+      vector: '',
+      minImportance: ''
+    };
+
+    filterBar.innerHTML = `
+      <label style="font-size:13px;color:#666;">搜索</label>
+      <input id="vm-search-input" class="vm-filter-input" type="text"
+        value="${this._escapeHtml(filters.query || '')}"
+        placeholder="输入后按回车或点搜索"
+        style="min-width:220px;flex:1;padding:8px 10px;border:1px solid #ddd;border-radius:10px;font-size:14px;">
+
+      <button class="vm-toolbar-btn" id="vm-search-btn">搜索</button>
+
+      <label style="font-size:13px;color:#666;">分类</label>
+      <select id="vm-category-filter" class="vm-filter-select" style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;font-size:14px;">
+        <option value="">全部</option>
+        ${Object.entries(this.getCategories(chat)).map(([code, cat]) => `
+          <option value="${code}" ${filters.category === code ? 'selected' : ''}>${code} ${this._escapeHtml(cat.name || '')}</option>
+        `).join('')}
+      </select>
+
+      <label style="font-size:13px;color:#666;">向量</label>
+      <select id="vm-vector-filter" class="vm-filter-select" style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;font-size:14px;">
+        <option value="" ${!filters.vector ? 'selected' : ''}>全部</option>
+        <option value="vector" ${filters.vector === 'vector' ? 'selected' : ''}>Vector</option>
+        <option value="bm25" ${filters.vector === 'bm25' ? 'selected' : ''}>BM25</option>
+      </select>
+
+      <label style="font-size:13px;color:#666;">重要度</label>
+      <select id="vm-importance-filter" class="vm-filter-select" style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;font-size:14px;">
+        <option value="" ${!filters.minImportance ? 'selected' : ''}>全部</option>
+        ${[1,2,3,4,5,6,7,8,9,10].map(n => `
+          <option value="${n}" ${String(filters.minImportance) === String(n) ? 'selected' : ''}>≥${n}</option>
+        `).join('')}
+      </select>
+
+      <button class="vm-toolbar-btn" id="vm-reset-filter-btn">重置</button>
+    `;
+
+    container.appendChild(filterBar);
+
     // 记忆列表区
     const listContainer = document.createElement('div');
     listContainer.className = 'vm-list-container';
     
     const categories = this.getCategories(chat);
+    const displayFragments = this.applyPanelFilters(vm.fragments || [], vm._panelFilters || {});
     
     // 按分类分组渲染
     for (const [code, catInfo] of Object.entries(categories)) {
-      const frags = vm.fragments.filter(f => f.category === code);
+      const frags = displayFragments.filter(f => f.category === code);
       if (frags.length === 0) continue;
       
       // 按发生时间倒序排列
@@ -1152,7 +1213,7 @@ ${formattedHistory}
       listContainer.appendChild(section);
     }
 
-    if (vm.fragments.length === 0) {
+    if (displayFragments.length === 0) {
       listContainer.innerHTML = `
         <div style="text-align:center; color: #999; padding: 40px 20px;">
           <div style="font-size:40px; margin-bottom:10px;"></div>
@@ -1378,6 +1439,47 @@ ${formattedHistory}
         </div>
       </div>
     `;
+  }
+
+  applyPanelFilters(fragments, filters = {}) {
+    let result = Array.isArray(fragments) ? [...fragments] : [];
+
+    const query = String(filters.query || '').trim().toLowerCase();
+    const category = String(filters.category || '').trim();
+    const vector = String(filters.vector || '').trim();
+    const minImportance = filters.minImportance === '' || filters.minImportance === undefined
+      ? ''
+      : Number(filters.minImportance);
+
+    if (query) {
+      result = result.filter(f => {
+        const haystack = [
+          f.content,
+          f.category,
+          f.source,
+          f.context,
+          ...(Array.isArray(f.tags) ? f.tags : [])
+        ].filter(Boolean).join(' ').toLowerCase();
+
+        return haystack.includes(query);
+      });
+    }
+
+    if (category) {
+      result = result.filter(f => f.category === category);
+    }
+
+    if (vector === 'vector') {
+      result = result.filter(f => Array.isArray(f.embedding) && f.embedding.length > 0);
+    } else if (vector === 'bm25') {
+      result = result.filter(f => !Array.isArray(f.embedding) || f.embedding.length === 0);
+    }
+
+    if (Number.isFinite(minImportance)) {
+      result = result.filter(f => Number(f.importance || 0) >= minImportance);
+    }
+
+    return result;
   }
 
     renderTagChips(tags) {
