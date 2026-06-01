@@ -907,6 +907,51 @@ ${output}`;
 
   // ==================== AI 提取记忆 (修复间隔 Bug) ====================
 
+  getDefaultExtractionPrompt(chat = null) {
+    const roleName = chat ? (chat.originalName || chat.name || '角色') : '{{角色名}}';
+    const userNickname = chat
+      ? (chat.settings?.myNickname || window.state?.qzoneSettings?.nickname || '用户')
+      : '{{用户昵称}}';
+
+    return `
+# 你的任务
+你是"${roleName}"。请阅读下面的最新对话记录，提取【值得长期记忆】的增量信息，输出为JSON数组格式。
+
+# 输出格式（严格遵守JSON数组）
+\`\`\`json
+[
+  {
+    "content": "记忆内容（第一人称，简短清晰，如：${userNickname}告诉我她今天升职了）",
+    "tags": ["升职", "开心", "工作"],
+    "category": "U/A/R/E/I/L/P/T/M/C",
+    "importance": 1-10,
+    "emotionalWeight": 1-10
+  }
+]
+\`\`\`
+
+# 10大精细分类说明
+- U = 用户设定 (${userNickname}的外貌/性格/喜好/身份等)
+- A = 角色设定 (${roleName}自己发生的改变)
+- R = 关系发展 (${roleName}与${userNickname}之间的表白/吵架/亲密举动等里程碑)
+- E = 经历/事件 (${roleName}与${userNickname}共同经历的事情)
+- I = 物品/礼物 (送礼/买东西)
+- L = 地点/场景 (去过的重要地方)
+- P = 承诺/计划 (约定的未来事项)
+- T = 禁忌/规则 (雷区/规矩)
+- M = 情绪/心理 (强烈的情感流露/阴影)
+- C = 核心灵魂 (必须永远铭记的生死攸关的事)
+
+# 评分规则 (1-10)
+- importance: 8-10(极其重要/转折点)，5-7(值得记住)，1-4(日常琐事，尽量别记)
+- emotionalWeight: 情感的强烈程度。
+
+# 待提取对话
+{{对话记录}}
+
+请直接输出JSON数组，如果没有值得记录的内容，输出空数组 []。`;
+  }
+
   buildExtractionPrompt(chat, formattedHistory, timeRangeStr, dialogueTimeRange) {
     const vm = this.getVariableMemory(chat);
     const userNickname = chat.settings.myNickname || (window.state?.qzoneSettings?.nickname || '用户');
@@ -921,43 +966,8 @@ ${output}`;
         .replace(/\{\{对话记录\}\}/g, formattedHistory);
     }
 
-    return `
-# 你的任务
-你是"${chat.originalName || chat.name}"。请阅读下面的最新对话记录，提取【值得长期记忆】的增量信息，输出为JSON数组格式。
-
-# 输出格式（严格遵守JSON数组）
-\`\`\`json
-[
-  {
-    "content": "记忆内容（第一人称，简短清晰，如：用户告诉我她今天升职了）",
-    "tags": ["升职", "开心", "工作"],
-    "category": "U/A/R/E/I/L/P/T/M/C",
-    "importance": 1-10,
-    "emotionalWeight": 1-10
-  }
-]
-\`\`\`
-
-# 10大精细分类说明
-- U = 用户设定 (用户的外貌/性格/喜好/身份等)
-- A = 角色设定 (你自己发生的改变)
-- R = 关系发展 (表白/吵架/亲密举动等里程碑)
-- E = 经历/事件 (共同经历的事情)
-- I = 物品/礼物 (送礼/买东西)
-- L = 地点/场景 (去过的重要地方)
-- P = 承诺/计划 (约定的未来事项)
-- T = 禁忌/规则 (雷区/规矩)
-- M = 情绪/心理 (强烈的情感流露/阴影)
-- C = 核心灵魂 (必须永远铭记的生死攸关的事)
-
-# 评分规则 (1-10)
-- importance: 8-10(极其重要/转折点)，5-7(值得记住)，1-4(日常琐事，尽量别记)
-- emotionalWeight: 情感的强烈程度。
-
-# 待提取对话
-${formattedHistory}
-
-请直接输出JSON数组，如果没有值得记录的内容，输出空数组 []。`;
+    return this.getDefaultExtractionPrompt(chat)
+      .replace(/\{\{对话记录\}\}/g, formattedHistory);
   }
 
   parseExtractionResult(rawText) {
@@ -1262,6 +1272,39 @@ ${formattedHistory}
         </div>
 
         <div class="vm-settings-group">
+             <h4>自定义提示词</h4>
+
+             <div class="vm-setting-row">
+               <span>开启自定义记忆提取提示词</span>
+               <label class="toggle-switch">
+                 <input type="checkbox" id="vm-custom-prompt" ${s.useCustomExtractionPrompt ? 'checked' : ''}>
+                 <span class="slider"></span>
+               </label>
+             </div>
+
+             <div id="vm-custom-prompt-field" style="display:${s.useCustomExtractionPrompt ? 'block' : 'none'}; margin-top:10px;">
+               <textarea
+                 id="vm-custom-prompt-text"
+                 class="vm-input-full"
+                 rows="8"
+                 placeholder="填写用于自动提取记忆的提示词"
+                 style="width:100%;box-sizing:border-box;resize:vertical;line-height:1.6;padding:10px;border:1px solid #ddd;border-radius:10px;"
+               >${this._escapeHtml(s.customExtractionPrompt || this.getDefaultExtractionPrompt())}</textarea>
+
+               <button
+                 type="button"
+                 id="vm-reset-prompt-btn"
+                 class="vm-btn-secondary"
+                 style="margin-top:8px;"
+               >恢复默认</button>
+
+              <div style="font-size:11px;color:#999;margin-top:6px;line-height:1.5;">
+                开启后，自动提取记忆时会使用这里的提示词。恢复默认只会重置文本框内容，记得点击“保存设置”。
+              </div>
+            </div>
+          </div>
+
+        <div class="vm-settings-group">
           <h4>向量化端点 (可选)</h4>
           <div class="vm-setting-row">
             <span>开启自定义 Embedding</span>
@@ -1353,6 +1396,9 @@ ${formattedHistory}
     const modelSelect = document.getElementById('vm-embedding-model-select')?.value;
     vm.settings.embeddingModel = modelInput || modelSelect || 'text-embedding-3-small';
     
+      vm.settings.useCustomExtractionPrompt = document.getElementById('vm-custom-prompt')?.checked || false;
+      vm.settings.customExtractionPrompt = document.getElementById('vm-custom-prompt-text')?.value || '';
+
     if (vm._retrievalCache) vm._retrievalCache = { query: '', result: null, timestamp: 0, msgCount: 0 };
   }
 

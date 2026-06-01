@@ -1455,6 +1455,8 @@ async function openVectorMemorySettings(chat, defaultTab = 'settings') {
       if (group) group.style.display = periodicCb.checked ? 'block' : 'none';
     });
   }
+
+  // 自定义提示词开关
   const customPromptCb = panel.querySelector('#vm-custom-prompt');
   if (customPromptCb) {
     customPromptCb.addEventListener('change', () => {
@@ -1464,14 +1466,23 @@ async function openVectorMemorySettings(chat, defaultTab = 'settings') {
   }
 
   // 重置提示词按钮
+  const customPromptText = panel.querySelector('#vm-custom-prompt-text');
   const resetPromptBtn = panel.querySelector('#vm-reset-prompt-btn');
-  if (resetPromptBtn) {
-    resetPromptBtn.addEventListener('click', () => {
-      const textarea = panel.querySelector('#vm-custom-prompt-text');
-      if (textarea) {
-        textarea.value = window.vectorMemoryManager.getDefaultExtractionPrompt();
-        showToast('已重置为默认提示词', 'success');
+
+  if (resetPromptBtn && customPromptText) {
+    resetPromptBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (typeof window.vectorMemoryManager.getDefaultExtractionPrompt === 'function') {
+        customPromptText.value = window.vectorMemoryManager.getDefaultExtractionPrompt();
+      } else {
+        customPromptText.value = '';
+        showToast('未找到默认提示词函数', 'error');
+        return;
       }
+
+      showToast('已恢复默认提示词，记得保存设置', 'success');
     });
   }
 
