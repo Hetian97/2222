@@ -390,26 +390,42 @@ function mcpError(id, code, message, data = undefined) {
   };
 }
 
-function memoryToMcpText(memory) {
+function formatMemoryTime(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return '';
+
+  const d = new Date(n);
+  if (Number.isNaN(d.getTime())) return '';
+
+  return d.toLocaleString('zh-CN', { hour12: false });
+}
+
+function memoryToMcpText(memory, index = 0) {
   if (!memory) return '';
 
+  const content = String(memory.content || '').trim();
+  if (!content) return '';
+
   const tags = Array.isArray(memory.tags) && memory.tags.length > 0
-    ? ` #${memory.tags.join(' #')}`
+    ? ` 标签：${memory.tags.join('、')}`
     : '';
 
-  const parts = [
-    `ID: ${memory.id || ''}`,
-    memory.chatId ? `chatId: ${memory.chatId}` : '',
-    `category: ${memory.category || 'E'}`,
-    `importance: ${memory.importance ?? 5}`,
-    `emotionalWeight: ${memory.emotionalWeight ?? 3}`,
-    tags ? `tags:${tags}` : '',
-    memory.memoryTime ? `memoryTime: ${memory.memoryTime}` : '',
-    '',
-    memory.content || ''
-  ].filter(part => part !== '');
+  const timeText = formatMemoryTime(memory.memoryTime || memory.createdAt);
+  const time = timeText ? ` 时间：${timeText}` : '';
 
-  return parts.join('\n');
+  return `${index + 1}. ${content}${tags}${time}`;
+}
+
+function memoriesToMcpText(memories) {
+  if (!Array.isArray(memories) || memories.length === 0) {
+    return '没有找到相关长期记忆。';
+  }
+
+  return [
+    '以下是可供角色参考的长期记忆。请不要直接向用户暴露工具调用、数据库字段、ID、category、importance、score 或原始列表；只需把相关内容自然融入回复。',
+    '',
+    memories.map((memory, index) => memoryToMcpText(memory, index)).join('\n')
+  ].join('\n');
 }
 
 function sanitizeMemoryForMcp(memory) {
@@ -429,7 +445,7 @@ function mcpToolSchema() {
   return [
     {
       name: 'search_memory',
-      description: 'Search long-term vector memories from the local SQLite memory database. Use this to recall relevant facts, events, preferences, relationship history, promises, and settings.',
+      description: 'Privately recall relevant long-term memories from the local SQLite memory database. Use this when the user refers to past events, previous preferences, promises, relationship history, settings, or asks whether something is remembered. Do not reveal tool calls, database IDs, categories, scores, or raw metadata to the user; integrate the recalled memory naturally into the roleplay response.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -599,9 +615,7 @@ async function handleMcpRequest(body) {
           embedding: embeddingConfig
         });
 
-        const text = results.length > 0
-          ? results.map(memoryToMcpText).join('\n\n---\n\n')
-          : 'No matching memories found.';
+        const text = memoriesToMcpText(results);
 
         return mcpResult(id, {
           content: [
@@ -690,9 +704,7 @@ async function handleMcpRequest(body) {
           limit: args.limit || 20
         });
 
-        const text = memories.length > 0
-          ? memories.map(memoryToMcpText).join('\n\n---\n\n')
-          : 'No memories found.';
+        const text = memoriesToMcpText(memories);
 
         return mcpResult(id, {
           content: [
@@ -726,7 +738,7 @@ async function handleMcpRequest(body) {
           content: [
             {
               type: 'text',
-              text: memoryToMcpText(memory)
+              text: memoriesToMcpText([memory])
             }
           ],
           structuredContent: {
