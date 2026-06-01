@@ -1504,6 +1504,18 @@ async function openVectorMemorySettings(chat, defaultTab = 'settings') {
     });
   }
 
+  // Embedding API Key 显示 / 隐藏
+  const toggleEmbeddingKeyBtn = panel.querySelector('#vm-toggle-embedding-key-btn');
+  const embeddingKeyInput = panel.querySelector('#vm-embedding-apikey');
+
+  if (toggleEmbeddingKeyBtn && embeddingKeyInput) {
+    toggleEmbeddingKeyBtn.addEventListener('click', () => {
+      const isHidden = embeddingKeyInput.type === 'password';
+      embeddingKeyInput.type = isHidden ? 'text' : 'password';
+      toggleEmbeddingKeyBtn.textContent = isHidden ? '隐藏' : '显示';
+    });
+  }
+
   // 拉取模型按钮
   const fetchModelsBtn = panel.querySelector('#vm-fetch-models-btn');
   if (fetchModelsBtn) {

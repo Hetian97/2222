@@ -1269,7 +1269,10 @@ ${formattedHistory}
           </div>
           <div id="vm-custom-embedding-fields" style="display:${s.useCustomEmbedding ? 'block' : 'none'}; margin-top:8px;">
             <input type="text" id="vm-embedding-endpoint" value="${s.embeddingEndpoint || ''}" placeholder="https://api.openai.com (如需拉取模型请确保地址以/v1结尾)" class="vm-input-full">
-            <input type="password" id="vm-embedding-apikey" value="${s.embeddingApiKey || ''}" placeholder="API Key (留空则使用主设置的Key)" class="vm-input-full" style="margin-top:4px;">
+            <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+              <input type="password" id="vm-embedding-apikey" value="${s.embeddingApiKey || ''}" placeholder="API Key" class="vm-input-full" style="flex:1;">
+              <button type="button" class="vm-toolbar-btn" id="vm-toggle-embedding-key-btn" style="white-space:nowrap;">显示</button>
+            </div>
             <div style="display:flex; gap:8px; margin-top:4px;">
               <input type="text" id="vm-embedding-model-input" value="${s.embeddingModel || 'text-embedding-3-small'}" placeholder="或手动输入模型名称" class="vm-input-full" style="flex:1; display:none;">
               <select id="vm-embedding-model-select" class="vm-input-full" style="flex:1;">
