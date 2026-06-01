@@ -1152,6 +1152,13 @@ function bindVectorMemoryEvents(chat, container) {
       showToast('已钉选为核心记忆', 'success');
     });
   });
+  
+  container.querySelectorAll('.vm-detail-frag-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      window.vectorMemoryManager.showFragmentDetail(chat, btn.dataset.id);
+    });
+  });
+
   container.querySelectorAll('.vm-edit-frag-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const currentContent = btn.closest('.vm-item-row')?.querySelector('.vm-item-content')?.textContent || '';

@@ -1132,6 +1132,7 @@ ${formattedHistory}
           <input type="checkbox" class="vm-batch-element vm-item-checkbox" style="display:none; margin-right:10px; width: 16px; height: 16px; flex-shrink: 0; align-self: flex-start; margin-top: 4px;" data-id="${frag.id}" data-type="${code === 'C' ? 'core' : 'fragment'}">
           <div class="vm-item-main">
             <span class="vm-item-content">${this._escapeHtml(frag.content)}</span>
+            ${this.renderTagChips(frag.tags)}
             <div class="vm-item-meta">
               <input type="datetime-local" class="vm-time-picker" data-id="${frag.id}" value="${localISOTime}" title="修改记忆发生时间">
               <span class="vm-meta-tag">重要度:${frag.importance}</span>
@@ -1140,6 +1141,7 @@ ${formattedHistory}
           </div>
           <div class="vm-item-actions">
             ${code !== 'C' ? `<button class="vm-item-btn vm-pin-btn" data-id="${frag.id}">置顶为核心</button>` : ''}
+            <button class="vm-item-btn vm-detail-frag-btn" data-id="${frag.id}">详情</button>
             <button class="vm-item-btn vm-edit-frag-btn" data-id="${frag.id}">改内容</button>
             <button class="vm-item-btn vm-delete-frag-btn" data-id="${frag.id}" style="color:#ff3b30">删</button>
           </div>
@@ -1378,6 +1380,163 @@ ${formattedHistory}
     `;
   }
 
+    renderTagChips(tags) {
+    if (!Array.isArray(tags) || tags.length === 0) return '';
+
+    const visibleTags = tags.slice(0, 3);
+    const extraCount = tags.length - visibleTags.length;
+
+    const chipStyle = `
+      display:inline-flex;
+      align-items:center;
+      max-width:120px;
+      padding:2px 7px;
+      margin:4px 5px 0 0;
+      border-radius:999px;
+      background:rgba(0,0,0,0.06);
+      color:#666;
+      font-size:11px;
+      line-height:1.4;
+      font-weight:500;
+      vertical-align:middle;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    `.replace(/\s+/g, ' ').trim();
+
+    const chips = visibleTags.map(tag => {
+      const safeTag = this._escapeHtml(String(tag));
+      return `<span style="${chipStyle}" title="${safeTag}">#${safeTag}</span>`;
+    }).join('');
+
+    const extra = extraCount > 0
+      ? `<span style="${chipStyle}" title="还有 ${extraCount} 个标签">+${extraCount}</span>`
+      : '';
+
+    return `<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:0;">${chips}${extra}</div>`;
+  }
+
+  showFragmentDetail(chat, id) {
+    const frag = this.getFragment(chat, id);
+    if (!frag) {
+      showToast('未找到这条记忆', 'error');
+      return;
+    }
+
+    const modal = document.createElement('div');
+    modal.className = 'custom-modal-overlay';
+    modal.style.cssText = `
+      position: fixed;
+      inset: 0;
+      z-index: 999999;
+      background: rgba(0,0,0,0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      box-sizing: border-box;
+    `;
+
+    const formatTime = (value) => {
+      const n = Number(value || 0);
+      if (!Number.isFinite(n) || n <= 0) return '';
+      const d = new Date(n);
+      if (Number.isNaN(d.getTime())) return '';
+      return d.toLocaleString('zh-CN');
+    };
+
+    const detailRows = [
+      ['ID', frag.id || ''],
+      ['chatId', frag.chatId || ''],
+      ['分类', frag.category || ''],
+      ['重要度', frag.importance ?? ''],
+      ['情绪权重', frag.emotionalWeight ?? ''],
+      ['tags', Array.isArray(frag.tags) ? frag.tags.join(', ') : ''],
+      ['source', frag.source || ''],
+      ['context', frag.context || ''],
+      ['embeddingModel', frag.embeddingModel || ''],
+      ['embeddingDim', frag.embeddingDim || 0],
+      ['embeddingUpdatedAt', formatTime(frag.embeddingUpdatedAt)],
+      ['createdAt', formatTime(frag.createdAt)],
+      ['updatedAt', formatTime(frag.updatedAt)],
+      ['memoryTime', formatTime(frag.memoryTime)],
+      ['lastRecalled', formatTime(frag.lastRecalled)],
+      ['recallCount', frag.recallCount ?? 0],
+      ['linkedMemories', Array.isArray(frag.linkedMemories) ? frag.linkedMemories.join(', ') : '']
+    ];
+
+    const rowsHtml = detailRows.map(([key, value]) => `
+      <div style="display:grid;grid-template-columns:130px 1fr;gap:8px;padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.06);">
+        <div style="font-weight:600;color:#666;">${this._escapeHtml(String(key))}</div>
+        <div style="word-break:break-all;">${this._escapeHtml(String(value ?? ''))}</div>
+      </div>
+    `).join('');
+
+    modal.innerHTML = `
+      <div style="
+        width: min(680px, 94vw);
+        max-height: 86vh;
+        background: #fff;
+        border-radius: 18px;
+        box-shadow: 0 18px 50px rgba(0,0,0,0.22);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      ">
+        <div style="padding:18px 20px 10px;text-align:center;font-size:18px;font-weight:700;">
+          记忆详情
+        </div>
+
+        <div style="padding:14px 22px;overflow:auto;">
+          <div style="font-weight:700;margin-bottom:8px;">内容</div>
+          <div style="
+            white-space:pre-wrap;
+            word-break:break-word;
+            background:#f7f7f7;
+            border-radius:10px;
+            padding:12px;
+            margin-bottom:14px;
+            line-height:1.6;
+          ">${this._escapeHtml(frag.content || '')}</div>
+
+          <div style="font-weight:700;margin-bottom:8px;">元信息</div>
+          <div style="font-size:13px;line-height:1.5;">
+            ${rowsHtml}
+          </div>
+        </div>
+
+        <div style="display:flex;border-top:1px solid rgba(0,0,0,0.08);">
+          <button id="vm-detail-copy" style="
+            flex:1;padding:14px 0;border:none;background:#fff;color:#007aff;font-size:16px;cursor:pointer;
+            border-right:1px solid rgba(0,0,0,0.08);
+          ">复制JSON</button>
+          <button id="vm-detail-close" style="
+            flex:1;padding:14px 0;border:none;background:#fff;color:#007aff;font-size:16px;font-weight:700;cursor:pointer;
+          ">关闭</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const closeModal = () => modal.remove();
+
+    modal.querySelector('#vm-detail-close').addEventListener('click', closeModal);
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) closeModal();
+    });
+
+    modal.querySelector('#vm-detail-copy').addEventListener('click', async () => {
+      const text = JSON.stringify(frag, null, 2);
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast('详情 JSON 已复制', 'success');
+      } catch (e) {
+        showToast('复制失败', 'error');
+      }
+    });
+  }
+  
   // 工具函数
   _escapeHtml(text) {
     const div = document.createElement('div');
