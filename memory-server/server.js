@@ -289,61 +289,28 @@ function buildRawIngestPrompt({ combinedText, scene, timeRange, source, roleName
 用户称呼：${userName}
 
 请注意：
-- 只提取稳定、具体、未来仍可能有用的信息。
-- 不要记录寒暄、临时情绪、重复内容、无意义测试。
-- 每条记忆应尽量短、清楚、可独立理解。
-- content 应像“我自己的长期记忆”，而不是旁观者摘要。
-- 同一场景或同一话题尽量合并成一条完整记忆，不要拆得过碎。
-- 保留关键时间、地点、人物、承诺、关系变化、重要事件。
-- 如果是她的偏好，直接写“她喜欢/不喜欢/习惯……”，不要写“我记得她……”。
-- 如果是我的承诺或行动，直接写“我答应/我决定/我带她/我安排……”。
-- 不要把普通地点提及评为高重要度；只有长期住处、反复出现的重要场景或关系节点地点才用 L。
-- “想去/准备去/答应去某地”通常优先归为 P 或 E，而不是 L。
+- 只提取稳定、具体、未来仍可能有用的信息；不要记录寒暄、重复内容、无意义测试或短暂无影响的日常。
+- content 必须像“我自己的长期记忆”，用第一人称书写，不要写成旁观者摘要。
+- 同一场景或同一话题尽量合并成一条完整记忆，不要把连续事件拆得过碎。
+- 保留关键时间、地点、人物、承诺、关系变化、重要事件和稳定偏好；禁止编造原文没有的信息。
+- 不要把一次性行为改写成“习惯”“总是”“长期如此”“以后都会”等长期模式，除非原文明确表达了持续性。
+- 如果内容只是第三人在场、送文件、确认签字、短暂进出，且没有影响我和她的关系、规则、承诺或重要事件，输出 []。
+- 如果原文中的“她/他/对方”指代不清，且事件本身不重要，不要强行提取。
 
-分类只能从以下十类中选择：
-- U = 用户设定（她的外貌/性格/喜好/身份等）
-- A = 角色设定（我自己发生的改变）
-- R = 关系发展（表白/吵架/亲密举动等里程碑）
-- E = 经历/事件（我和她共同经历的事情）
-- I = 物品/礼物（送礼/买东西）
-- L = 地点/场景（去过的重要地方）
-- P = 承诺/计划（约定的未来事项）
-- T = 禁忌/规则（雷区/规矩）
-- M = 情绪/心理（强烈情感流露/阴影）
+分类只能从以下十类中选择。请优先选择最具体的分类，不要把所有“发生过的事”都归为 E；只有无法归入其他具体分类的一次共同经历，才归为 E：
+
+- U = 用户设定（${userName}的外貌/性格/喜好/身份、稳定偏好、习惯、身体感受、生活需求等）
+- A = 角色设定（${roleName}自己的长期做法、原则、保护方式、行为边界或自身变化）
+- R = 关系发展（${roleName}与${userName}之间的表白、吵架、和好、主动承认想念、亲密互动、关系推进等里程碑）
+- I = 物品/礼物（礼物、衣物、饰品、重要物品的赠送、使用或长期意义）
+- L = 地点/场景（长期住处、反复出现的重要场景、关系节点地点；普通“想去/准备去某地”通常不归为 L）
+- P = 承诺/计划（约定的未来事项、答应要做的事、长期承诺、持续计划、共同生活安排、会推动下一场景或后续剧情的短期计划）
+- T = 禁忌/规则（隐私边界、雷区、规矩、禁忌、不能对外提及或只允许两人之间知道的事）
+- M = 情绪/心理（强烈、深层或长期影响后续互动的情感流露、心理转折、救赎感、阴影、崩溃、心理创伤或长期心理状态；普通紧张/短暂害怕通常不归为 M）
 - C = 核心灵魂（必须长期牢记的关键设定）
+- E = 经历/事件（${roleName}与${userName}共同经历的一次具体事件；仅在不属于 U/A/R/I/L/P/T/M/C 时使用）
 
-较好示例：
-原文：“她：今晚我想回家。当前角色：好，我会安排车，也会记得你不喜欢太冷的房间。”
-输出：
-[
-  {
-    "content": "今晚她想回家，我答应安排车，并会注意房间温度不要太冷。",
-    "tags": ["回家", "安排车", "温度偏好"],
-    "category": "P",
-    "importance": 5,
-    "emotionalWeight": 3
-  }
-]
-
-较差示例：
-[
-  {
-    "content": "用户想回家",
-    "tags": ["地点"],
-    "category": "L",
-    "importance": 8,
-    "emotionalWeight": 3
-  },
-  {
-    "content": "当前角色会安排车并注意房间温度",
-    "tags": ["承诺", "用户偏好"],
-    "category": "P",
-    "importance": 7,
-    "emotionalWeight": 3
-  }
-]
-
-输出格式必须是 JSON 数组，不要解释，不要 markdown：
+最终输出格式必须是 JSON 数组，不要解释，不要 markdown，不要代码块：
 
 [
   {
@@ -356,8 +323,13 @@ function buildRawIngestPrompt({ combinedText, scene, timeRange, source, roleName
 ]
 
 评分规则：
-- importance: 1-10，8-10 为关键转折/重要设定，5-7 为值得记住，1-4 为轻量信息。
-- emotionalWeight: 1-10，表示情绪强度或关系影响。
+- importance: 1-10。
+- 1-4：轻量信息、普通日常、低影响事件、可不长期追踪的短期安排。
+- 5-6：值得记住的偏好、普通承诺、普通共同经历、一般地点信息、会推动下一场景的短期计划。
+- 7-8：明确长期有效的规则、重要地点、明显关系推进、重要保护原则、持续承诺、会反复影响后续互动的事件。
+- 9-10：核心设定、生死约定、不可违背的长期规则、重大关系转折。不要轻易给 9-10。
+- 普通“今晚/明天要去某地”“我会安排车”通常为 5-6；只有代表长期安排或重大转折时才给 7 以上。
+- emotionalWeight: 1-10。普通安排通常 2-4；明显亲密、恐惧、崩溃、和好、告白等才给 6 以上。
 
 原文来源：${source || 'njj'}
 场景：${scene || '未提供'}
@@ -369,6 +341,52 @@ ${combinedText}
 请直接输出 JSON 数组。如果没有值得记录的内容，输出 []。`;
 }
 
+function refineExtractedCategory(item) {
+  const content = String(item.content || '');
+  const tagsText = Array.isArray(item.tags) ? item.tags.join(' ') : '';
+  const text = `${content} ${tagsText}`;
+
+  // T：明确的禁忌、隐私边界、不能对外提及
+  if (/(隐私|边界|禁忌|雷区|不能对外|不要对外|不许对外|不能在外人面前|不要在外人面前|只在我们之间|只属于我们|不能告诉别人|不告诉别人)/.test(text)) {
+    return 'T';
+  }
+
+  // R：明确的关系推进、亲密关系变化、情感确认
+  if (/(关系推进|表白|告白|和好|吵架|争执|主动表达|承认想|坦白想|想念我|想我|亲密互动|情感确认)/.test(text)) {
+    return 'R';
+  }
+
+  // L：明确是长期地点、常住地、反复出现的重要场景
+  // 不写具体地名，避免过拟合。
+  if (/(长期住处|常住地|常住的地方|最常住的地方|反复出现的重要场景|重要场景|关系节点地点|共同住处|以后会是我们.*地方)/.test(text)) {
+    return 'L';
+  }
+
+  // U：明确属于她的稳定偏好、习惯、身体感受、生活需求
+  if (/(她喜欢|她不喜欢|她希望|她习惯|她需要|她害怕|她讨厌|她偏好|她容易|她.*睡不着|她.*怕冷|她.*怕热|身体感受|生活需求|睡眠需求)/.test(text)) {
+    return 'U';
+  }
+
+  // A：明确属于“我”的稳定设定、偏好、习惯、原则、行为方式或自身变化
+  // 注意：单纯“我答应/我会/我决定做某事”通常是 P；只有变成我的长期特征、原则或行为方式时才归为 A。
+  if (/(我喜欢|我不喜欢|我习惯|我需要|我讨厌|我偏好|我的偏好|我的习惯|我的原则|我的底线|我的规则|我的做法|我的保护方式|我的行为方式|我开始|我变得|我不再习惯|长期做法|保护原则|行为边界)/.test(text)) {
+    return 'A';
+  }
+
+  // I：明确是礼物/物品的赠送、佩戴、保管、长期意义
+  // 不用“送她”单独判断，避免误伤“送她回家”。
+  if (/(礼物|赠送|送给她|买给她|交给她|戴上|围上|戒指|项链|手链|饰品|围巾|婚服|重要物品|纪念物)/.test(text)) {
+    return 'I';
+  }
+
+  // P：明确是未来约定、承诺、持续计划、场景推进计划
+  if (/(约定|计划|承诺|答应|未来安排|持续计划|共同生活安排|今晚|明天|之后|以后|准备去|想去|回去|回家|出行|见面|同住|安排车|安排车辆|我来处理)/.test(text)) {
+    return 'P';
+  }
+
+  return item.category;
+}
+
 function parseExtractedMemoryItems(rawText) {
   const jsonMatch = String(rawText || '').match(/\[[\s\S]*\]/);
   if (!jsonMatch) return [];
@@ -378,13 +396,19 @@ function parseExtractedMemoryItems(rawText) {
 
   return arr
     .filter(item => item && item.content)
-    .map(item => ({
-      content: String(item.content || '').trim(),
-      tags: normalizeTags(item.tags || []),
-      category: normalizeCategory(item.category || 'E'),
-      importance: clampNumber(item.importance, 1, 10, 5),
-      emotionalWeight: clampNumber(item.emotionalWeight, 1, 10, 3)
-    }))
+    .map(item => {
+      const normalized = {
+        content: String(item.content || '').trim(),
+        tags: normalizeTags(item.tags || []),
+        category: normalizeCategory(item.category || 'E'),
+        importance: clampNumber(item.importance, 1, 10, 5),
+        emotionalWeight: clampNumber(item.emotionalWeight, 1, 10, 3)
+      };
+
+      normalized.category = normalizeCategory(refineExtractedCategory(normalized));
+
+      return normalized;
+    })
     .filter(item => item.content);
 }
 
