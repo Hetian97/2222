@@ -7,15 +7,21 @@ const MCP_URL = process.env.MCP_URL || 'http://127.0.0.1:8765/mcp';
 const samples = [
   {
     name: '01 用户偏好：房间温度',
-    rawText: '她：以后卧室不要太冷，我晚上会睡不着。\n当前角色：好，我会把温度调高一点，也会提前让房间暖起来。',
+    rawText: '她：以后卧室不要太冷，我晚上会睡不着。\n当前角色：好，等会儿我把温度调高一点，以后早一点加热，让提前房间暖起来。',
     scene: '私聊 - 卧室',
     timeRange: '2026-06-01 20:00-20:05'
   },
   {
-    name: '02 承诺计划：回昼鹤花园',
+    name: '02-1 短期承诺计划：回昼鹤花园',
     rawText: '她：今晚我想回昼鹤花园。\n当前角色：好，我会安排车。你不用收拾太多东西，我来处理。',
     scene: '私聊 - 客厅',
     timeRange: '2026-06-01 20:10-20:15'
+  },
+  {
+    name: '02 长期承诺计划：昼鹤花园为常驻地',
+    rawText: '我告诉她，昼鹤花园以后会是我们在天行市最常住的地方，里面的主卧、书房和花园都会按照她的习惯重新整理。',
+    scene: '线下 - 昼鹤花园',
+    timeRange: '2026-06-01 21:30-21:40'
   },
   {
     name: '03 关系发展：主动承认想念',
@@ -24,9 +30,15 @@ const samples = [
     timeRange: '2026-06-01 21:00-21:20'
   },
   {
-    name: '04 地点设定：昼鹤花园',
-    rawText: '我告诉她，昼鹤花园以后会是我们在天行市最常住的地方，里面的主卧、书房和花园都会按照她的习惯重新整理。',
-    scene: '线下 - 昼鹤花园',
+    name: '04-1 事件：去环岛公路看海',
+    rawText: '我带阿鹤去了环岛公路看海，海边的阳光很好，沙滩很软。',
+    scene: '线下 - 环岛公路',
+    timeRange: '2026-06-01 21:30-21:40'
+  },
+  {
+    name: '04-2 地点设定：环岛公路',
+    rawText: '环岛公路是我和阿鹤第一次看海的地方。 我答应以后每年都带她回环岛公路。 她把环岛公路称为我们重新开始的地方。',
+    scene: '线下 - 环岛公路',
     timeRange: '2026-06-01 21:30-21:40'
   },
   {
@@ -42,14 +54,14 @@ const samples = [
     timeRange: '2026-06-01 22:20-22:30'
   },
   {
-    name: '07 情绪心理：害怕陌生人',
-    rawText: '裁缝进门后，她明显往我身后躲了一下，手指一直抓着我的袖口。我让林曳带人先在客厅等着，自己带她回主卧换衣服。',
-    scene: '线下 - 老宅客厅与主卧',
+    name: '07 情绪心理：吃醋',
+    rawText: '我忍不住对阿鹤发了脾气，因为她提到自己在“空白的一年”里曾与陈桉骅有交集，事后我很懊悔，并向她道了歉。',
+    scene: '线下 - 老宅客厅',
     timeRange: '2026-06-01 14:00-14:20'
   },
   {
-    name: '08 角色设定：限制他人接触私人物品',
-    rawText: '我决定以后不再让林曳或其他人直接接触她的贴身衣物和私人物品。需要处理时，我会亲自确认。',
+    name: '08 角色设定：称呼偏好',
+    rawText: '我告诉阿鹤，相较于老公或丈夫，我更喜欢她叫我的名字——夏以昼，因为这个名字是她赋予我的，象征着我的唯一归属。',
     scene: '线下 - 主卧',
     timeRange: '2026-06-01 14:30-14:35'
   },
@@ -67,7 +79,11 @@ const samples = [
   }
 ];
 
-async function callIngestRaw(sample, index) {
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function callIngestRawOnce(sample, index) {
   const body = {
     jsonrpc: '2.0',
     id: index + 1,
@@ -108,6 +124,27 @@ async function callIngestRaw(sample, index) {
   }
 
   return data.result;
+}
+
+async function callIngestRaw(sample, index) {
+  const maxAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      if (attempt > 1) {
+        console.log(`重试 ${attempt}/${maxAttempts}: ${sample.name}`);
+      }
+
+      return await callIngestRawOnce(sample, index);
+    } catch (error) {
+      if (attempt >= maxAttempts) {
+        throw error;
+      }
+
+      console.log(`本次失败：${error.message}`);
+      await sleep(2000 * attempt);
+    }
+  }
 }
 
 function printResult(sample, result) {
