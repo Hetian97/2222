@@ -7,4 +7,4 @@ memory-server/memory.backup.json
 memory-server/backups/
 memory-server/node_modules/
 memory-server/server.json-version.backup.js
-start-2222-tailscale-local.bat
+start-2222-tailscale-local.batmemory-server/raw-test.txt
