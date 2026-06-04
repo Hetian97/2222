@@ -1092,6 +1092,8 @@ function bindVectorMemoryEvents(chat, container) {
   const categoryFilter = container.querySelector('#vm-category-filter');
   const vectorFilter = container.querySelector('#vm-vector-filter');
   const importanceFilter = container.querySelector('#vm-importance-filter');
+  const dateFromFilter = container.querySelector('#vm-date-from-filter');
+  const dateToFilter = container.querySelector('#vm-date-to-filter');
   const resetFilterBtn = container.querySelector('#vm-reset-filter-btn');
 
   function vmApplyPanelFiltersFromUI() {
@@ -1101,7 +1103,9 @@ function bindVectorMemoryEvents(chat, container) {
       query: searchInput ? searchInput.value.trim() : '',
       category: categoryFilter ? categoryFilter.value : '',
       vector: vectorFilter ? vectorFilter.value : '',
-      minImportance: importanceFilter ? importanceFilter.value : ''
+      minImportance: importanceFilter ? importanceFilter.value : '',
+      dateFrom: dateFromFilter ? dateFromFilter.value : '',
+      dateTo: dateToFilter ? dateToFilter.value : ''
     };
 
     renderVectorMemoryView();
@@ -1140,6 +1144,18 @@ function bindVectorMemoryEvents(chat, container) {
     });
   }
 
+  if (dateFromFilter) {
+    dateFromFilter.addEventListener('change', () => {
+      vmApplyPanelFiltersFromUI();
+    });
+  }
+
+  if (dateToFilter) {
+    dateToFilter.addEventListener('change', () => {
+      vmApplyPanelFiltersFromUI();
+    });
+  }
+
   if (resetFilterBtn) {
     resetFilterBtn.addEventListener('click', () => {
       const vm = window.vectorMemoryManager.getVariableMemory(chat);
@@ -1147,7 +1163,9 @@ function bindVectorMemoryEvents(chat, container) {
         query: '',
         category: '',
         vector: '',
-        minImportance: ''
+        minImportance: '',
+        dateFrom: '',
+        dateTo: ''
       };
       renderVectorMemoryView();
     });

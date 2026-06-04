@@ -34,7 +34,7 @@ async function main() {
   console.log(`MCP_URL = ${MCP_URL}`);
   console.log(`SUMMARY_FILE = ${SUMMARY_FILE}`);
   console.log(`字符数 = ${summaryText.length}`);
-  console.log('开始 dryRun ingest_summary。不会写入 SQLite。');
+  console.log(`开始 ingest_summary。dryRun = ${body.params.arguments.dryRun}`);
 
   const response = await fetch(MCP_URL, {
     method: 'POST',
@@ -62,21 +62,32 @@ async function main() {
 
   const result = data.result || {};
   const structured = result.structuredContent || {};
-  const items = structured.extractedItems || [];
+  const isDryRun = structured.dryRun === true;
+
+  const items = Array.isArray(structured.extractedItems)
+    ? structured.extractedItems
+    : (Array.isArray(structured.memories) ? structured.memories : []);
+
+  const shownCount = isDryRun
+    ? (structured.extractedCount ?? items.length)
+    : (structured.savedCount ?? structured.extractedCount ?? items.length);
 
   console.log('\n============================================================');
-  console.log('提取结果');
+  console.log(isDryRun ? '提取结果' : '写入结果');
   console.log('------------------------------------------------------------');
-  console.log(`提取条数：${items.length}`);
+  console.log(`dryRun：${isDryRun}`);
+  console.log(isDryRun ? `提取条数：${shownCount}` : `写入条数：${shownCount}`);
 
   if (items.length === 0) {
     console.log('[]');
+    console.log('\n完整 text 返回：');
+    console.log(result.content?.[0]?.text || '');
     return;
   }
 
   items.forEach((item, index) => {
-    console.log(`${index + 1}. [${item.category}] ${item.content}`);
-    console.log(`   tags: ${(item.tags || []).join(', ')}`);
+    console.log(`${index + 1}. [${item.category || 'E'}] ${item.content || ''}`);
+    console.log(`   tags: ${Array.isArray(item.tags) ? item.tags.join(', ') : ''}`);
     console.log(`   importance: ${item.importance}; emotionalWeight: ${item.emotionalWeight}`);
   });
 

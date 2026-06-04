@@ -394,6 +394,7 @@ function buildSummaryIngestPrompt({ summaryText, source, roleName = '角色', us
 - 不要记录餐具声、动作细节、环境描写等镜头级细节，除非它本身具有长期意义。
 - 如果是回忆过去事件，content 应写清“她回忆/我回忆/我提及/她确认……”。
 - 如果是未来安排、承诺、约定、计划，保留具体日期和行动。
+- 不要把所有短期行动、日常安排或场景推进都归为 P。只有需要后续兑现、持续追踪、明确约定的未来事项才归为 P；已经发生或正在发生的普通安排、照顾、采购、陪伴、工作流程，通常归为 E，并可合并进所在事件。
 - 如果是文本里已经概括好的场景，不要再次过度总结到丢失关键关系和事件。
 - 如果物品只是回忆中的线索，而核心是心理变化、关系变化、承诺、规则或事件，不要归为 I。
 - 如果内容是共同回忆、过去经历或回忆往事，通常归为 E/R；只有出现强烈心理状态、创伤、解离、崩溃、救赎感等，才归为 M。
@@ -1191,7 +1192,30 @@ async function handleMcpRequest(body) {
             temperature: 0.2
           });
 
-          extractedItems = parseExtractedMemoryItems(rawExtraction).slice(0, limit);
+                    extractedItems = parseExtractedMemoryItems(rawExtraction).slice(0, limit);
+
+          if (!dryRun && extractedItems.length === 0) {
+            console.warn('[mcp] ingest_summary extracted 0 items on write attempt, retry once.');
+
+            const retryExtraction = await createChatCompletion({
+              endpoint: llmConfig.endpoint,
+              apiKey: llmConfig.apiKey,
+              model: llmConfig.model,
+              messages: [
+                {
+                  role: 'system',
+                  content: '你是严格的 JSON 记忆整理器。只输出 JSON 数组。'
+                },
+                {
+                  role: 'user',
+                  content: prompt + '\n\n注意：上一次没有提取到记忆。请重新判断，除非文本完全没有长期价值，否则至少输出 1 条。'
+                }
+              ],
+              temperature: 0.1
+            });
+
+            extractedItems = parseExtractedMemoryItems(retryExtraction).slice(0, limit);
+          }
         } catch (error) {
           return mcpError(id, -32002, `ingest_summary extraction failed: ${error.message}`);
         }
@@ -1369,6 +1393,7 @@ async function handleMcpRequest(body) {
           });
 
           extractedItems = parseExtractedMemoryItems(rawExtraction).slice(0, limit);
+
         } catch (error) {
           return mcpError(id, -32002, `ingest_raw extraction failed: ${error.message}`);
         }

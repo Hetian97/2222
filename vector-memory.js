@@ -1126,7 +1126,9 @@ ${output}`;
       query: '',
       category: '',
       vector: '',
-      minImportance: ''
+      minImportance: '',
+      dateFrom: '',
+      dateTo: ''
     };
 
     filterBar.innerHTML = `
@@ -1160,6 +1162,16 @@ ${output}`;
           <option value="${n}" ${String(filters.minImportance) === String(n) ? 'selected' : ''}>≥${n}</option>
         `).join('')}
       </select>
+
+      <label style="font-size:13px;color:#666;">开始日期</label>
+      <input id="vm-date-from-filter" class="vm-filter-input" type="date"
+        value="${this._escapeHtml(filters.dateFrom || '')}"
+        style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;font-size:14px;">
+
+      <label style="font-size:13px;color:#666;">结束日期</label>
+      <input id="vm-date-to-filter" class="vm-filter-input" type="date"
+        value="${this._escapeHtml(filters.dateTo || '')}"
+        style="padding:8px 10px;border:1px solid #ddd;border-radius:10px;font-size:14px;">
 
       <button class="vm-toolbar-btn" id="vm-reset-filter-btn">重置</button>
     `;
@@ -1522,6 +1534,14 @@ ${output}`;
       ? ''
       : Number(filters.minImportance);
 
+    const dateFrom = String(filters.dateFrom || '').trim();
+    const dateTo = String(filters.dateTo || '').trim();
+
+    const getMemoryTime = (f) => {
+      const time = Number(f.memoryTime || f.createdAt || 0);
+      return Number.isFinite(time) ? time : 0;
+    };
+
     if (query) {
       result = result.filter(f => {
         const haystack = [
@@ -1548,6 +1568,20 @@ ${output}`;
 
     if (Number.isFinite(minImportance)) {
       result = result.filter(f => Number(f.importance || 0) >= minImportance);
+    }
+
+    if (dateFrom) {
+      const fromTime = new Date(`${dateFrom}T00:00:00`).getTime();
+      if (Number.isFinite(fromTime)) {
+        result = result.filter(f => getMemoryTime(f) >= fromTime);
+      }
+    }
+
+    if (dateTo) {
+      const toTime = new Date(`${dateTo}T23:59:59`).getTime();
+      if (Number.isFinite(toTime)) {
+        result = result.filter(f => getMemoryTime(f) <= toTime);
+      }
     }
 
     return result;
