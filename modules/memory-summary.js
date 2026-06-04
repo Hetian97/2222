@@ -1264,7 +1264,40 @@ function bindVectorMemoryEvents(chat, container) {
 
   container.querySelectorAll('.vm-edit-frag-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const currentContent = btn.closest('.vm-item-row')?.querySelector('.vm-item-content')?.textContent || '';
+      const fragId = btn.dataset.id;
+      const frag = window.vectorMemoryManager.getFragment(chat, fragId);
+
+      if (!frag) {
+        showToast('未找到记忆片段', 'error');
+        return;
+      }
+
+      const categoryOptions = [
+        ['U', 'U 用户设定'],
+        ['A', 'A 角色设定'],
+        ['R', 'R 关系发展'],
+        ['E', 'E 经历/事件'],
+        ['I', 'I 物品/礼物'],
+        ['L', 'L 地点/场景'],
+        ['P', 'P 承诺/计划'],
+        ['T', 'T 禁忌/规则'],
+        ['M', 'M 情绪/心理'],
+        ['C', 'C 核心灵魂']
+      ];
+
+      const toDatetimeLocal = (value) => {
+        const num = Number(value || 0);
+        if (!Number.isFinite(num) || num <= 0) return '';
+        const d = new Date(num);
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      };
+
+      const fromDatetimeLocal = (value) => {
+        if (!value) return frag.memoryTime || frag.createdAt || Date.now();
+        const time = new Date(value).getTime();
+        return Number.isFinite(time) ? time : (frag.memoryTime || frag.createdAt || Date.now());
+      };
 
       const modal = document.createElement('div');
       modal.className = 'custom-modal-overlay';
@@ -1282,11 +1315,14 @@ function bindVectorMemoryEvents(chat, container) {
 
       modal.innerHTML = `
         <div style="
-          width: min(520px, 94vw);
+          width: min(620px, 94vw);
+          max-height: 88vh;
           background: #fff;
           border-radius: 18px;
           box-shadow: 0 18px 50px rgba(0,0,0,0.22);
           overflow: hidden;
+          display: flex;
+          flex-direction: column;
         ">
           <div style="
             padding: 18px 20px 10px;
@@ -1295,11 +1331,14 @@ function bindVectorMemoryEvents(chat, container) {
             font-weight: 700;
           ">编辑记忆片段</div>
 
-          <div style="padding: 12px 24px 18px;">
-            <div style="font-size: 14px; margin-bottom: 8px; text-align:center;">修改内容：</div>
-            <textarea id="vm-edit-frag-textarea" style="
+          <div style="
+            padding: 12px 24px 18px;
+            overflow-y: auto;
+          ">
+            <div style="font-size: 14px; margin-bottom: 8px;">内容：</div>
+            <textarea id="vm-edit-frag-content" style="
               width: 100%;
-              min-height: 130px;
+              min-height: 120px;
               resize: vertical;
               padding: 10px;
               box-sizing: border-box;
@@ -1307,7 +1346,80 @@ function bindVectorMemoryEvents(chat, container) {
               border: 1px solid #ccc;
               font-size: 15px;
               line-height: 1.5;
+              margin-bottom: 12px;
             "></textarea>
+
+            <div style="
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 12px;
+              margin-bottom: 12px;
+            ">
+              <div>
+                <div style="font-size: 14px; margin-bottom: 6px;">分类：</div>
+                <select id="vm-edit-frag-category" style="
+                  width: 100%;
+                  padding: 9px 10px;
+                  border-radius: 10px;
+                  border: 1px solid #ccc;
+                  font-size: 14px;
+                  box-sizing: border-box;
+                  background: #fff;
+                ">
+                  ${categoryOptions.map(([value, label]) => `
+                    <option value="${value}">${label}</option>
+                  `).join('')}
+                </select>
+              </div>
+
+              <div>
+                <div style="font-size: 14px; margin-bottom: 6px;">发生时间：</div>
+                <input id="vm-edit-frag-memory-time" type="datetime-local" style="
+                  width: 100%;
+                  padding: 8px 10px;
+                  border-radius: 10px;
+                  border: 1px solid #ccc;
+                  font-size: 14px;
+                  box-sizing: border-box;
+                ">
+              </div>
+            </div>
+
+            <div style="
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 12px;
+              margin-bottom: 12px;
+            ">
+              <div>
+                <div style="font-size: 14px; margin-bottom: 6px;">重要度：<span id="vm-edit-frag-importance-label"></span></div>
+                <input id="vm-edit-frag-importance" type="range" min="1" max="10" step="1" style="width: 100%;">
+              </div>
+
+              <div>
+                <div style="font-size: 14px; margin-bottom: 6px;">情感权重：<span id="vm-edit-frag-emotion-label"></span></div>
+                <input id="vm-edit-frag-emotion" type="range" min="1" max="10" step="1" style="width: 100%;">
+              </div>
+            </div>
+
+            <div style="font-size: 14px; margin-bottom: 6px;">标签：</div>
+            <input id="vm-edit-frag-tags" type="text" placeholder="用逗号分隔，例如：婚礼, 秀禾服, 学术会议" style="
+              width: 100%;
+              padding: 9px 10px;
+              border-radius: 10px;
+              border: 1px solid #ccc;
+              font-size: 14px;
+              box-sizing: border-box;
+            ">
+
+            <div style="
+              margin-top: 8px;
+              font-size: 12px;
+              color: #888;
+              line-height: 1.5;
+            ">
+              提示：修改内容会重新生成 embedding；只改分类、标签、重要度、情感权重或时间不会重新向量化。
+            </div>
           </div>
 
           <div style="
@@ -1334,19 +1446,41 @@ function bindVectorMemoryEvents(chat, container) {
               font-size: 16px;
               font-weight: 700;
               cursor: pointer;
-            ">确定</button>
+            ">保存</button>
           </div>
         </div>
       `;
 
       document.body.appendChild(modal);
 
-      const textarea = modal.querySelector('#vm-edit-frag-textarea');
+      const contentInput = modal.querySelector('#vm-edit-frag-content');
+      const categoryInput = modal.querySelector('#vm-edit-frag-category');
+      const memoryTimeInput = modal.querySelector('#vm-edit-frag-memory-time');
+      const importanceInput = modal.querySelector('#vm-edit-frag-importance');
+      const emotionInput = modal.querySelector('#vm-edit-frag-emotion');
+      const importanceLabel = modal.querySelector('#vm-edit-frag-importance-label');
+      const emotionLabel = modal.querySelector('#vm-edit-frag-emotion-label');
+      const tagsInput = modal.querySelector('#vm-edit-frag-tags');
       const cancelBtn = modal.querySelector('#vm-edit-frag-cancel');
       const confirmBtn = modal.querySelector('#vm-edit-frag-confirm');
 
-      textarea.value = currentContent;
-      textarea.focus();
+      contentInput.value = frag.content || '';
+      categoryInput.value = frag.category || 'E';
+      memoryTimeInput.value = toDatetimeLocal(frag.memoryTime || frag.createdAt || Date.now());
+      importanceInput.value = Number(frag.importance || 5);
+      emotionInput.value = Number(frag.emotionalWeight || 3);
+      tagsInput.value = Array.isArray(frag.tags) ? frag.tags.join(', ') : '';
+
+      const updateRangeLabels = () => {
+        importanceLabel.textContent = importanceInput.value;
+        emotionLabel.textContent = emotionInput.value;
+      };
+
+      importanceInput.addEventListener('input', updateRangeLabels);
+      emotionInput.addEventListener('input', updateRangeLabels);
+      updateRangeLabels();
+
+      contentInput.focus();
 
       const closeModal = () => {
         modal.remove();
@@ -1359,16 +1493,28 @@ function bindVectorMemoryEvents(chat, container) {
       });
 
       confirmBtn.addEventListener('click', async () => {
-        const newContent = textarea.value.trim();
+        const newContent = contentInput.value.trim();
 
         if (!newContent) {
           showToast('记忆内容不能为空', 'error');
           return;
         }
 
-        const ok = await window.vectorMemoryManager.editFragment(chat, btn.dataset.id, {
-          content: newContent
-        });
+        const newTags = tagsInput.value
+          .split(/[,，#\n]/)
+          .map(tag => tag.trim())
+          .filter(Boolean);
+
+        const updates = {
+          content: newContent,
+          category: categoryInput.value || 'E',
+          tags: newTags,
+          importance: Number(importanceInput.value || 5),
+          emotionalWeight: Number(emotionInput.value || 3),
+          memoryTime: fromDatetimeLocal(memoryTimeInput.value)
+        };
+
+        const ok = await window.vectorMemoryManager.editFragment(chat, fragId, updates);
 
         if (!ok) {
           showToast('修改失败：未找到记忆', 'error');
@@ -1378,10 +1524,10 @@ function bindVectorMemoryEvents(chat, container) {
         await db.chats.put(chat);
         closeModal();
         renderVectorMemoryView();
-        showToast('已修改记忆', 'success');
+        showToast('已保存记忆修改', 'success');
       });
     });
-  });
+  });  
   container.querySelectorAll('.vm-delete-frag-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const confirmed = await showCustomConfirm('确认删除', '确定要删除这条记忆片段吗？');

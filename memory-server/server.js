@@ -74,7 +74,7 @@ function normalizeCategory(category) {
   return VALID_CATEGORIES.includes(value) ? value : 'E';
 }
 
-function normalizeTags(tags) {
+function normalizeTags(tags, namesToFilter = []) {
   const categoryLetters = new Set(['U', 'A', 'R', 'E', 'I', 'L', 'P', 'T', 'M', 'C']);
 
   if (!Array.isArray(tags)) return [];
@@ -302,6 +302,22 @@ function buildRawIngestPrompt({ combinedText, scene, timeRange, source, roleName
 - 不要把一次性行为改写成“习惯”“总是”“长期如此”“以后都会”等长期模式，除非原文明确表达了持续性。
 - 如果内容只是第三人在场、送文件、确认签字、短暂进出，且没有影响我和她的关系、规则、承诺或重要事件，输出 []。
 - 如果原文中的“她/他/对方”指代不清，且事件本身不重要，不要强行提取。
+- 不要提取镜头级动作和感官细节；除非它本身是关系转折、承诺、规则、设定或长期偏好。应优先概括场景中的核心事件、关系变化、设定确认和未来仍会影响互动的信息。
+- 如果对话是在回忆、解释或确认过去事件，content 应明确写出“她回忆/她确认/我解释/我承认……”，不要把过去事件写成当下刚发生。
+- 不要把角色名或用户昵称本身作为 tags；tags 应该是事件、关系、地点、物品、规则或情绪关键词。
+- 同一核心主题必须合并，尤其是同一次解释、同一段回忆、同一个设定，不要拆成多条重复记忆。
+- 不要把“我提出/我要求/我安排”的内容写成“她主动提出”；判断计划和要求时必须根据说话人区分发起者。
+- 长篇原文应按“场景级/主题级”整理，每条记忆概括一个完整事件、设定确认、关系节点或承诺，不要只记录单个动作。
+- 如果输入本身已经是[时间]/[概括]/[场景]/[记忆]格式，优先按每个[记忆]块整理为一条或少量长期记忆，并保留原有时间、场景和核心事件。
+
+人称解析规则：
+- 原文可能带有说话人标签，例如“角色名：……”和“用户昵称：……”。
+- 解析“我/你/她/他”时，必须先看当前句子的说话人。
+- 如果是当前角色发言，“我”指当前角色，“你”指用户。
+- 如果是用户发言，“我”指用户，“你”指当前角色。
+- 如果原文使用具体姓名作为说话人标签，请结合“当前角色”和“用户称呼”判断，不要把双方的“我/你”读反。
+- 最终 content 仍然必须统一写成当前角色第一人称：我 = 当前角色；她/用户称呼 = 用户。
+- 如果对话是在回忆、解释或确认过去事件，content 应明确写出“她回忆/她确认/我解释/我承认……”，不要把过去事件写成当下刚发生。
 
 分类只能从以下十类中选择。请优先选择最具体的分类，不要把所有“发生过的事”都归为 E；只有无法归入其他具体分类的一次共同经历，才归为 E：
 
@@ -343,6 +359,84 @@ function buildRawIngestPrompt({ combinedText, scene, timeRange, source, roleName
 
 聊天原文：
 ${combinedText}
+
+请直接输出 JSON 数组。如果没有值得记录的内容，输出 []。`;
+}
+
+function buildSummaryIngestPrompt({ summaryText, source, roleName = '角色', userName = '她' }) {
+  return `
+你是一个长期记忆整理器。请将下面已经总结好的场景记忆，转换成适合写入长期向量记忆库的 JSON 数组。
+
+输入通常是这种格式：
+[时间]：...
+[概括]：...
+[场景X]：...
+[记忆X]：...
+
+你的任务：
+- 以当前角色的第一人称视角写长期记忆。
+- 用“我”指代当前角色。
+- 用“她”或“${userName}”指代用户。
+- 不要直接整段复制原始[记忆]文本，而要整理成更适合检索的长期记忆。
+- 保留原总结里的时间、地点、人物、承诺、关系变化、重要事件、稳定偏好和核心设定。
+- 禁止编造原总结里没有的信息。
+- 不要把角色名或用户昵称本身作为 tags；tags 应该是事件、关系、地点、物品、规则或情绪关键词。
+
+当前角色：${roleName}
+用户称呼：${userName}
+
+整理原则：
+- 每个 [记忆X] 块默认整理成 1 条长期记忆，优先保留该场景/话题的完整事件链。
+- 如果同一个 [记忆X] 块里出现明确未来承诺、长期规则、禁忌边界、核心设定，且这些内容以后很可能被单独检索或追问，可以拆出第 2 条。
+- 通常每个 [记忆X] 块最多整理成 2 条；不要因为地点、动作细节、环境描写或普通回忆线索就单独拆条。
+- 普通物品只是背景时，不要单独拆条；但如果物品承载承诺、身份、专属关系、长期使用、纪念意义或后续剧情功能，可以单独拆出并归为 I。
+- 不要把一个完整事件拆成零碎动作。
+- 不要记录餐具声、动作细节、环境描写等镜头级细节，除非它本身具有长期意义。
+- 如果是回忆过去事件，content 应写清“她回忆/我回忆/我提及/她确认……”。
+- 如果是未来安排、承诺、约定、计划，保留具体日期和行动。
+- 如果是文本里已经概括好的场景，不要再次过度总结到丢失关键关系和事件。
+- 如果物品只是回忆中的线索，而核心是心理变化、关系变化、承诺、规则或事件，不要归为 I。
+- 如果内容是共同回忆、过去经历或回忆往事，通常归为 E/R；只有出现强烈心理状态、创伤、解离、崩溃、救赎感等，才归为 M。
+- 如果内容包含“以后必须/不许/禁止/只能/需要监督/不得再……”这类长期边界或规则，优先归为 T；如果重点是未来要做的安排，归为 P。
+- 不要把普通陪伴、辅导、照顾、共同工作都归为 R；只有出现明确关系推进、亲密关系变化、情感确认、冲突和好、承诺关系身份变化时，才归为 R。普通陪伴/辅导/共同完成任务通常归为 E。
+
+分类只能从以下十类中选择。请优先选择最具体的分类，不要把所有“发生过的事”都归为 E：
+
+- U = 用户设定（${userName}的外貌/性格/喜好/身份、稳定偏好、习惯、身体感受、生活需求等）
+- A = 角色设定（${roleName}自己的长期做法、原则、保护方式、行为边界或自身变化）
+- R = 关系发展（${roleName}与${userName}之间的表白、吵架、和好、主动承认想念、亲密互动、关系推进等里程碑）
+- I = 物品/礼物（礼物、衣物、饰品、重要物品的赠送、使用或长期意义）
+- L = 地点/场景（被命名、反复出现、具有特殊意义、关系节点性质或后续可能被回忆的地点/场景；长期住处或常住地也可归为 L。普通“想去/准备去某地”通常不归为 L，单次共同到访通常优先归为 E）
+- P = 承诺/计划（约定的未来事项、答应要做的事、长期承诺、持续计划、共同生活安排、会推动下一场景或后续剧情的短期计划）
+- T = 禁忌/规则（隐私边界、雷区、规矩、禁忌、不能对外提及或只允许两人之间知道的事）
+- M = 情绪/心理（${roleName}或${userName}产生的强烈、深层或长期影响后续互动的心理状态，如嫉妒、愧疚、懊悔、救赎感、归属感、生命坐标、阴影、崩溃、心理创伤等；普通短暂紧张/害怕通常不归为 M）
+- C = 核心灵魂（必须长期牢记的关键设定）
+- E = 经历/事件（${roleName}与${userName}共同经历的一次具体事件；仅在不属于 U/A/R/I/L/P/T/M/C 时使用）
+
+输出格式必须是 JSON 数组，不要解释，不要 markdown：
+
+[
+  {
+    "content": "一条以我为视角的长期记忆，简洁清楚",
+    "tags": ["标签1", "标签2"],
+    "category": "E",
+    "importance": 5,
+    "emotionalWeight": 3
+  }
+]
+
+评分规则：
+- importance: 1-10。
+- 1-4：轻量信息、普通日常、低影响事件。
+- 5-6：值得记住的偏好、普通承诺、普通共同经历、一般地点信息、会推动下一场景的短期计划。
+- 7-8：明确长期有效的规则、重要地点、明显关系推进、重要保护原则、持续承诺、会反复影响后续互动的事件。
+- 9-10：核心设定、生死约定、不可违背的长期规则、重大关系转折。不要轻易给 9-10。
+- emotionalWeight: 1-10。普通安排通常 2-4；明显亲密、恐惧、崩溃、和好、告白、深层心理转折等才给 6 以上。
+
+原文来源：${source || 'njj_summary'}
+
+待处理总结：
+${summaryText}
 
 请直接输出 JSON 数组。如果没有值得记录的内容，输出 []。`;
 }
@@ -803,6 +897,63 @@ function mcpToolSchema() {
         }
         }
       }
+    },
+    {
+      name: 'ingest_summary',
+      description: 'Receive scene-level summarized memory text such as [时间]/[概括]/[场景]/[记忆], then convert it into structured long-term vector memories.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          summaryText: {
+            type: 'string',
+            description: 'Scene-level summarized memory text to ingest.'
+          },
+          text: {
+            type: 'string',
+            description: 'Alias of summaryText.'
+          },
+          content: {
+            type: 'string',
+            description: 'Alias of summaryText.'
+          },
+          chatId: {
+            type: 'string',
+            description: 'Optional chatId or role/session identifier.'
+          },
+          source: {
+            type: 'string',
+            description: 'Source label. Default njj_summary.'
+          },
+          dryRun: {
+            type: 'boolean',
+            description: 'If true, only preview extraction and do not write memories. Default false.'
+          },
+          limit: {
+            type: 'number',
+            description: 'Maximum number of extracted memories to save. Default 12.'
+          },
+          roleName: {
+            type: 'string',
+            description: 'Current role name.'
+          },
+          userName: {
+            type: 'string',
+            description: 'User nickname/name.'
+          },
+          llmEndpoint: {
+            type: 'string',
+            description: 'Optional chat completion endpoint for extraction.'
+          },
+          llmApiKey: {
+            type: 'string',
+            description: 'Optional chat completion API key for extraction.'
+          },
+          llmModel: {
+            type: 'string',
+            description: 'Optional chat completion model name.'
+          }
+        }
+      }
     }
   ];
 }
@@ -987,6 +1138,168 @@ async function handleMcpRequest(body) {
           structuredContent: {
             ok: true,
             memory: sanitizeMemoryForMcp(memory)
+          }
+        });
+      }
+
+      if (name === 'ingest_summary') {
+        const summaryText = String(args.summaryText || args.text || args.content || '').trim();
+
+        if (!summaryText) {
+          return mcpError(id, -32602, 'summaryText is required');
+        }
+
+        const charCount = summaryText.length;
+        const blockCount = (summaryText.match(/\[记忆\d*\]/g) || []).length || summaryText.split(/\n\n+/).filter(Boolean).length;
+        const dryRun = args.dryRun === true || String(args.dryRun || '').toLowerCase() === 'true';
+        const limit = clampNumber(args.limit, 1, 50, 12);
+
+        const llmConfig = {
+          endpoint: args.llmEndpoint || process.env.LLM_ENDPOINT || process.env.EMBEDDING_ENDPOINT || '',
+          apiKey: args.llmApiKey || process.env.LLM_API_KEY || process.env.EMBEDDING_API_KEY || '',
+          model: args.llmModel || process.env.LLM_MODEL || 'Qwen/Qwen3-8B'
+        };
+
+        if (!llmConfig.endpoint || !llmConfig.apiKey) {
+          return mcpError(id, -32001, 'LLM endpoint/apiKey is required for ingest_summary extraction. Set LLM_ENDPOINT and LLM_API_KEY, or pass llmEndpoint/llmApiKey.');
+        }
+
+        let extractedItems = [];
+
+        try {
+          const prompt = buildSummaryIngestPrompt({
+            summaryText,
+            source: args.source || 'njj_summary',
+            roleName: args.roleName || args.actor || args._actor || '角色',
+            userName: args.userName || args.userNickname || '她'
+          });
+
+          const rawExtraction = await createChatCompletion({
+            endpoint: llmConfig.endpoint,
+            apiKey: llmConfig.apiKey,
+            model: llmConfig.model,
+            messages: [
+              {
+                role: 'system',
+                content: '你是严格的 JSON 记忆整理器。只输出 JSON 数组。'
+              },
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            temperature: 0.2
+          });
+
+          extractedItems = parseExtractedMemoryItems(rawExtraction).slice(0, limit);
+        } catch (error) {
+          return mcpError(id, -32002, `ingest_summary extraction failed: ${error.message}`);
+        }
+
+        if (dryRun) {
+          return mcpResult(id, {
+            content: [
+              {
+                type: 'text',
+                text: [
+                  '已完成总结记忆转换预览，但未写入 SQLite。',
+                  `字符数：${charCount}`,
+                  `记忆块数：${blockCount}`,
+                  `提取条数：${extractedItems.length}`,
+                  '',
+                  extractedItems.length > 0
+                    ? extractedItems.map((item, index) => `${index + 1}. [${item.category}] ${item.content} #${item.tags.join(' #')} 重要度:${item.importance} 情绪:${item.emotionalWeight}`).join('\n')
+                    : '没有提取到值得长期保存的记忆。'
+                ].join('\n')
+              }
+            ],
+            structuredContent: {
+              ok: true,
+              dryRun: true,
+              source: args.source || 'njj_summary',
+              chatId: args.chatId || '',
+              charCount,
+              blockCount,
+              extractedCount: extractedItems.length,
+              extractedItems
+            }
+          });
+        }
+
+        await backupSqliteDb();
+
+        const embeddingConfig = {
+          endpoint: args.embeddingEndpoint || process.env.EMBEDDING_ENDPOINT || '',
+          apiKey: args.embeddingApiKey || process.env.EMBEDDING_API_KEY || '',
+          model: args.embeddingModel || process.env.EMBEDDING_MODEL || 'BAAI/bge-m3'
+        };
+
+        const savedMemories = [];
+
+        for (const item of extractedItems) {
+          let generatedEmbedding = null;
+
+          if (embeddingConfig.endpoint && embeddingConfig.apiKey) {
+            try {
+              generatedEmbedding = await createQueryEmbedding({
+                endpoint: embeddingConfig.endpoint,
+                apiKey: embeddingConfig.apiKey,
+                model: embeddingConfig.model,
+                input: item.content
+              });
+            } catch (error) {
+              console.warn('[mcp] ingest_summary embedding failed, save as BM25:', error.message);
+            }
+          }
+
+          const memory = normalizeMemoryFragment({
+            ...item,
+            chatId: args.chatId || '',
+            source: args.source || 'njj_summary',
+            context: 'summary_ingest',
+            memoryTime: args.memoryTime || now(),
+            embedding: generatedEmbedding,
+            embeddingModel: generatedEmbedding ? embeddingConfig.model : '',
+            embeddingDim: generatedEmbedding ? generatedEmbedding.length : 0,
+            embeddingUpdatedAt: generatedEmbedding ? String(now()) : '',
+            createdAt: now(),
+            updatedAt: now()
+          });
+
+          const savedMemory = addMemory({
+            ...memory,
+            updatedAt: now()
+          });
+
+          savedMemories.push(savedMemory);
+        }
+
+        return mcpResult(id, {
+          content: [
+            {
+              type: 'text',
+              text: [
+                '已从总结文本中转换并写入长期记忆。',
+                `字符数：${charCount}`,
+                `记忆块数：${blockCount}`,
+                `写入条数：${savedMemories.length}`,
+                '',
+                savedMemories.length > 0
+                  ? savedMemories.map((item, index) => `${index + 1}. ${item.content}`).join('\n')
+                  : '没有写入新的长期记忆。'
+              ].join('\n')
+            }
+          ],
+          structuredContent: {
+            ok: true,
+            dryRun: false,
+            source: args.source || 'njj_summary',
+            chatId: args.chatId || '',
+            charCount,
+            blockCount,
+            extractedCount: extractedItems.length,
+            savedCount: savedMemories.length,
+            memories: savedMemories.map(sanitizeMemoryForMcp)
           }
         });
       }
