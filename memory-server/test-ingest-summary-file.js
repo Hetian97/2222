@@ -23,7 +23,7 @@ async function main() {
       name: 'ingest_summary',
       arguments: {
         summaryText,
-        dryRun: true,
+        dryRun: false,
         source: 'summary-file-test',
         roleName: '夏以昼',
         userName: '芷鹤'
