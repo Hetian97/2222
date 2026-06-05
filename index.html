@@ -357,11 +357,11 @@
             </div> 
             <span class="small-widget-label" data-lang-key="homeAppPreset">预设</span>
         </div>
-        <div class="small-widget" onclick="showScreen('tutorial-screen')">
-            <div class="small-widget-icon-wrapper"> 
-                <img class="small-widget-img" id="icon-img-tutorial" src="https://i.postimg.cc/d10GjC4g/IMG-7302.jpg" alt="教程"> 
-            </div> 
-            <span class="small-widget-label" data-lang-key="homeAppTutorial">教程</span>
+        <div class="small-widget" onclick="showScreen('tutorial-screen'); refreshMcpManagerStatus(); refreshMcpManagerChatSelect();">
+            <div class="small-widget-icon-wrapper">
+                <img class="small-widget-img" id="icon-img-tutorial" src="https://i.postimg.cc/d10GjC4g/IMG-7302.jpg" alt="MCP">
+            </div>
+            <span class="small-widget-label">MCP</span>
         </div>
         <div class="small-widget" onclick="openWerewolfLobby('global')">
             <div class="small-widget-icon-wrapper"> 
@@ -1659,8 +1659,66 @@
       <div id="preset-content-container"></div>
     </div>
     <div id="tutorial-screen" class="screen">
-      <div class="header"> <span class="back-btn" onclick="showScreen('home-screen')">‹</span> <span data-lang-key="tutorialTitle">教程</span> <span style="width: 30px;"></span> </div>
-      <div class="list-container" style="padding: 0; overflow: hidden;"> <iframe id="tutorial-iframe" src="tutorial.html" style="width: 100%; height: 100%; border: none;"></iframe> </div>
+      <div class="header">
+        <span class="back-btn" onclick="showScreen('home-screen')">‹</span>
+        <span>MCP 服务管理器</span>
+        <span style="width: 30px;"></span>
+      </div>
+
+      <div class="list-container" style="padding: 16px; overflow-y: auto;">
+        <div style="background:#fff;border-radius:18px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,0.06);margin-bottom:14px;">
+          <div style="font-size:18px;font-weight:700;margin-bottom:8px;">Memory Server</div>
+          <div style="font-size:13px;color:#666;line-height:1.7;">
+            <div>MCP URL：<code id="mcp-manager-url">http://127.0.0.1:8765/mcp</code></div>
+            <div>Health URL：<code id="mcp-manager-health-url">http://127.0.0.1:8765/health</code></div>
+            <div>状态：<span id="mcp-manager-status" style="font-weight:700;color:#999;">未检测</span></div>
+          </div>
+
+            <div style="margin-top:14px;">
+              <label style="font-size:13px;color:#666;">选择角色：</label>
+              <select id="mcp-manager-chat-select" style="
+                width:100%;
+                margin-top:6px;
+                padding:8px 10px;
+                border:1px solid #ddd;
+                border-radius:10px;
+                font-size:14px;
+                background:#fff;
+              "></select>
+            </div>
+
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;">
+            <button class="settings-button" onclick="refreshMcpManagerStatus()">测试连接</button>
+            <button class="settings-button" onclick="testMcpToolsList()">测试 tools/list</button>
+            <button class="settings-button" onclick="openVectorMemoryFromMcpManager()">打开向量记忆</button>
+          </div>
+        </div>
+
+        <div style="background:#fff;border-radius:18px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,0.06);margin-bottom:14px;">
+          <div style="font-size:18px;font-weight:700;margin-bottom:8px;">服务信息</div>
+          <pre id="mcp-manager-output" style="
+            white-space:pre-wrap;
+            word-break:break-word;
+            background:rgba(0,0,0,0.04);
+            border-radius:12px;
+            padding:12px;
+            min-height:120px;
+            font-size:12px;
+            line-height:1.5;
+            color:#333;
+          ">点击“测试连接”查看状态。</pre>
+        </div>
+
+        <div style="background:#fff;border-radius:18px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,0.06);">
+          <div style="font-size:18px;font-weight:700;margin-bottom:8px;">说明</div>
+          <div style="font-size:13px;color:#666;line-height:1.7;">
+            <div>search_memory：读取长期记忆</div>
+            <div>ingest_summary：写入总结记忆</div>
+            <div>ingest_raw：写入原文并由 server 提取</div>
+            <div>当前建议：njj 使用 search_memory + ingest_summary；暂时关闭 ingest_raw。</div>
+          </div>
+        </div>
+      </div>
     </div>
     <div id="preset-editor-screen" class="screen">
       <div class="header"> <span class="back-btn" onclick="showScreen('preset-screen')">‹</span> <span id="preset-editor-title"data-lang-key="presetEditorTitle">编辑预设</span> <span class="save-btn" id="save-preset-btn"data-lang-key="save">保存</span> </div>
@@ -8681,6 +8739,149 @@
 
 <!-- EPhone 验证系统（从内联 script 拆分） -->
 <script src="js/auth-system.js?v=0.0.36"></script>
+
+<script>
+  const MCP_MANAGER_BASE_URL = 'http://127.0.0.1:8765';
+  const MCP_MANAGER_MCP_URL = MCP_MANAGER_BASE_URL + '/mcp';
+  const MCP_MANAGER_HEALTH_URL = MCP_MANAGER_BASE_URL + '/health';
+
+  function setMcpManagerOutput(text) {
+    const output = document.getElementById('mcp-manager-output');
+    if (output) output.textContent = text;
+  }
+
+  function setMcpManagerStatus(text, color) {
+    const status = document.getElementById('mcp-manager-status');
+    if (status) {
+      status.textContent = text;
+      status.style.color = color || '#999';
+    }
+  }
+
+  async function refreshMcpManagerStatus() {
+    const urlEl = document.getElementById('mcp-manager-url');
+    const healthUrlEl = document.getElementById('mcp-manager-health-url');
+
+    if (urlEl) urlEl.textContent = MCP_MANAGER_MCP_URL;
+    if (healthUrlEl) healthUrlEl.textContent = MCP_MANAGER_HEALTH_URL;
+
+    setMcpManagerStatus('检测中...', '#ff9500');
+    setMcpManagerOutput('正在连接 memory-server...');
+
+    try {
+      const response = await fetch(MCP_MANAGER_HEALTH_URL);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error('HTTP ' + response.status);
+      }
+
+      setMcpManagerStatus('在线', '#34c759');
+      setMcpManagerOutput(JSON.stringify(data, null, 2));
+    } catch (error) {
+      setMcpManagerStatus('离线', '#ff3b30');
+      setMcpManagerOutput(
+        '无法连接 memory-server。\n\n' +
+        '请确认已经启动：\n' +
+        'D:\\app\\2222EPhone-merge-new\\memory-server\\server.js\n\n' +
+        '错误信息：' + error.message
+      );
+    }
+  }
+
+  async function testMcpToolsList() {
+    setMcpManagerOutput('正在请求 tools/list...');
+
+    try {
+      const response = await fetch(MCP_MANAGER_MCP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: Date.now(),
+          method: 'tools/list'
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || data.error) {
+        throw new Error(data.error ? JSON.stringify(data.error) : ('HTTP ' + response.status));
+      }
+
+      const tools = data.result?.tools || [];
+      const toolNames = tools.map(tool => '- ' + tool.name).join('\n');
+
+      setMcpManagerStatus('在线', '#34c759');
+      setMcpManagerOutput(
+        'tools/list 成功。\n\n' +
+        '工具数量：' + tools.length + '\n\n' +
+        toolNames + '\n\n' +
+        '完整返回：\n' + JSON.stringify(data, null, 2)
+      );
+    } catch (error) {
+      setMcpManagerStatus('异常', '#ff3b30');
+      setMcpManagerOutput('tools/list 请求失败：\n' + error.message);
+    }
+  }
+
+  function openVectorMemoryFromMcpManager() {
+    if (!window.state) {
+      setMcpManagerOutput('无法打开向量记忆：window.state 不存在。');
+      return;
+    }
+
+    const select = document.getElementById('mcp-manager-chat-select');
+    const selectedChatId = select ? select.value : '';
+
+    if (selectedChatId) {
+      window.state.activeChatId = selectedChatId;
+    }
+
+    if (!window.state.activeChatId) {
+      setMcpManagerOutput('无法打开向量记忆：请先选择一个角色。');
+      return;
+    }
+
+    if (window.openLongTermMemoryScreen && typeof window.openLongTermMemoryScreen === 'function') {
+      window.openLongTermMemoryScreen();
+    } else {
+      showScreen('long-term-memory-screen');
+
+      if (window.renderLongTermMemoryList && typeof window.renderLongTermMemoryList === 'function') {
+        window.renderLongTermMemoryList();
+      }
+    }
+
+    setTimeout(() => {
+      if (window.switchMemoryTab && typeof window.switchMemoryTab === 'function') {
+        window.switchMemoryTab('vector');
+        return;
+      }
+
+      const vectorTab = document.getElementById('memory-tab-vector');
+      if (vectorTab && typeof vectorTab.click === 'function') {
+        vectorTab.click();
+      }
+    }, 300);
+  }
+
+  function refreshMcpManagerChatSelect() {
+    const select = document.getElementById('mcp-manager-chat-select');
+    if (!select || !window.state || !window.state.chats) return;
+
+    const chats = Object.values(window.state.chats || {});
+    const activeChatId = window.state.activeChatId || '';
+
+    select.innerHTML = chats.map(chat => {
+      const id = chat.id || chat.chatId;
+      const name = chat.originalName || chat.name || chat.title || id || '未命名角色';
+      const selected = String(id) === String(activeChatId) ? 'selected' : '';
+
+      return `<option value="${String(id)}" ${selected}>${String(name)}</option>`;
+    }).join('');
+  }
+</script>
 
 </body>
 </html>
