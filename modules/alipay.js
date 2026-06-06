@@ -807,10 +807,8 @@ async function renderCharacterWalletList() {
           </div>
         </div>
         <div style="display:flex; gap:8px; margin-top:12px;">
-          <button onclick="rechargeCharacterWallet('${chat.id}', 100)" style="flex:1; padding:8px; border-radius:10px; background:#1677ff; color:white;">+100</button>
-          <button onclick="rechargeCharacterWallet('${chat.id}', 1000)" style="flex:1; padding:8px; border-radius:10px; background:#1677ff; color:white;">+1000</button>
-          <button onclick="rechargeCharacterWallet('${chat.id}', 10000)" style="flex:1; padding:8px; border-radius:10px; background:#1677ff; color:white;">+10000</button>
-          <button onclick="customRechargeCharacterWallet('${chat.id}')" style="flex:1; padding:8px; border-radius:10px; background:#333; color:white;">自定义</button>
+          <button onclick="customRechargeCharacterWallet('${chat.id}')" style="flex:1; padding:8px; border-radius:10px; background:#1677ff; color:white;">充值</button>
+          <button onclick="resetCharacterWallet('${chat.id}')" style="flex:1; padding:8px; border-radius:10px; background:#999; color:white;">清零</button>
         </div>
       </div>
     `;
@@ -849,6 +847,33 @@ async function customRechargeCharacterWallet(chatId) {
   await rechargeCharacterWallet(chatId, amount);
 }
 
+async function resetCharacterWallet(chatId) {
+  const chat = state.chats[chatId];
+  if (!chat) return;
+
+  const confirmed = await showCustomConfirm(
+    '确认清零',
+    `确定要把 ${chat.name} 的角色钱包余额清零吗？`
+  );
+
+  if (!confirmed) return;
+
+  if (!chat.simulatedTaobaoHistory) {
+    chat.simulatedTaobaoHistory = { totalBalance: 0, purchases: [] };
+  }
+
+  if (!chat.simulatedTaobaoHistory.purchases) {
+    chat.simulatedTaobaoHistory.purchases = [];
+  }
+
+  chat.simulatedTaobaoHistory.totalBalance = 0;
+
+  await db.chats.put(chat);
+  await renderCharacterWalletList();
+
+  showToast(`已清零 ${chat.name} 的角色钱包`, 'success');
+}
+
   // ========== 全局暴露 ==========
   window.openAlipayScreen = openAlipayScreen;
   window.renderTransactionList = renderTransactionList;
@@ -862,6 +887,7 @@ async function customRechargeCharacterWallet(chatId) {
   window.openCharacterWalletScreen = openCharacterWalletScreen;
   window.rechargeCharacterWallet = rechargeCharacterWallet;
   window.customRechargeCharacterWallet = customRechargeCharacterWallet;
+  window.resetCharacterWallet = resetCharacterWallet;
   window.switchFundTab = switchFundTab;
   window.refreshFundMarket = async () => {
     await showCustomAlert("刷新中", "正在更新行情...");
