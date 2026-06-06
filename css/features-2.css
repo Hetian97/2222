@@ -223,9 +223,8 @@
            .alipay-grid-menu {
                display: grid;
                grid-template-columns: 1fr;
-               /* 保持单行，也可以改成 1fr 1fr */
                gap: 10px;
-               margin-bottom: 12px;
+               margin-bottom: 50px;
            }
 
            .alipay-menu-item {

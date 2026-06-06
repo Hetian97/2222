@@ -15,14 +15,14 @@
   <link rel="stylesheet" href="css/main-ui.css?v=0.0.36">
   <link rel="stylesheet" href="css/voice-recording.css?v=0.0.36">
   <link rel="stylesheet" href="css/features-1.css?v=0.0.36">
-  <link rel="stylesheet" href="css/features-2.css?v=0.0.36">
+  <link rel="stylesheet" href="css/features-2.css?v=0.0.37">
   <link rel="stylesheet" href="css/features-3.css?v=0.0.36">
   <link rel="stylesheet" href="css/features-4.css?v=0.0.36">
   <link rel="stylesheet" href="update-notification.css?v=0.0.36">
   <link rel="stylesheet" href="structured-memory.css?v=0.0.36">
   <link rel="stylesheet" href="vector-memory.css?v=0.0.36">
   <link rel="stylesheet" href="online-app.css?v=0.0.36">
-  <link rel="stylesheet" href="period-tracker.css?v=0.0.36">
+  <link rel="stylesheet" href="period-tracker.css?v=0.0.37">
   <link rel="stylesheet" href="focus-timer.css?v=0.0.36">
   <link rel="stylesheet" href="extra.css?v=0.0.36">
   <link rel="apple-touch-icon" href="https://i.postimg.cc/nMbyyt1t/D7CD735A73F5FD1D7B8407E0EB8BBAC0.png">
@@ -66,7 +66,7 @@
   <script src="modules/chat-interface.js?v=0.0.36" defer></script>
   <script src="modules/chat-input.js?v=0.0.36" defer></script>
   <!-- 第四层：AI 核心 -->
-  <script src="modules/ai-response.js?v=0.0.36" defer></script>
+  <script src="modules/ai-response.js?v=0.0.37" defer></script>
   <script src="modules/ai-group.js?v=0.0.36" defer></script>
   <!-- 第五层：功能模块 -->
   <script src="modules/music-player.js?v=0.0.36" defer></script>
@@ -79,14 +79,14 @@
   <script src="modules/backup-import-export.js?v=0.0.36" defer></script>
   <script src="modules/settings-presets.js?v=0.0.36" defer></script>
   <script src="modules/chat-settings-presets.js?v=0.0.36" defer></script>
-  <script src="modules/shopping.js?v=0.0.36" defer></script>
+  <script src="modules/shopping.js?v=0.0.37" defer></script>
   <script src="modules/rendering-rules.js?v=0.0.36" defer></script>
   <script src="modules/red-packet-poll.js?v=0.0.36" defer></script>
   <script src="modules/persona-library.js?v=0.0.36" defer></script>
   <script src="modules/avatar-library.js?v=0.0.36" defer></script>
   <script src="modules/gomoku.js?v=0.0.36" defer></script>
   <!-- 第六层：大型独立功能 -->
-  <script src="modules/alipay.js?v=0.0.36" defer></script>
+  <script src="modules/alipay.js?v=0.0.37" defer></script>
   <script src="modules/auction.js?v=0.0.36" defer></script>
   <script src="modules/green-river.js?v=0.0.36" defer></script>
   <script src="modules/cphone.js?v=0.0.36" defer></script>
@@ -114,7 +114,7 @@
   <!-- PIN/城市（依赖 DOM） -->
   <script src="modules/init-pin-city.js?v=0.0.36" defer></script>
   <!-- 事件绑定和功能（依赖 state, db） -->
-  <script src="modules/init-event-bindingsA.js?v=0.0.36" defer></script>
+  <script src="modules/init-event-bindingsA.js?v=0.0.37" defer></script>
   <script src="modules/init-event-bindingsB.js?v=0.0.36" defer></script>
   <script src="modules/init-features.js?v=0.0.36" defer></script>
   <!-- 主入口（最后加载，调用 init） -->
@@ -125,7 +125,7 @@
   <script src="modules/clean-api-settings.js?v=0.0.36" defer></script>
   <script src="modules/api-style-beautify.js?v=0.0.36" defer></script>
   <script src="modules/voice-recording.js?v=0.0.36" defer></script>
-  <script src="period-tracker.js?v=0.0.36" defer></script>
+  <script src="period-tracker.js?v=0.0.37" defer></script>
   <script src="focus-timer.js?v=0.0.36" defer></script>
   <!-- 情侣空间（从内联 script 拆分） -->
   <script src="couple-space.js?v=0.0.36"></script>
@@ -4693,6 +4693,14 @@
                         <span class="slider"></span> 
                     </label>
                 </div>
+
+                <!-- 自动清空概率 -->
+                <div class="settings-item">
+                    <label>自动清空概率 (%)</label>
+                    <div class="settings-right">
+                        <input type="number" id="char-auto-cart-clear-probability" min="0" max="100" value="30" class="settings-num-input">
+                    </div>
+                </div>
                 
                 <!-- 后台查看用户手机 -->
                 <div class="settings-item" style="display: flex !important; justify-content: space-between !important; align-items: center !important; flex-direction: row !important;">
@@ -5710,14 +5718,31 @@
                 </div>
                 <div class="menu-arrow">›</div>
             </div>
+
+            <div class="alipay-menu-item" onclick="openCharacterWalletScreen()">
+                <div class="menu-icon">👛</div>
+                <div class="menu-info">
+                    <div class="menu-title">角色钱包</div>
+                    <div class="menu-trend" style="font-size:12px;">管理角色余额</div>
+                </div>
+                <div class="menu-arrow">›</div>
             </div>
-        
         </div>
 
     <div class="alipay-bill-container" style="margin: 0 12px; border-radius: 16px;">
         <div id="alipay-transaction-list">
             </div>
     </div>
+</div>
+</div>
+<!-- 角色钱包屏幕 -->
+<div id="character-wallet-screen" class="screen" style="background-color: #f5f5f5;">
+    <div class="header">
+        <span class="back-btn" onclick="showScreen('alipay-screen')">‹</span>
+        <span>角色钱包</span>
+        <span style="width: 30px;"></span>
+    </div>
+    <div id="character-wallet-list" class="list-container" style="padding: 20px 15px; overflow-y: auto;"></div>
 </div>
 <!-- 基金理财屏幕 (已去掉了内联颜色，改为 class 控制) -->
 <div id="fund-screen" class="screen" style="background-color: #f5f5f5;">

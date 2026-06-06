@@ -777,6 +777,78 @@
     renderFundScreen();
   };
 
+async function openCharacterWalletScreen() {
+  showScreen('character-wallet-screen');
+  await renderCharacterWalletList();
+}
+
+async function renderCharacterWalletList() {
+  const list = document.getElementById('character-wallet-list');
+  if (!list) return;
+
+  const characters = Object.values(state.chats || {}).filter(c => !c.isGroup);
+
+  if (characters.length === 0) {
+    list.innerHTML = '<p style="text-align:center; color:#999;">暂无角色</p>';
+    return;
+  }
+
+  list.innerHTML = characters.map(chat => {
+    const wallet = chat.simulatedTaobaoHistory || { totalBalance: 0, purchases: [] };
+    const balance = Number(wallet.totalBalance || 0);
+
+    return `
+      <div class="wallet-role-card" style="background:white; border-radius:16px; padding:16px; margin-bottom:12px; box-shadow:0 2px 8px rgba(0,0,0,0.05);">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <img src="${chat.settings?.aiAvatar || 'https://i.postimg.cc/y8xWzCqj/anime-boy.jpg'}" style="width:46px; height:46px; border-radius:50%; object-fit:cover;">
+          <div style="flex:1;">
+            <div style="font-weight:600; font-size:15px;">${chat.name}</div>
+            <div style="font-size:13px; color:#888;">当前余额：¥${balance.toFixed(2)}</div>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:12px;">
+          <button onclick="rechargeCharacterWallet('${chat.id}', 100)" style="flex:1; padding:8px; border-radius:10px; background:#1677ff; color:white;">+100</button>
+          <button onclick="rechargeCharacterWallet('${chat.id}', 1000)" style="flex:1; padding:8px; border-radius:10px; background:#1677ff; color:white;">+1000</button>
+          <button onclick="rechargeCharacterWallet('${chat.id}', 10000)" style="flex:1; padding:8px; border-radius:10px; background:#1677ff; color:white;">+10000</button>
+          <button onclick="customRechargeCharacterWallet('${chat.id}')" style="flex:1; padding:8px; border-radius:10px; background:#333; color:white;">自定义</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function rechargeCharacterWallet(chatId, amount) {
+  const chat = state.chats[chatId];
+  if (!chat) return;
+
+  if (!chat.simulatedTaobaoHistory) {
+    chat.simulatedTaobaoHistory = { totalBalance: 0, purchases: [] };
+  }
+  if (!chat.simulatedTaobaoHistory.purchases) {
+    chat.simulatedTaobaoHistory.purchases = [];
+  }
+
+  chat.simulatedTaobaoHistory.totalBalance =
+    Number(chat.simulatedTaobaoHistory.totalBalance || 0) + Number(amount);
+
+  await db.chats.put(chat);
+  await renderCharacterWalletList();
+  showToast(`已给 ${chat.name} 充值 ¥${Number(amount).toFixed(2)}`, 'success');
+}
+
+async function customRechargeCharacterWallet(chatId) {
+  const amountStr = await showCustomPrompt('角色钱包充值', '请输入充值金额：', '', 'number');
+  if (!amountStr) return;
+
+  const amount = parseFloat(amountStr);
+  if (isNaN(amount) || amount <= 0) {
+    alert('请输入有效金额');
+    return;
+  }
+
+  await rechargeCharacterWallet(chatId, amount);
+}
+
   // ========== 全局暴露 ==========
   window.openAlipayScreen = openAlipayScreen;
   window.renderTransactionList = renderTransactionList;
@@ -787,6 +859,9 @@
   window.BLACK_GOLD_THRESHOLD = BLACK_GOLD_THRESHOLD;
   window.checkThemeStatus = checkThemeStatus;
   window.openFundScreen = openFundScreen;
+  window.openCharacterWalletScreen = openCharacterWalletScreen;
+  window.rechargeCharacterWallet = rechargeCharacterWallet;
+  window.customRechargeCharacterWallet = customRechargeCharacterWallet;
   window.switchFundTab = switchFundTab;
   window.refreshFundMarket = async () => {
     await showCustomAlert("刷新中", "正在更新行情...");

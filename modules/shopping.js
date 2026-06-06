@@ -1200,7 +1200,9 @@ ${recentHistoryContext}
       }
       
       // 随机决定是否执行（避免每次都触发）
-      if (Math.random() > 0.3) {
+      const autoClearProbability = (chat.settings.autoCartClearProbability ?? 30) / 100;
+
+      if (Math.random() > autoClearProbability) {
         return;
       }
       console.log(`角色 "${chat.name}" 准备帮助清空购物车，总价: ¥${totalCost.toFixed(2)}, 余额: ¥${characterBalance.toFixed(2)}`);
