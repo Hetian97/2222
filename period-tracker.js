@@ -1446,9 +1446,45 @@ ${lastRecord.symptoms ? '- 最近症状：' + lastRecord.symptoms : ''}
   }
 }
 
+async function getPeriodPromptForChat(chatId) {
+  try {
+    const allSettings = await db.periodSettings.toArray();
+    const setting = allSettings.find(s => s.characterId == chatId && s.enabled);
+    if (!setting) return '';
+
+    const records = await db.periodRecords.orderBy('startDate').reverse().toArray();
+    if (!records || records.length === 0) return '';
+
+    const latest = records[0];
+    const stats = await calculatePeriodStats(records);
+
+    let status = '普通时期';
+    if (latest.startDate && !latest.endDate) {
+      status = '经期中';
+    }
+
+    return `
+# 用户周期状态
+用户已授权你查看她的大致周期信息。
+最近一次经期开始：${latest.startDate || '未知'}
+最近一次经期结束：${latest.endDate || '未记录'}
+平均周期：${stats?.avgCycle || setting.avgCycleLength || 28}天
+平均经期长度：${stats?.avgDuration || setting.avgPeriodLength || 5}天
+当前状态：${status}
+
+请只在语境合适时自然关心用户，例如提醒休息、保暖、少熬夜、注意情绪和身体感受。
+不要每轮都提，不要说教，不要医学诊断，不要把这件事当成唯一话题。
+`;
+  } catch (e) {
+    console.warn('[Period] 获取周期提示失败:', e);
+    return '';
+  }
+}
+
 /**
  * ========== 暴露函数到全局作用域 ==========
  */
+window.getPeriodPromptForChat = getPeriodPromptForChat;
 window.openPeriodTracker = openPeriodTracker;
 window.switchPeriodView = switchPeriodView;
 window.changePeriodMonth = changePeriodMonth;

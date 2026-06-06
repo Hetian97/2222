@@ -2472,6 +2472,13 @@ ${enabledEntries}
 
           systemPrompt = processPromptWithSettings(systemPrompt, 'offline');
           
+          if (window.getPeriodPromptForChat && chat?.id) {
+            const periodPrompt = await window.getPeriodPromptForChat(chat.id);
+            if (periodPrompt) {
+              systemPrompt += '\n\n' + periodPrompt;
+            }
+          }
+
           messagesPayload = filteredHistory.map(msg => {
             if (msg.isHidden) return null;
 
@@ -3309,6 +3316,13 @@ ${getActiveThoughtsPrompt()}
           systemPrompt = replaceTemplateVars(systemPromptTemplate, contextMapSingle);
 
           systemPrompt = processPromptWithSettings(systemPrompt, 'single');
+
+          if (window.getPeriodPromptForChat && chat?.id) {
+            const periodPrompt = await window.getPeriodPromptForChat(chat.id);
+            if (periodPrompt) {
+              systemPrompt += '\n\n' + periodPrompt;
+            }
+          }
 
           messagesPayload = filteredHistory.map(msg => {
             // 处理系统消息（旁白和系统通知）
@@ -6784,6 +6798,13 @@ ${linkedContents}
       let systemPrompt = replaceTemplateVars(systemPromptTemplate, contextMapPropel);
 
       systemPrompt = processPromptWithSettings(systemPrompt, chat.isGroup && chat.settings.isOfflineMode ? 'group_offline' : 'single');
+
+      if (window.getPeriodPromptForChat && chat?.id) {
+        const periodPrompt = await window.getPeriodPromptForChat(chat.id);
+        if (periodPrompt) {
+          systemPrompt += '\n\n' + periodPrompt;
+        }
+      }
 
       const messagesForApi = historySlice.map(msg => ({
         role: msg.role,

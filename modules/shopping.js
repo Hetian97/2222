@@ -1203,7 +1203,6 @@ ${recentHistoryContext}
       if (Math.random() > 0.3) {
         return;
       }
-      
       console.log(`角色 "${chat.name}" 准备帮助清空购物车，总价: ¥${totalCost.toFixed(2)}, 余额: ¥${characterBalance.toFixed(2)}`);
       
       // 扣除角色余额
