@@ -188,7 +188,9 @@
       ]);
 
       // 方案3：导出时移除API历史记录
-      const cleanedChats = removeApiHistoryFromChats(chats);
+      const cleanedChats = removeVectorMemoryFromChatsForBackup(
+        removeApiHistoryFromChats(chats)
+      );
 
       // 导出情侣空间相关的 localStorage 数据
       const coupleSpaceLocalStorage = exportCoupleSpaceLocalStorage();
@@ -1093,9 +1095,10 @@
         console.log(`正在打包表: ${tableName}...`);
         let tableData = await db.table(tableName).toArray();
 
-        // 方案3：导出时移除API历史记录
+        // 导出时移除 API 历史记录和外置向量记忆正文
         if (tableName === 'chats') {
           tableData = removeApiHistoryFromChats(tableData);
+          tableData = removeVectorMemoryFromChatsForBackup(tableData);
         }
 
         if (tableData.length === 0) continue;
@@ -1217,6 +1220,75 @@
     }
   }
 
+  function removeVectorMemoryFromChatsForBackup(chats) {
+    if (!Array.isArray(chats)) return chats;
+
+    function sanitizeObject(obj) {
+      if (!obj || typeof obj !== 'object') return obj;
+
+      if (Array.isArray(obj)) {
+        obj.forEach(item => sanitizeObject(item));
+        return obj;
+      }
+
+      // 彻底移除向量数组和敏感 key
+      delete obj.embedding;
+      delete obj.embeddingApiKey;
+
+      // 清掉可能持久化下来的检索缓存
+      delete obj._retrievalCache;
+      delete obj.retrievalCache;
+      delete obj.cachedResults;
+      delete obj.cache;
+
+      Object.keys(obj).forEach(key => {
+        sanitizeObject(obj[key]);
+      });
+
+      return obj;
+    }
+
+    return chats.map(chat => {
+      const cleanChat = JSON.parse(JSON.stringify(chat));
+
+      // 兼容旧 vectorMemory
+      if (cleanChat.vectorMemory) {
+        cleanChat.vectorMemory.fragments = [];
+        cleanChat.vectorMemory.coreMemories = [];
+        cleanChat.vectorMemory.timelineSummaries = cleanChat.vectorMemory.timelineSummaries || {};
+
+        if (cleanChat.vectorMemory.stats) {
+          cleanChat.vectorMemory.stats.totalFragments = 0;
+          cleanChat.vectorMemory.stats.embeddedCount = 0;
+        }
+
+        if (cleanChat.vectorMemory.settings) {
+          delete cleanChat.vectorMemory.settings.embeddingApiKey;
+        }
+      }
+
+      // 当前 variableMemory
+      if (cleanChat.variableMemory) {
+        cleanChat.variableMemory.fragments = [];
+        cleanChat.variableMemory.timelineSummaries = cleanChat.variableMemory.timelineSummaries || {};
+
+        if (cleanChat.variableMemory.stats) {
+          cleanChat.variableMemory.stats.totalFragments = 0;
+          cleanChat.variableMemory.stats.embeddedCount = 0;
+        }
+
+        if (cleanChat.variableMemory.settings) {
+          delete cleanChat.variableMemory.settings.embeddingApiKey;
+        }
+      }
+
+      // 最后递归兜底：删掉所有残留 embedding / embeddingApiKey / cache
+      sanitizeObject(cleanChat);
+
+      return cleanChat;
+    });
+  }
+
   async function exportDataAsStream() {
 
     if (!window.streamSaver) {
@@ -1251,11 +1323,17 @@
             writer.write(encoder.encode(',\n'));
           }
 
-          // 方案3：导出时移除API历史记录
+          // 导出时移除 API 历史记录和外置向量记忆正文
           let recordToWrite = record;
-          if (tableName === 'chats' && record.apiHistory) {
+
+          if (tableName === 'chats') {
             recordToWrite = { ...record };
-            delete recordToWrite.apiHistory;
+
+            if (recordToWrite.apiHistory) {
+              delete recordToWrite.apiHistory;
+            }
+
+            recordToWrite = removeVectorMemoryFromChatsForBackup([recordToWrite])[0];
           }
 
           writer.write(encoder.encode(JSON.stringify(recordToWrite)));
@@ -1302,9 +1380,10 @@
       for (const tableName of tablesToBackup) {
         let tableData = await db.table(tableName).toArray();
         
-        // 方案3：导出时移除API历史记录
+        // 导出时移除 API 历史记录和外置向量记忆正文
         if (tableName === 'chats') {
           tableData = removeApiHistoryFromChats(tableData);
+          tableData = removeVectorMemoryFromChatsForBackup(tableData);
         }
         
         backupData.data[tableName] = tableData;
@@ -1876,9 +1955,10 @@
             tableData = filterDataByChatIds(tableName, tableData, selectedChatIds);
           }
           
-          // 导出时移除API历史记录
+          // 导出时移除 API 历史记录和外置向量记忆正文
           if (tableName === 'chats') {
             tableData = removeApiHistoryFromChats(tableData);
+            tableData = removeVectorMemoryFromChatsForBackup(tableData);
           }
           
           backupData.data[tableName] = tableData;
@@ -2665,10 +2745,17 @@
                 await writeToStream(',\n');
               }
               let recordToWrite = record;
-              if (tableName === 'chats' && record.apiHistory) {
+
+              if (tableName === 'chats') {
                 recordToWrite = { ...record };
-                delete recordToWrite.apiHistory;
+
+                if (recordToWrite.apiHistory) {
+                  delete recordToWrite.apiHistory;
+                }
+
+                recordToWrite = removeVectorMemoryFromChatsForBackup([recordToWrite])[0];
               }
+
               await writeToStream(JSON.stringify(recordToWrite));
               isFirstRecord = false;
             }
