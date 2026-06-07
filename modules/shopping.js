@@ -517,6 +517,23 @@ function loadShoppingCart() {
             // 【修改】移除 isHidden: true，使其可见
           };
           providerChat.history.push(notifyMsg);
+          if (!providerChat.simulatedTaobaoHistory) {
+            providerChat.simulatedTaobaoHistory = { totalBalance: 0, purchases: [], walletLogs: [] };
+          }
+          if (!providerChat.simulatedTaobaoHistory.walletLogs) {
+            providerChat.simulatedTaobaoHistory.walletLogs = [];
+          }
+
+          const providerBalance = Number(providerChat.simulatedTaobaoHistory.totalBalance || 0);
+
+          providerChat.simulatedTaobaoHistory.walletLogs.unshift({
+            type: 'kinship_card_expense',
+            amount: -totalCost,
+            balanceBefore: providerBalance,
+            balanceAfter: providerBalance,
+            note: `亲属卡消费 - ${transactionDesc}`,
+            timestamp: Date.now()
+          });
           await db.chats.put(providerChat);
 
           // 如果当前就在该聊天，立即显示
@@ -1504,7 +1521,7 @@ async function handleShoppingCartCommandFromAI(chatId, aiText) {
       amount: -totalCost,
       balanceBefore: oldBalance,
       balanceAfter: newBalance,
-      note: '清空购物车',
+      note: '角色钱包付款 - 清空购物车',
       timestamp: Date.now()
     });
 
