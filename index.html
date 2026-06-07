@@ -66,7 +66,7 @@
   <script src="modules/chat-interface.js?v=0.0.36" defer></script>
   <script src="modules/chat-input.js?v=0.0.36" defer></script>
   <!-- 第四层：AI 核心 -->
-  <script src="modules/ai-response.js?v=0.0.37" defer></script>
+  <script src="modules/ai-response.js?v=0.0.40" defer></script>
   <script src="modules/ai-group.js?v=0.0.36" defer></script>
   <!-- 第五层：功能模块 -->
   <script src="modules/music-player.js?v=0.0.36" defer></script>
@@ -79,14 +79,14 @@
   <script src="modules/backup-import-export.js?v=0.0.36" defer></script>
   <script src="modules/settings-presets.js?v=0.0.36" defer></script>
   <script src="modules/chat-settings-presets.js?v=0.0.36" defer></script>
-  <script src="modules/shopping.js?v=0.0.37" defer></script>
+  <script src="modules/shopping.js?v=0.0.40" defer></script>
   <script src="modules/rendering-rules.js?v=0.0.36" defer></script>
   <script src="modules/red-packet-poll.js?v=0.0.36" defer></script>
   <script src="modules/persona-library.js?v=0.0.36" defer></script>
   <script src="modules/avatar-library.js?v=0.0.36" defer></script>
   <script src="modules/gomoku.js?v=0.0.36" defer></script>
   <!-- 第六层：大型独立功能 -->
-  <script src="modules/alipay.js?v=0.0.38" defer></script>
+  <script src="modules/alipay.js?v=0.0.39" defer></script>
   <script src="modules/auction.js?v=0.0.36" defer></script>
   <script src="modules/green-river.js?v=0.0.36" defer></script>
   <script src="modules/cphone.js?v=0.0.36" defer></script>
@@ -6148,7 +6148,11 @@
               <circle cx="9" cy="21" r="1"></circle>
               <circle cx="20" cy="21" r="1"></circle>
               <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
-            </svg> <span id="cart-count">0</span> </span> </div>
+            </svg> <span id="cart-count">0</span> </span>
+
+            <span class="action-btn" id="go-to-purchased-btn" title="已购买" onclick="openPurchasedScreen()">✓</span>
+
+            </div>
       </div>
       <div id="product-category-tabs"></div>
       <div id="product-grid" class="list-container"> </div>
@@ -6167,6 +6171,14 @@
           <div id="cart-total">合计: ¥0.00</div> <span class="cart-subtext">不含运费</span>
         </div> <button id="checkout-btn">结算(0)</button>
       </div>
+    </div>
+    <div id="purchased-screen" class="screen">
+      <div class="header">
+        <span class="back-btn" id="purchased-back-btn" onclick="showScreen('shopping-screen')">‹</span>
+        <span>已购买</span>
+        <span class="action-btn" onclick="clearPurchasedItems()">清空</span>
+      </div>
+      <div id="purchased-items-list" class="list-container"></div>
     </div>
     <div id="product-editor-modal" class="modal">
       <div class="modal-content" style="height: 85%;">

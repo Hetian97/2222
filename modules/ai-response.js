@@ -2479,6 +2479,13 @@ ${enabledEntries}
             }
           }
 
+          if (window.getShoppingCartPromptForChat && chat?.id) {
+            const shoppingCartPrompt = await window.getShoppingCartPromptForChat(chat.id);
+            if (shoppingCartPrompt) {
+              systemPrompt += '\n\n' + shoppingCartPrompt;
+            }
+          }
+
           messagesPayload = filteredHistory.map(msg => {
             if (msg.isHidden) return null;
 
@@ -3321,6 +3328,13 @@ ${getActiveThoughtsPrompt()}
             const periodPrompt = await window.getPeriodPromptForChat(chat.id);
             if (periodPrompt) {
               systemPrompt += '\n\n' + periodPrompt;
+            }
+          }
+
+          if (window.getShoppingCartPromptForChat && chat?.id) {
+            const shoppingCartPrompt = await window.getShoppingCartPromptForChat(chat.id);
+            if (shoppingCartPrompt) {
+              systemPrompt += '\n\n' + shoppingCartPrompt;
             }
           }
 
@@ -6444,9 +6458,23 @@ ${getActiveThoughtsPrompt()}
 
 
 
+          const rawAiContentForCart = String(aiMessage.content || '');
+          const hasClearCartCommand =
+            /\[清空购物车\]|【清空购物车】/.test(rawAiContentForCart);
+
+          if (hasClearCartCommand) {
+            aiMessage.content = rawAiContentForCart
+              .replace(/\s*(\[清空购物车\]|【清空购物车】)\s*/g, '')
+              .trim();
+          }
+
           if (isViewingThisChat) {
             appendMessage(aiMessage, chat);
             await new Promise(resolve => setTimeout(resolve, Math.random() * 1800 + 1000));
+          }
+
+          if (hasClearCartCommand && window.handleShoppingCartCommandFromAI) {
+            await window.handleShoppingCartCommandFromAI(chat.id, rawAiContentForCart);
           }
         }
       }
@@ -6803,6 +6831,13 @@ ${linkedContents}
         const periodPrompt = await window.getPeriodPromptForChat(chat.id);
         if (periodPrompt) {
           systemPrompt += '\n\n' + periodPrompt;
+        }
+      }
+
+      if (window.getShoppingCartPromptForChat && chat?.id) {
+        const shoppingCartPrompt = await window.getShoppingCartPromptForChat(chat.id);
+        if (shoppingCartPrompt) {
+          systemPrompt += '\n\n' + shoppingCartPrompt;
         }
       }
 

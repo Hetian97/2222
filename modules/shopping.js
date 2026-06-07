@@ -231,7 +231,85 @@ function loadShoppingCart() {
     showScreen('cart-screen');
   }
 
+  function openPurchasedScreen() {
+    renderPurchasedItems();
+    showScreen('purchased-screen');
+  }
 
+  async function renderPurchasedItems() {
+    const listEl = document.getElementById('purchased-items-list');
+    if (!listEl) return;
+
+    const chat = state.chats[state.activeChatId];
+    const purchases = chat?.simulatedTaobaoHistory?.purchases || [];
+
+    listEl.innerHTML = '';
+
+    if (!chat) {
+      listEl.innerHTML = '<p style="text-align:center; color: var(--text-secondary); margin-top: 50px;">请先进入一个角色聊天</p>';
+      return;
+    }
+
+    if (purchases.length === 0) {
+      listEl.innerHTML = '<p style="text-align:center; color: var(--text-secondary); margin-top: 50px;">暂无已购买商品</p>';
+      return;
+    }
+
+    purchases.slice(0, 100).forEach((item, index) => {
+      const time = item.timestamp ? new Date(item.timestamp).toLocaleString('zh-CN') : '未知时间';
+      const itemEl = document.createElement('div');
+      itemEl.className = 'cart-item';
+      itemEl.innerHTML = `
+        <div class="cart-item-info" style="width:100%;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+            <div style="flex:1;">
+              <div class="cart-item-name">${item.itemName || item.name || '未知商品'}</div>
+              <div style="font-size:12px; color:#888; margin-top:4px;">
+                数量：${item.quantity || 1}　
+                金额：¥${Number(item.price || 0).toFixed(2)}
+              </div>
+              <div style="font-size:12px; color:#999; margin-top:4px;">
+                ${item.reason || item.status || '已购买'} · ${time}
+              </div>
+            </div>
+            <button onclick="deletePurchasedItem(${index})" style="border:none; background:#ff4d4f; color:white; border-radius:8px; padding:6px 10px; font-size:12px;">删除</button>
+          </div>
+        </div>
+      `;
+      listEl.appendChild(itemEl);
+    });
+  }
+
+  async function deletePurchasedItem(index) {
+    const chat = state.chats[state.activeChatId];
+    if (!chat?.simulatedTaobaoHistory?.purchases) return;
+
+    const purchases = chat.simulatedTaobaoHistory.purchases;
+    if (index < 0 || index >= purchases.length) return;
+
+    const confirmed = await showCustomConfirm('删除记录', '确定要删除这条已购买记录吗？');
+    if (!confirmed) return;
+
+    purchases.splice(index, 1);
+
+    await db.chats.put(chat);
+    renderPurchasedItems();
+    showToast('已删除购买记录', 'success');
+  }
+
+  async function clearPurchasedItems() {
+    const chat = state.chats[state.activeChatId];
+    if (!chat?.simulatedTaobaoHistory?.purchases) return;
+
+    const confirmed = await showCustomConfirm('清空已购买', '确定要清空全部已购买记录吗？这不会退回角色钱包余额。');
+    if (!confirmed) return;
+
+    chat.simulatedTaobaoHistory.purchases = [];
+
+    await db.chats.put(chat);
+    renderPurchasedItems();
+    showToast('已清空已购买记录', 'success');
+  }
 
   async function renderCartItems() {
     const listEl = document.getElementById('cart-items-list');
@@ -1156,6 +1234,66 @@ ${recentHistoryContext}
     }
   }
 
+  // 获取当前购物车信息，注入到角色聊天提示词
+  async function getShoppingCartPromptForChat(chatId) {
+    try {
+      const chat = state.chats[chatId];
+      if (!chat) return '';
+
+      if (!shoppingCart || shoppingCart.length === 0) {
+        return '';
+      }
+
+      const productIds = shoppingCart.map(item => item.productId);
+      const products = await db.shoppingProducts.where('id').anyOf(productIds).toArray();
+      const productMap = new Map(products.map(p => [p.id, p]));
+
+      let totalCost = 0;
+      const lines = [];
+
+      shoppingCart.forEach((cartItem, index) => {
+        const product = productMap.get(cartItem.productId);
+        if (!product) return;
+
+        const price = cartItem.variation ? cartItem.variation.price : product.price;
+        const itemName = cartItem.variation
+          ? `${product.name} - ${cartItem.variation.name}`
+          : product.name;
+
+        const subtotal = price * cartItem.quantity;
+        totalCost += subtotal;
+
+        lines.push(`${index + 1}. ${itemName} × ${cartItem.quantity}，单价 ¥${price.toFixed(2)}，小计 ¥${subtotal.toFixed(2)}`);
+      });
+
+      if (lines.length === 0) return '';
+
+      const wallet = chat.simulatedTaobaoHistory || {};
+      const characterBalance = Number(wallet.totalBalance || 0);
+      const autoClearEnabled = !!chat.settings.enableAutoCartClear;
+      const autoClearProbability = chat.settings.autoCartClearProbability ?? 30;
+
+      return `
+# 当前购物车状态
+用户当前购物车里有：
+${lines.join('\n')}
+
+购物车总价：¥${totalCost.toFixed(2)}
+你的角色钱包余额：¥${characterBalance.toFixed(2)}
+是否允许自动清空购物车：${autoClearEnabled ? '是' : '否'}
+自动清空购物车概率：${autoClearProbability}%
+
+如果用户询问购物车，你可以根据以上内容自然回答。
+如果用户暗示想买、想让你看看、想让你帮忙清空购物车，你可以结合你的余额、关系状态和性格自然回应。
+如果你决定实际帮用户清空购物车，请在回复末尾单独输出一行：[清空购物车]
+不要假装看不到购物车。
+`;
+    } catch (error) {
+      console.warn('[Shopping] 获取购物车提示失败:', error);
+      return '';
+    }
+  }
+
   // 检查角色是否可以帮助用户清空购物车
   async function checkAndClearShoppingCart(chatId) {
     try {
@@ -1166,9 +1304,14 @@ ${recentHistoryContext}
         return;
       }
       
-      // 检查购物车是否为空
       if (!shoppingCart || shoppingCart.length === 0) {
-        return;
+        return `
+      # 当前购物车状态
+      用户当前购物车为空。
+      如果用户询问购物车，请明确告诉用户购物车里目前没有商品。
+      不要编造购物车商品。
+      不要输出 [清空购物车]。
+      `;
       }
       
       // 检查是否已经有待处理的通知（避免重复通知）
@@ -1182,8 +1325,8 @@ ${recentHistoryContext}
       
       // 计算购物车总价
       const productIds = shoppingCart.map(item => item.productId);
-      const products = await db.products.bulkGet(productIds);
-      const productMap = new Map(products.filter(p => p).map(p => [p.id, p]));
+      const products = await db.shoppingProducts.where('id').anyOf(productIds).toArray();
+      const productMap = new Map(products.map(p => [p.id, p]));
       
       let totalCost = 0;
       shoppingCart.forEach(cartItem => {
@@ -1211,7 +1354,23 @@ ${recentHistoryContext}
       if (!chat.simulatedTaobaoHistory) chat.simulatedTaobaoHistory = { totalBalance: 0, purchases: [] };
       if (!chat.simulatedTaobaoHistory.purchases) chat.simulatedTaobaoHistory.purchases = [];
       
-      chat.simulatedTaobaoHistory.totalBalance -= totalCost;
+      const oldBalance = Number(chat.simulatedTaobaoHistory.totalBalance || 0);
+      const newBalance = oldBalance - totalCost;
+
+      chat.simulatedTaobaoHistory.totalBalance = newBalance;
+
+      if (!chat.simulatedTaobaoHistory.walletLogs) {
+        chat.simulatedTaobaoHistory.walletLogs = [];
+      }
+
+      chat.simulatedTaobaoHistory.walletLogs.unshift({
+        type: 'cart_clear',
+        amount: -totalCost,
+        balanceBefore: oldBalance,
+        balanceAfter: newBalance,
+        note: '自动清空购物车',
+        timestamp: Date.now()
+      });
       
       // 记录购买记录
       const purchaseItems = [];
@@ -1269,16 +1428,121 @@ ${recentHistoryContext}
     }
   }
 
+async function handleShoppingCartCommandFromAI(chatId, aiText) {
+  try {
+    if (!aiText || !String(aiText).includes('清空购物车')) return;
+
+    const chat = state.chats[chatId];
+    if (!chat) return;
+
+    if (!shoppingCart || shoppingCart.length === 0) {
+      console.log('[Shopping] AI请求清空购物车，但购物车为空');
+      return;
+    }
+
+    const productIds = shoppingCart.map(item => item.productId);
+    const products = await db.shoppingProducts.where('id').anyOf(productIds).toArray();
+    const productMap = new Map(products.map(p => [p.id, p]));
+
+    let totalCost = 0;
+    const purchaseItems = [];
+
+    shoppingCart.forEach(cartItem => {
+      const product = productMap.get(cartItem.productId);
+      if (!product) return;
+
+      const price = cartItem.variation ? cartItem.variation.price : product.price;
+      const itemName = cartItem.variation
+        ? `${product.name} - ${cartItem.variation.name}`
+        : product.name;
+
+      totalCost += price * cartItem.quantity;
+
+      purchaseItems.push({
+        name: itemName,
+        quantity: cartItem.quantity,
+        price: price
+      });
+    });
+
+    if (totalCost <= 0) return;
+
+    if (!chat.simulatedTaobaoHistory) {
+      chat.simulatedTaobaoHistory = { totalBalance: 0, purchases: [] };
+    }
+    if (!chat.simulatedTaobaoHistory.purchases) {
+      chat.simulatedTaobaoHistory.purchases = [];
+    }
+    if (!chat.simulatedTaobaoHistory.walletLogs) {
+      chat.simulatedTaobaoHistory.walletLogs = [];
+    }
+
+    const oldBalance = Number(chat.simulatedTaobaoHistory.totalBalance || 0);
+
+    if (oldBalance < totalCost) {
+      console.log('[Shopping] AI请求清空购物车，但角色余额不足');
+      return;
+    }
+
+    const newBalance = oldBalance - totalCost;
+    chat.simulatedTaobaoHistory.totalBalance = newBalance;
+
+    purchaseItems.forEach(item => {
+      chat.simulatedTaobaoHistory.purchases.unshift({
+        itemName: item.name,
+        price: item.price * item.quantity,
+        quantity: item.quantity,
+        status: '已购买',
+        reason: 'AI指令清空购物车',
+        image_prompt: `${item.name}, product photography`,
+        timestamp: Date.now()
+      });
+    });
+
+    chat.simulatedTaobaoHistory.walletLogs.unshift({
+      type: 'cart_clear',
+      amount: -totalCost,
+      balanceBefore: oldBalance,
+      balanceAfter: newBalance,
+      note: 'AI清空购物车',
+      timestamp: Date.now()
+    });
+
+    shoppingCart = [];
+    window.shoppingCart = shoppingCart;
+    saveShoppingCart();
+    updateCartCount();
+
+    const cartScreen = document.getElementById('cart-screen');
+    if (cartScreen && cartScreen.classList.contains('active')) {
+      renderCartItems();
+    }
+
+    await db.chats.put(chat);
+
+    showToast(`${chat.name} 已帮你清空购物车，扣款 ¥${totalCost.toFixed(2)}`, 'success');
+    console.log(`[Shopping] ${chat.name} 已通过AI指令清空购物车，扣款 ¥${totalCost.toFixed(2)}`);
+  } catch (error) {
+    console.error('[Shopping] 处理AI清空购物车指令失败:', error);
+  }
+}
+
   // ========== 全局暴露 ==========
   window.openShoppingScreen = openShoppingScreen;
   window.openCartScreen = openCartScreen;
   window.openProductCategoryManager = openProductCategoryManager;
   window.openShoppingSettingsModal = openShoppingSettingsModal;
+  window.openPurchasedScreen = openPurchasedScreen;
+  window.renderPurchasedItems = renderPurchasedItems;
+  window.deletePurchasedItem = deletePurchasedItem;
+  window.clearPurchasedItems = clearPurchasedItems;
   window.renderShoppingProducts = renderShoppingProducts;
   window.renderCartItems = renderCartItems;
   window.saveProduct = saveProduct;
   window.addNewProductCategory = addNewProductCategory;
   window.deleteProductCategory = deleteProductCategory;
+  window.getShoppingCartPromptForChat = getShoppingCartPromptForChat;
+  window.handleShoppingCartCommandFromAI = handleShoppingCartCommandFromAI;
   window.saveShoppingCart = saveShoppingCart;
   window.saveShoppingSettings = saveShoppingSettings;
   window.switchShoppingCategory = switchShoppingCategory;

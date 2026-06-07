@@ -808,6 +808,7 @@ async function renderCharacterWalletList() {
         </div>
         <div style="display:flex; gap:8px; margin-top:12px;">
           <button onclick="customRechargeCharacterWallet('${chat.id}')" style="flex:1; padding:8px; border-radius:10px; background:#1677ff; color:white;">充值</button>
+          <button onclick="openCharacterWalletLogs('${chat.id}')" style="flex:1; padding:8px; border-radius:10px; background:#34c759; color:white;">流水</button>
           <button onclick="resetCharacterWallet('${chat.id}')" style="flex:1; padding:8px; border-radius:10px; background:#999; color:white;">清零</button>
         </div>
       </div>
@@ -825,14 +826,28 @@ async function rechargeCharacterWallet(chatId, amount) {
   if (!chat.simulatedTaobaoHistory.purchases) {
     chat.simulatedTaobaoHistory.purchases = [];
   }
+  if (!chat.simulatedTaobaoHistory.walletLogs) {
+    chat.simulatedTaobaoHistory.walletLogs = [];
+  }
 
-  chat.simulatedTaobaoHistory.totalBalance =
-    Number(chat.simulatedTaobaoHistory.totalBalance || 0) + Number(amount);
+  const oldBalance = Number(chat.simulatedTaobaoHistory.totalBalance || 0);
+  const newBalance = oldBalance + Number(amount);
 
-  await db.chats.put(chat);
-  await renderCharacterWalletList();
-  showToast(`已给 ${chat.name} 充值 ¥${Number(amount).toFixed(2)}`, 'success');
-}
+  chat.simulatedTaobaoHistory.totalBalance = newBalance;
+
+  chat.simulatedTaobaoHistory.walletLogs.unshift({
+    type: 'recharge',
+    amount: Number(amount),
+    balanceBefore: oldBalance,
+    balanceAfter: newBalance,
+    note: '手动充值',
+    timestamp: Date.now()
+  });
+
+    await db.chats.put(chat);
+    await renderCharacterWalletList();
+    showToast(`已给 ${chat.name} 充值 ¥${Number(amount).toFixed(2)}`, 'success');
+  }
 
 async function customRechargeCharacterWallet(chatId) {
   const amountStr = await showCustomPrompt('角色钱包充值', '请输入充值金额：', '', 'number');
@@ -865,13 +880,68 @@ async function resetCharacterWallet(chatId) {
   if (!chat.simulatedTaobaoHistory.purchases) {
     chat.simulatedTaobaoHistory.purchases = [];
   }
+  if (!chat.simulatedTaobaoHistory.walletLogs) {
+    chat.simulatedTaobaoHistory.walletLogs = [];
+  }
+
+  const oldBalance = Number(chat.simulatedTaobaoHistory.totalBalance || 0);
 
   chat.simulatedTaobaoHistory.totalBalance = 0;
+
+  chat.simulatedTaobaoHistory.walletLogs.unshift({
+    type: 'reset',
+    amount: -oldBalance,
+    balanceBefore: oldBalance,
+    balanceAfter: 0,
+    note: '手动清零',
+    timestamp: Date.now()
+  });
 
   await db.chats.put(chat);
   await renderCharacterWalletList();
 
   showToast(`已清零 ${chat.name} 的角色钱包`, 'success');
+}
+
+async function openCharacterWalletLogs(chatId) {
+  const chat = state.chats[chatId];
+  if (!chat) return;
+
+  const wallet = chat.simulatedTaobaoHistory || {};
+  const logs = wallet.walletLogs || [];
+
+  if (logs.length === 0) {
+    await showCustomAlert('角色钱包流水', `${chat.name} 暂无钱包流水。`);
+    return;
+  }
+
+  const recentLogs = logs.slice(0, 30);
+
+  const html = `
+    <div style="max-height:60vh; overflow-y:auto; text-align:left;">
+      ${recentLogs.map(log => {
+        const amount = Number(log.amount || 0);
+        const sign = amount >= 0 ? '+' : '';
+        const color = amount >= 0 ? '#1677ff' : '#ff4d4f';
+        const time = log.timestamp ? new Date(log.timestamp).toLocaleString('zh-CN') : '未知时间';
+        const before = Number(log.balanceBefore || 0).toFixed(2);
+        const after = Number(log.balanceAfter || 0).toFixed(2);
+
+        return `
+          <div style="padding:12px 0; border-bottom:1px solid #eee;">
+            <div style="display:flex; justify-content:space-between; gap:10px;">
+              <div style="font-weight:600;">${log.note || '钱包变动'}</div>
+              <div style="font-weight:700; color:${color};">${sign}¥${amount.toFixed(2)}</div>
+            </div>
+            <div style="font-size:12px; color:#888; margin-top:4px;">${time}</div>
+            <div style="font-size:12px; color:#999; margin-top:4px;">余额：¥${before} → ¥${after}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  await showCustomAlert(`${chat.name} 的钱包流水`, html);
 }
 
   // ========== 全局暴露 ==========
@@ -888,6 +958,7 @@ async function resetCharacterWallet(chatId) {
   window.rechargeCharacterWallet = rechargeCharacterWallet;
   window.customRechargeCharacterWallet = customRechargeCharacterWallet;
   window.resetCharacterWallet = resetCharacterWallet;
+  window.openCharacterWalletLogs = openCharacterWalletLogs;
   window.switchFundTab = switchFundTab;
   window.refreshFundMarket = async () => {
     await showCustomAlert("刷新中", "正在更新行情...");
