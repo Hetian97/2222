@@ -126,6 +126,9 @@
             <span class="bill-type-tab" data-type="expense">支出</span>
             <span class="bill-type-tab" data-type="income">收入</span>
         </div>
+        <button id="clear-user-bills-btn" style="border:none; background:#ff4d4f; color:white; border-radius:8px; padding:6px 10px; font-size:12px;">
+            清空流水
+        </button>
     `;
     container.appendChild(header);
 
@@ -159,6 +162,11 @@
         loadBills(true);
       });
     });
+
+    const clearBtn = document.getElementById('clear-user-bills-btn');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', clearUserBills);
+    }
 
     const scrollList = document.getElementById('bill-scroll-list');
     scrollList.addEventListener('scroll', () => {
@@ -269,17 +277,48 @@
 
       const item = document.createElement('div');
       item.className = 'bill-item';
+
+      const transactionId = t.id ?? t.transactionId ?? '';
+
       item.innerHTML = `
             <div class="bill-info">
                 <div class="bill-title">${t.description || '未知交易'}</div>
                 <div class="bill-time">${timeStr}</div>
             </div>
-            <div class="bill-amount ${colorClass}">${sign}${safeAmount.toFixed(2)}</div>
+            <div style="display:flex; align-items:center; gap:8px;">
+                <div class="bill-amount ${colorClass}">${sign}${safeAmount.toFixed(2)}</div>
+                <button onclick='deleteUserBill(${JSON.stringify(transactionId)}, ${Number(t.timestamp || 0)})' style="border:none; background:#eee; color:#666; border-radius:6px; padding:4px 8px; font-size:12px;">
+                    删除
+                </button>
+            </div>
         `;
       fragment.appendChild(item);
     });
 
     container.insertBefore(fragment, loaderEl);
+  }
+
+  async function deleteUserBill(transactionId, timestamp) {
+    const confirmed = await showCustomConfirm('删除流水', '确定要删除这条支付宝流水吗？这不会回滚余额或亲属卡额度。');
+    if (!confirmed) return;
+
+    if (transactionId !== '' && transactionId !== null && transactionId !== undefined) {
+      await db.userTransactions.delete(transactionId);
+    } else if (timestamp) {
+      await db.userTransactions.where('timestamp').equals(timestamp).delete();
+    }
+
+    await loadBills(true);
+    showToast('已删除支付宝流水', 'success');
+  }
+
+  async function clearUserBills() {
+    const confirmed = await showCustomConfirm('清空流水', '确定要清空全部支付宝流水吗？这不会回滚余额或亲属卡额度。');
+    if (!confirmed) return;
+
+    await db.userTransactions.clear();
+    await loadBills(true);
+    showToast('已清空支付宝流水', 'success');
   }
 
   async function handleUserTopUp() {
@@ -930,8 +969,14 @@ async function openCharacterWalletLogs(chatId) {
   const recentLogs = logs.slice(0, 30);
 
   const html = `
-  <div style="text-align:left;">
-      ${recentLogs.map(log => {
+    <div style="text-align:left;">
+      <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+        <button onclick="clearCharacterWalletLogs('${chatId}')" style="border:none; background:#ff4d4f; color:white; border-radius:8px; padding:6px 10px; font-size:12px;">
+          清空流水
+        </button>
+      </div>
+
+      ${recentLogs.map((log, index) => {
         const amount = Number(log.amount || 0);
         const sign = amount >= 0 ? '+' : '';
         const color = amount >= 0 ? '#1677ff' : '#ff4d4f';
@@ -941,12 +986,20 @@ async function openCharacterWalletLogs(chatId) {
 
         return `
           <div style="padding:12px 0; border-bottom:1px solid #eee;">
-            <div style="display:flex; justify-content:space-between; gap:10px;">
-              <div style="font-weight:600;">${log.note || '钱包变动'}</div>
-              <div style="font-weight:700; color:${color};">${sign}¥${amount.toFixed(2)}</div>
+            <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;">
+              <div style="flex:1;">
+                <div style="font-weight:600;">${log.note || '钱包变动'}</div>
+                <div style="font-size:12px; color:#888; margin-top:4px;">${time}</div>
+                <div style="font-size:12px; color:#999; margin-top:4px;">余额：¥${before} → ¥${after}</div>
+              </div>
+
+              <div style="text-align:right;">
+                <div style="font-weight:700; color:${color};">${sign}¥${amount.toFixed(2)}</div>
+                <button onclick="deleteCharacterWalletLog('${chatId}', ${index})" style="margin-top:6px; border:none; background:#eee; color:#666; border-radius:6px; padding:4px 8px; font-size:12px;">
+                  删除
+                </button>
+              </div>
             </div>
-            <div style="font-size:12px; color:#888; margin-top:4px;">${time}</div>
-            <div style="font-size:12px; color:#999; margin-top:4px;">余额：¥${before} → ¥${after}</div>
           </div>
         `;
       }).join('')}
@@ -954,6 +1007,33 @@ async function openCharacterWalletLogs(chatId) {
   `;
 
   await showCustomAlert(`${chat.name} 的钱包流水`, html);
+}
+
+async function deleteCharacterWalletLog(chatId, index) {
+  const chat = state.chats[chatId];
+  if (!chat?.simulatedTaobaoHistory?.walletLogs) return;
+
+  const confirmed = await showCustomConfirm('删除流水', '确定要删除这条角色钱包流水吗？这不会回滚余额。');
+  if (!confirmed) return;
+
+  chat.simulatedTaobaoHistory.walletLogs.splice(index, 1);
+  await db.chats.put(chat);
+
+  await openCharacterWalletLogs(chatId);
+}
+
+async function clearCharacterWalletLogs(chatId) {
+  const chat = state.chats[chatId];
+  if (!chat?.simulatedTaobaoHistory?.walletLogs) return;
+
+  const confirmed = await showCustomConfirm('清空流水', '确定要清空这个角色的全部钱包流水吗？这不会回滚余额。');
+  if (!confirmed) return;
+
+  chat.simulatedTaobaoHistory.walletLogs = [];
+  await db.chats.put(chat);
+
+  showToast('已清空角色钱包流水', 'success');
+  await openCharacterWalletLogs(chatId);
 }
 
 function getWalletApiKey(apiKey) {
@@ -1208,6 +1288,8 @@ ${recentLogs || '暂无最近流水'}
   // ========== 全局暴露 ==========
   window.openAlipayScreen = openAlipayScreen;
   window.renderTransactionList = renderTransactionList;
+  window.deleteUserBill = deleteUserBill;
+  window.clearUserBills = clearUserBills;
   window.initBillListUI = initBillListUI;
   window.handleUserTopUp = handleUserTopUp;
   window.openKinshipSelector = openKinshipSelector;
@@ -1222,6 +1304,8 @@ ${recentLogs || '暂无最近流水'}
   window.getCharacterWalletPromptForChat = getCharacterWalletPromptForChat;
   window.resetCharacterWallet = resetCharacterWallet;
   window.openCharacterWalletLogs = openCharacterWalletLogs;
+  window.deleteCharacterWalletLog = deleteCharacterWalletLog;
+  window.clearCharacterWalletLogs = clearCharacterWalletLogs;
   window.switchFundTab = switchFundTab;
   window.refreshFundMarket = async () => {
     await showCustomAlert("刷新中", "正在更新行情...");
