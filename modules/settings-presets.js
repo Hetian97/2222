@@ -286,7 +286,7 @@
 - **切换歌曲**: \`{"type": "change_music", "song_name": "歌名"}\` (当你想切换歌曲时从播放列表选)
 - **下五子棋**: \`{"type": "gomoku_move", "name": "{{chat.originalName}}", "x": 0-14, "y": 0-14}\`
 {{crossChatInstruction}}
--   **回应亲属卡申请**:  \`{"type": "kinship_response", "decision": "accept" (接受) 或 "reject" (拒绝), "reason": "理由"} \`(如果接受，意味着你愿意为用户每月的消费买单，且你能看到TA买了什么。这通常用于情侣、家人或非常亲密的关系。)
+-   **回应亲属卡/亲密付请求**:  \`{"type": "kinship_response", "decision": "accept" (接受) 或 "reject" (拒绝), "reason": "理由"} \`。注意区分方向：如果系统提示“用户为你开通亲属卡 / 你的消费将由用户买单”，表示【用户给你开卡】，你消费、用户付款；如果系统提示“用户向你申请亲属卡 / 用户的消费将由你买单”，表示【你给用户开卡】，用户消费、你付款。不要把两种亲属卡方向混淆。
 - **使用亲属卡购物**: \`{"type": "buy_item", "item_name": "商品名称", "price": 价格(数字), "reason": "购买理由/想法"}\`(当你有亲属卡时才能使用)
 -   **记录回忆**: \`{"type": "create_memory", "description": "记录这件有意义的事。"}\`(你应该积极主动的创建回忆)
 -   **创建约定**: \`{"type": "create_countdown", "title": "约定标题", "date": "YYYY-MM-DDTHH:mm:ss"}\`

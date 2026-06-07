@@ -268,8 +268,15 @@ function loadShoppingCart() {
                 数量：${item.quantity || 1}　
                 金额：¥${Number(item.price || 0).toFixed(2)}
               </div>
-              <div style="font-size:12px; color:#999; margin-top:4px;">
-                ${item.reason || item.status || '已购买'} · ${time}
+
+              ${item.reason ? `
+                <div style="font-size:12px; color:#999; margin-top:4px; line-height:1.5;">
+                  ${item.reason}
+                </div>
+              ` : ''}
+
+              <div style="font-size:12px; color:#888; margin-top:4px;">
+                ${item.paymentNote || item.status || '已购买'} · ${time}
               </div>
             </div>
             <button onclick="deletePurchasedItem(${index})" style="border:none; background:#ff4d4f; color:white; border-radius:8px; padding:6px 10px; font-size:12px;">删除</button>
@@ -459,6 +466,12 @@ function loadShoppingCart() {
     }
 
     kinshipCards.forEach(card => {
+      const cardType = card.type || 'out';
+
+      // 用户自己点“结算”时，只能使用“TA给我”的亲属卡
+      // out = 我给TA，TA花我的钱；in = TA给我，我花TA的钱
+      if (cardType !== 'in') return;
+
       const providerChat = state.chats[card.chatId];
       const name = providerChat ? providerChat.name : '未知';
       const remaining = card.limit - (card.spent || 0);
@@ -488,7 +501,10 @@ function loadShoppingCart() {
       if (!success) return;
     } else if (paymentMethod.startsWith('kinship_')) {
       const cardChatId = paymentMethod.replace('kinship_', '');
-      const cardIndex = wallet.kinshipCards.findIndex(c => c.chatId === cardChatId);
+      const cardIndex = wallet.kinshipCards.findIndex(c =>
+        String(c.chatId) === String(cardChatId) &&
+        ((c.type || 'out') === 'in')
+      );
 
       if (cardIndex > -1) {
         // A. 扣额度
@@ -525,13 +541,16 @@ function loadShoppingCart() {
           }
 
           const providerBalance = Number(providerChat.simulatedTaobaoHistory.totalBalance || 0);
+          const providerNewBalance = providerBalance - totalCost;
+
+          providerChat.simulatedTaobaoHistory.totalBalance = providerNewBalance;
 
           providerChat.simulatedTaobaoHistory.walletLogs.unshift({
-            type: 'kinship_card_expense',
+            type: 'kinship_card_pay_for_user',
             amount: -totalCost,
             balanceBefore: providerBalance,
-            balanceAfter: providerBalance,
-            note: `亲属卡消费 - ${transactionDesc}`,
+            balanceAfter: providerNewBalance,
+            note: `亲属卡付款 - ${transactionDesc}`,
             timestamp: Date.now()
           });
           await db.chats.put(providerChat);
@@ -565,6 +584,7 @@ function loadShoppingCart() {
         // 自用流程
         // 1. 从购物车移除商品
         shoppingCart = shoppingCart.filter(item => !selectedItems.some(sent => sent.productId === item.productId));
+        window.shoppingCart = shoppingCart;
         updateCartCount();
         saveShoppingCart(); // 保存购物车
 
@@ -1302,6 +1322,12 @@ ${lines.join('\n')}
 
 如果用户询问购物车，你可以根据以上内容自然回答。
 如果用户暗示想买、想让你看看、想让你帮忙清空购物车，你可以结合你的余额、关系状态和性格自然回应。
+
+重要说明：
+当你帮用户清空购物车时，视为“你替用户执行购买”。
+如果用户给你开通了亲属卡/亲密付，这张卡的含义是“你消费，用户买单”，因此你可以使用这张卡来帮用户清空购物车。
+不要误解成只有“你给用户开的卡”才能清空购物车。
+
 如果你决定实际帮用户清空购物车，请在回复末尾单独输出一行：[清空购物车]
 不要假装看不到购物车。
 `;
@@ -1402,15 +1428,17 @@ ${lines.join('\n')}
             price: price * cartItem.quantity,
             quantity: cartItem.quantity,
             status: '已发货',
-            reason: '帮你清空购物车',
+            reason: product.description || '帮你清空购物车',
+            paymentNote: '角色钱包付款 - 自动清空购物车',
             image_prompt: `${itemName}, product photography`,
             timestamp: Date.now()
           });
-          
+
           purchaseItems.push({
             name: itemName,
             quantity: cartItem.quantity,
-            price: price
+            price: price,
+            description: product.description || ''
           });
         }
       });
@@ -1478,7 +1506,8 @@ async function handleShoppingCartCommandFromAI(chatId, aiText) {
       purchaseItems.push({
         name: itemName,
         quantity: cartItem.quantity,
-        price: price
+        price: price,
+        description: product.description || ''
       });
     });
 
@@ -1496,13 +1525,79 @@ async function handleShoppingCartCommandFromAI(chatId, aiText) {
 
     const oldBalance = Number(chat.simulatedTaobaoHistory.totalBalance || 0);
 
-    if (oldBalance < totalCost) {
-      console.log('[Shopping] AI请求清空购物车，但角色余额不足');
+    // 购物车描述：单个商品显示商品名，多个商品显示“清空购物车-X件商品”
+    const cartDesc = purchaseItems.length === 1
+      ? purchaseItems[0].name
+      : `清空购物车-${purchaseItems.length}件商品`;
+
+    // 优先使用用户给该角色开的亲属卡；亲属卡不够时，再用角色自己的钱包
+    const userWallet = await db.userWallet.get('main') || { balance: 0, kinshipCards: [] };
+    const kinshipCards = userWallet.kinshipCards || [];
+    const kinshipIndex = kinshipCards.findIndex(card =>
+      String(card.chatId) === String(chatId) &&
+      ((card.type || 'out') === 'out')
+    );
+    const kinshipCard = kinshipIndex > -1 ? kinshipCards[kinshipIndex] : null;
+    const kinshipRemaining = kinshipCard
+      ? Number(kinshipCard.limit || 0) - Number(kinshipCard.spent || 0)
+      : 0;
+
+    const useKinshipCard = !!kinshipCard && kinshipRemaining >= totalCost;
+    const useCharacterWallet = !useKinshipCard && oldBalance >= totalCost;
+
+    if (!useKinshipCard && !useCharacterWallet) {
+      console.log('[Shopping] AI请求清空购物车，但角色钱包和亲属卡额度都不足');
       return;
     }
 
-    const newBalance = oldBalance - totalCost;
-    chat.simulatedTaobaoHistory.totalBalance = newBalance;
+    let newBalance = oldBalance;
+    let paymentType = '';
+    let paymentNote = '';
+
+    if (useKinshipCard) {
+      userWallet.kinshipCards[kinshipIndex].spent =
+        Number(userWallet.kinshipCards[kinshipIndex].spent || 0) + totalCost;
+
+      await db.userWallet.put(userWallet);
+
+      await db.userTransactions.add({
+        timestamp: Date.now(),
+        type: 'expense',
+        amount: totalCost,
+        description: `亲属卡消费-${chat.name}-${cartDesc}`
+      });
+
+      paymentType = 'kinship_card_cart_clear';
+      paymentNote = `亲属卡消费 - ${cartDesc}`;
+
+      // TA 使用“我给TA”的亲属卡付款：
+      // 我的支付宝扣钱，TA 的角色钱包余额不变，但 TA 的钱包流水要记录这笔消费
+      chat.simulatedTaobaoHistory.walletLogs.unshift({
+        type: paymentType,
+        amount: -totalCost,
+        balanceBefore: oldBalance,
+        balanceAfter: oldBalance,
+        note: paymentNote,
+        timestamp: Date.now()
+      });
+    } else {
+      newBalance = oldBalance - totalCost;
+      chat.simulatedTaobaoHistory.totalBalance = newBalance;
+
+      paymentType = 'cart_clear';
+      paymentNote = `角色钱包付款 - ${cartDesc}`;
+
+      // TA 使用自己的角色钱包付款：
+      // TA 的钱包余额减少，TA 的钱包流水记录扣款
+      chat.simulatedTaobaoHistory.walletLogs.unshift({
+        type: paymentType,
+        amount: -totalCost,
+        balanceBefore: oldBalance,
+        balanceAfter: newBalance,
+        note: paymentNote,
+        timestamp: Date.now()
+      });
+    }
 
     purchaseItems.forEach(item => {
       chat.simulatedTaobaoHistory.purchases.unshift({
@@ -1510,19 +1605,11 @@ async function handleShoppingCartCommandFromAI(chatId, aiText) {
         price: item.price * item.quantity,
         quantity: item.quantity,
         status: '已购买',
-        reason: '清空购物车',
+        reason: item.description || '帮你清空购物车',
+        paymentNote: paymentNote,
         image_prompt: `${item.name}, product photography`,
         timestamp: Date.now()
       });
-    });
-
-    chat.simulatedTaobaoHistory.walletLogs.unshift({
-      type: 'cart_clear',
-      amount: -totalCost,
-      balanceBefore: oldBalance,
-      balanceAfter: newBalance,
-      note: '角色钱包付款 - 清空购物车',
-      timestamp: Date.now()
     });
 
     shoppingCart = [];
@@ -1541,6 +1628,57 @@ async function handleShoppingCartCommandFromAI(chatId, aiText) {
     console.log(`[Shopping] ${chat.name} 已通过AI指令清空购物车，扣款 ¥${totalCost.toFixed(2)}`);
   } catch (error) {
     console.error('[Shopping] 处理AI清空购物车指令失败:', error);
+  }
+}
+
+async function removeCartItemByName(itemName) {
+  try {
+    if (!itemName || !shoppingCart || shoppingCart.length === 0) return false;
+
+    const productIds = shoppingCart.map(item => item.productId);
+    const products = await db.shoppingProducts.where('id').anyOf(productIds).toArray();
+    const productMap = new Map(products.map(p => [p.id, p]));
+
+    const normalize = text => String(text || '').replace(/\s+/g, '').trim();
+
+    const targetName = normalize(itemName);
+
+    const removeIndex = shoppingCart.findIndex(cartItem => {
+      const product = productMap.get(cartItem.productId);
+      if (!product) return false;
+
+      const fullName = cartItem.variation
+        ? `${product.name} - ${cartItem.variation.name}`
+        : product.name;
+
+      const productName = normalize(product.name);
+      const cartFullName = normalize(fullName);
+
+      return (
+        cartFullName === targetName ||
+        productName === targetName ||
+        targetName.includes(productName) ||
+        cartFullName.includes(targetName)
+      );
+    });
+
+    if (removeIndex === -1) return false;
+
+    shoppingCart.splice(removeIndex, 1);
+    window.shoppingCart = shoppingCart;
+
+    saveShoppingCart();
+    updateCartCount();
+
+    const cartScreen = document.getElementById('cart-screen');
+    if (cartScreen && cartScreen.classList.contains('active')) {
+      renderCartItems();
+    }
+
+    return true;
+  } catch (error) {
+    console.error('[Shopping] 按商品名移除购物车商品失败:', error);
+    return false;
   }
 }
 
@@ -1571,6 +1709,7 @@ async function handleShoppingCartCommandFromAI(chatId, aiText) {
   window.updateCartTotal = updateCartTotal;
   window.loadShoppingCart = loadShoppingCart;
   window.handleGenerateShoppingItems = handleGenerateShoppingItems;
+  window.removeCartItemByName = removeCartItemByName;
 
   // ========== 从 script.js 迁移：openVariationSelector, handlePaymentButtonClick ==========
   async function openVariationSelector(productId) {

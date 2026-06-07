@@ -57,17 +57,28 @@
         const providerName = chat ? chat.name : '未知角色';
         const providerAvatar = chat ? (chat.settings.aiAvatar || defaultAvatar) : defaultAvatar;
         const remaining = card.limit - (card.spent || 0);
+        const isInCard = card.type === 'in';
+        const directionLabel = isInCard ? 'TA给我' : '我给TA';
+        const visibilityText = isInCard ? '我的消费对方可见' : '对方消费我可见';
+
+        const cardGradient = isInCard
+          ? 'linear-gradient(135deg, #4f8cff 0%, #35cfd0 100%)'
+          : 'linear-gradient(135deg, #ff9fbc 0%, #ff78ab 100%)';
+
+        const cardTextColor = isInCard ? '#eaf8ff' : '#ffe66b';
 
         const cardEl = document.createElement('div');
         cardEl.className = 'kinship-card-entry';
+        cardEl.style.background = cardGradient;
+        cardEl.style.color = cardTextColor;
         cardEl.innerHTML = `
                 <button class="alipay-unbind-btn" data-chat-id="${card.chatId}">解绑</button>
                 <div class="kinship-top">
                     <div class="kinship-provider">
                         <img src="${providerAvatar}">
-                        <span>${providerName} (赠)</span>
+                        <span>${providerName} (${directionLabel})</span>
                     </div>
-                    <span style="font-size:11px; opacity:0.8;">消费对方可见</span>
+                    <span style="font-size:11px; opacity:0.8;">${visibilityText}</span>
                 </div>
                 <div class="kinship-label">本月剩余额度</div>
                 <div class="kinship-limit">¥ ${remaining.toFixed(2)}</div>

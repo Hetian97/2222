@@ -1021,25 +1021,37 @@
       } else if (msg.type === 'kinship_request') {
         bubble.classList.add('is-kinship-request', 'is-card-like');
 
+        const isGrant = msg.requestType === 'grant' || !msg.requestType;
+
+        const cardTitle = isGrant ? '亲属卡邀请' : '亲属卡申请';
+        const cardSubtitle = isGrant ? '对方消费 我买单' : '我消费 对方买单';
+        const kinshipHeaderBg = isGrant
+          ? 'linear-gradient(135deg, #ff9fbc 0%, #ff78ab 100%)'
+          : 'linear-gradient(135deg, #4f8cff 0%, #35cfd0 100%)';
+        const statusPendingText = isGrant ? '等待对方确认...' : '等待TA确认...';
+
         let statusText = '';
         let statusKey = '';
 
         if (msg.status === 'pending') {
-          statusText = '等待对方确认...';
+          statusText = statusPendingText;
           statusKey = 'pending';
         } else if (msg.status === 'accepted') {
           statusText = '已开通';
           statusKey = 'accepted';
+        } else if (msg.status === 'rejected') {
+          statusText = '已拒绝';
+          statusKey = 'rejected';
         } else {
           statusText = '已失效';
-          statusKey = 'rejected';
+          statusKey = 'expired';
         }
 
         contentHtml = `
             <div class="kinship-invite-card">
-                <div class="kinship-invite-header">
-                    <div class="kinship-title">亲属卡邀请</div>
-                    <div class="kinship-subtitle">对方消费 我买单</div>
+                <div class="kinship-invite-header" style="background:${kinshipHeaderBg};">
+                    <div class="kinship-title">${cardTitle}</div>
+                    <div class="kinship-subtitle">${cardSubtitle}</div>
                 </div>
                 <div class="kinship-invite-body">
                     <div class="kinship-limit-label">每月消费额度</div>

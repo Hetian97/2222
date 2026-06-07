@@ -125,6 +125,6 @@
 #choice-modal,
 #custom-choice-modal,
 .modal.visible {
-  z-index: 3000 !important;
+  z-index: 20000 !important;
   position: fixed;
 }

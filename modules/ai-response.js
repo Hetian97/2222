@@ -4081,7 +4081,10 @@ ${getActiveThoughtsPrompt()}
 
             // 1. 重新获取钱包数据（确保实时性）
             const currentWallet = await db.userWallet.get('main');
-            const cardIndex = currentWallet?.kinshipCards?.findIndex(c => c.chatId === chat.id);
+            const cardIndex = currentWallet?.kinshipCards?.findIndex(c =>
+              String(c.chatId) === String(chat.id) &&
+              ((c.type || 'out') === 'out')
+            );
 
             if (cardIndex > -1) {
               const card = currentWallet.kinshipCards[cardIndex];
@@ -4099,6 +4102,28 @@ ${getActiveThoughtsPrompt()}
                   amount: price,
                   description: `亲属卡消费-${chat.name}-${itemName}`
                 });
+
+                if (!chat.simulatedTaobaoHistory) {
+                  chat.simulatedTaobaoHistory = { totalBalance: 0, purchases: [], walletLogs: [] };
+                }
+                if (!chat.simulatedTaobaoHistory.walletLogs) {
+                  chat.simulatedTaobaoHistory.walletLogs = [];
+                }
+
+                const oldBalance = Number(chat.simulatedTaobaoHistory.totalBalance || 0);
+
+                chat.simulatedTaobaoHistory.walletLogs.unshift({
+                  type: 'kinship_card_buy_item',
+                  amount: -price,
+                  balanceBefore: oldBalance,
+                  balanceAfter: oldBalance,
+                  note: `亲属卡消费 - ${itemName}`,
+                  timestamp: Date.now()
+                });
+
+                if (typeof window.removeCartItemByName === 'function') {
+                  await window.removeCartItemByName(itemName);
+                }
 
                 // 4. 生成系统通知消息 (AI发送的)
                 const successMsg = {
@@ -4152,10 +4177,40 @@ ${getActiveThoughtsPrompt()}
             const requestMsg = chat.history.findLast(m => m.type === 'kinship_request' && m.status === 'pending');
 
             if (requestMsg) {
-              requestMsg.status = (msgData.decision === 'accept') ? 'accepted' : 'rejected';
+              const rawDecision = String(msgData.decision || '').trim().toLowerCase();
+              const reasonText = String(msgData.reason || msgData.content || '').trim();
+              const decisionText = `${rawDecision} ${reasonText}`;
+
+              const isExplicitReject =
+                rawDecision === 'reject' ||
+                rawDecision === 'rejected' ||
+                rawDecision === 'no' ||
+                decisionText.includes('拒绝') ||
+                decisionText.includes('不同意') ||
+                decisionText.includes('不接受') ||
+                decisionText.includes('不行') ||
+                decisionText.includes('不要') ||
+                decisionText.includes('decline') ||
+                decisionText.includes('deny');
+
+              const isExplicitAccept =
+                rawDecision === 'accept' ||
+                rawDecision === 'accepted' ||
+                rawDecision === 'yes' ||
+                decisionText.includes('接受') ||
+                decisionText.includes('同意') ||
+                decisionText.includes('开通') ||
+                decisionText.includes('批准') ||
+                decisionText.includes('可以') ||
+                decisionText.includes('愿意');
+
+              // 只要不是明确拒绝，就默认接受。避免 AI 嘴上说接受，但 decision 字段不标准导致误判拒绝。
+              const isAccepted = isExplicitReject ? false : true;
+
+              requestMsg.status = isAccepted ? 'accepted' : 'rejected';
               const isGrant = requestMsg.requestType === 'grant' || !requestMsg.requestType; // 兼容旧数据
 
-              if (msgData.decision === 'accept') {
+              if (isAccepted) {
                 // --- 同意逻辑 ---
 
                 // 只有当是 'grant' (用户送钱) 时，才写入本地钱包额度
@@ -4167,18 +4222,26 @@ ${getActiveThoughtsPrompt()}
                 const wallet = await db.userWallet.get('main');
                 if (!wallet.kinshipCards) wallet.kinshipCards = [];
 
-                const existingIndex = wallet.kinshipCards.findIndex(c => c.chatId === chat.id);
+                const cardType = isGrant ? 'out' : 'in';
+
+                const existingIndex = wallet.kinshipCards.findIndex(c =>
+                  String(c.chatId) === String(chat.id) &&
+                  ((c.type || 'out') === cardType)
+                );
+
                 if (existingIndex > -1) {
                   wallet.kinshipCards[existingIndex].limit = requestMsg.limit;
-                  wallet.kinshipCards[existingIndex].type = isGrant ? 'out' : 'in'; // 标记方向
+                  wallet.kinshipCards[existingIndex].spent = wallet.kinshipCards[existingIndex].spent || 0;
+                  wallet.kinshipCards[existingIndex].type = cardType;
                 } else {
                   wallet.kinshipCards.push({
                     chatId: chat.id,
                     limit: requestMsg.limit,
                     spent: 0,
-                    type: isGrant ? 'out' : 'in' // out=用户出钱, in=AI出钱
+                    type: cardType
                   });
                 }
+
                 await db.userWallet.put(wallet);
 
                 // --- 构造 AI 回复 ---
