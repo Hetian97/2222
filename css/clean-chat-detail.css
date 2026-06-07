@@ -120,6 +120,7 @@
 }
 
 /* 整洁聊天详情模式下，通用弹窗必须高于 clean-chat-detail-screen */
+#manual-summary-modal,
 #custom-modal-overlay,
 #custom-confirm-overlay,
 #choice-modal,

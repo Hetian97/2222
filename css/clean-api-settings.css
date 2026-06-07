@@ -103,6 +103,7 @@
 }
 
 /* 整洁 API 设置模式下，通用弹窗必须高于 clean-api-settings-screen */
+#manual-summary-modal,
 #custom-modal-overlay,
 #custom-confirm-overlay,
 #choice-modal,
