@@ -118,3 +118,13 @@
   z-index: 1001 !important;
   position: fixed;
 }
+
+/* 整洁聊天详情模式下，通用弹窗必须高于 clean-chat-detail-screen */
+#custom-modal-overlay,
+#custom-confirm-overlay,
+#choice-modal,
+#custom-choice-modal,
+.modal.visible {
+  z-index: 3000 !important;
+  position: fixed;
+}

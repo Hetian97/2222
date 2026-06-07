@@ -101,3 +101,13 @@
 #clean-api-settings-screen .settings-container {
   padding-bottom: 40px;
 }
+
+/* 整洁 API 设置模式下，通用弹窗必须高于 clean-api-settings-screen */
+#custom-modal-overlay,
+#custom-confirm-overlay,
+#choice-modal,
+#custom-choice-modal,
+.modal.visible {
+  z-index: 3000 !important;
+  position: fixed;
+}
