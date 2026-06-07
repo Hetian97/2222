@@ -808,6 +808,7 @@ async function renderCharacterWalletList() {
         </div>
         <div style="display:flex; gap:8px; margin-top:12px;">
           <button onclick="customRechargeCharacterWallet('${chat.id}')" style="flex:1; padding:8px; border-radius:10px; background:#1677ff; color:white;">充值</button>
+          <button onclick="refreshCharacterWalletByAI('${chat.id}')" style="flex:1; padding:8px; border-radius:10px; background:#af52de; color:white;">AI刷新</button>
           <button onclick="openCharacterWalletLogs('${chat.id}')" style="flex:1; padding:8px; border-radius:10px; background:#34c759; color:white;">流水</button>
           <button onclick="resetCharacterWallet('${chat.id}')" style="flex:1; padding:8px; border-radius:10px; background:#999; color:white;">清零</button>
         </div>
@@ -918,7 +919,7 @@ async function openCharacterWalletLogs(chatId) {
   const recentLogs = logs.slice(0, 30);
 
   const html = `
-    <div style="max-height:60vh; overflow-y:auto; text-align:left;">
+  <div style="text-align:left;">
       ${recentLogs.map(log => {
         const amount = Number(log.amount || 0);
         const sign = amount >= 0 ? '+' : '';
@@ -944,6 +945,255 @@ async function openCharacterWalletLogs(chatId) {
   await showCustomAlert(`${chat.name} 的钱包流水`, html);
 }
 
+function getWalletApiKey(apiKey) {
+  if (!apiKey) return '';
+  return String(apiKey)
+    .split(/[,，\n]/)
+    .map(s => s.trim())
+    .filter(Boolean)[0] || '';
+}
+
+function extractWalletJson(text) {
+  const raw = String(text || '').trim();
+  const cleaned = raw
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```$/i, '')
+    .trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    throw e;
+  }
+}
+
+async function callWalletAI(chat, prompt) {
+  const proxyUrl = chat.apiOverride?.proxyUrl || state.apiConfig.proxyUrl;
+  const apiKey = getWalletApiKey(chat.apiOverride?.apiKey || state.apiConfig.apiKey);
+  const model = chat.apiOverride?.model || state.apiConfig.model;
+
+  if (!proxyUrl || !apiKey || !model) {
+    throw new Error('API配置不完整，请先检查全局API或角色API设置。');
+  }
+
+  const isGemini = proxyUrl.includes('generativelanguage.googleapis.com');
+
+  if (isGemini) {
+    const body = {
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: prompt }]
+        }
+      ],
+      generationConfig: {
+        temperature: state.globalSettings.apiTemperature || 0.8
+      }
+    };
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err?.error?.message || 'Gemini API请求失败');
+    }
+
+    const data = await response.json();
+    return data.candidates?.[0]?.content?.parts?.map(p => p.text).join('\n') || '';
+  }
+
+  const response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: '你是角色钱包流水生成器。你必须只输出JSON，不要输出解释。'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      temperature: state.globalSettings.apiTemperature || 0.8
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err?.error?.message || 'API请求失败');
+  }
+
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content || '';
+}
+
+async function refreshCharacterWalletByAI(chatId) {
+  const chat = state.chats[chatId];
+  if (!chat) return;
+
+  if (!chat.simulatedTaobaoHistory) {
+    chat.simulatedTaobaoHistory = { totalBalance: 0, purchases: [], walletLogs: [] };
+  }
+  if (!chat.simulatedTaobaoHistory.walletLogs) {
+    chat.simulatedTaobaoHistory.walletLogs = [];
+  }
+
+  const currentBalance = Number(chat.simulatedTaobaoHistory.totalBalance || 0);
+  const recentLogs = chat.simulatedTaobaoHistory.walletLogs.slice(0, 10);
+  const recentMessages = (chat.history || [])
+    .filter(m => !m.isHidden)
+    .slice(-20)
+    .map(m => `${m.role}: ${String(m.content || m.dialogue || m.description || '').slice(0, 120)}`)
+    .join('\n');
+
+  const prompt = `
+请根据角色设定、职业、最近剧情和当前余额，为角色钱包追加生成 1-5 条合理的收入/支出流水。
+
+角色名：${chat.name}
+角色设定：
+${chat.settings?.aiPersona || '无'}
+
+当前角色钱包余额：¥${currentBalance.toFixed(2)}
+
+最近聊天：
+${recentMessages || '无'}
+
+最近钱包流水：
+${recentLogs.map(log => `${log.note} ${log.amount}，余额 ${log.balanceBefore} -> ${log.balanceAfter}`).join('\n') || '无'}
+
+要求：
+1. 只输出 JSON。
+2. 不要覆盖旧流水，只生成本次新增流水。
+3. 可以有收入，也可以有支出。
+4. 支出不要超过当前余额太多，尽量合理。
+5. 金额必须是数字。
+6. note 用中文，简短自然。
+7. 不要生成购物车清空记录，购物车清空由购物系统负责。
+
+输出格式：
+{
+  "logs": [
+    {
+      "type": "income",
+      "amount": 12000,
+      "note": "工资到账"
+    },
+    {
+      "type": "expense",
+      "amount": 68,
+      "note": "买咖啡和晚餐"
+    }
+  ]
+}
+`;
+
+  try {
+    await showCustomAlert('AI刷新中', `正在根据 ${chat.name} 的剧情生成钱包流水...`);
+
+    const aiText = await callWalletAI(chat, prompt);
+    const parsed = extractWalletJson(aiText);
+    const logs = Array.isArray(parsed.logs) ? parsed.logs : [];
+
+    if (logs.length === 0) {
+      await showCustomAlert('无新增流水', 'AI没有生成有效流水。');
+      return;
+    }
+
+    let balance = currentBalance;
+    let addedCount = 0;
+
+    logs.forEach(log => {
+      const rawAmount = Math.abs(Number(log.amount || 0));
+      if (!rawAmount || isNaN(rawAmount)) return;
+
+      const isExpense = log.type === 'expense';
+      const amount = isExpense ? -rawAmount : rawAmount;
+
+      const before = balance;
+      let after = before + amount;
+
+      if (after < 0) {
+        after = 0;
+      }
+
+      chat.simulatedTaobaoHistory.walletLogs.unshift({
+        type: isExpense ? 'expense' : 'income',
+        amount: after - before,
+        balanceBefore: before,
+        balanceAfter: after,
+        note: log.note || (isExpense ? '剧情支出' : '剧情收入'),
+        timestamp: Date.now() + addedCount
+      });
+
+      balance = after;
+      addedCount++;
+    });
+
+    chat.simulatedTaobaoHistory.totalBalance = balance;
+
+    await db.chats.put(chat);
+    await renderCharacterWalletList();
+
+    await showCustomAlert('刷新完成', `已为 ${chat.name} 新增 ${addedCount} 条钱包流水。`);
+  } catch (error) {
+    console.error('[CharacterWallet] AI刷新钱包流水失败:', error);
+    await showCustomAlert('刷新失败', error.message || 'AI刷新钱包流水失败。');
+  }
+}
+
+async function getCharacterWalletPromptForChat(chatId) {
+  try {
+    const chat = state.chats[chatId];
+    if (!chat) return '';
+
+    const wallet = chat.simulatedTaobaoHistory || {};
+    const balance = Number(wallet.totalBalance || 0);
+    const logs = wallet.walletLogs || [];
+
+    if (!logs.length && balance === 0) {
+      return '';
+    }
+
+    const recentLogs = logs.slice(0, 8).map(log => {
+      const amount = Number(log.amount || 0);
+      const sign = amount >= 0 ? '+' : '';
+      const time = log.timestamp
+        ? new Date(log.timestamp).toLocaleString('zh-CN')
+        : '未知时间';
+
+      return `- ${time}：${log.note || '钱包变动'} ${sign}¥${amount.toFixed(2)}，余额 ¥${Number(log.balanceAfter || 0).toFixed(2)}`;
+    }).join('\n');
+
+    return `
+# 角色钱包状态
+你的当前钱包余额：¥${balance.toFixed(2)}
+
+最近钱包流水：
+${recentLogs || '暂无最近流水'}
+
+这些是你的个人钱包记录。你可以在合适的时候自然参考这些收入、支出和余额，例如用户问你最近花了什么钱、有没有收入、钱包余额、是否能帮忙买东西时。
+不要说“系统生成”“AI刷新”“钱包流水 prompt”等元信息。
+不要主动长篇解释钱包，除非用户询问。
+`;
+  } catch (error) {
+    console.warn('[CharacterWallet] 获取角色钱包提示失败:', error);
+    return '';
+  }
+}
+
   // ========== 全局暴露 ==========
   window.openAlipayScreen = openAlipayScreen;
   window.renderTransactionList = renderTransactionList;
@@ -957,6 +1207,8 @@ async function openCharacterWalletLogs(chatId) {
   window.openCharacterWalletScreen = openCharacterWalletScreen;
   window.rechargeCharacterWallet = rechargeCharacterWallet;
   window.customRechargeCharacterWallet = customRechargeCharacterWallet;
+  window.refreshCharacterWalletByAI = refreshCharacterWalletByAI;
+  window.getCharacterWalletPromptForChat = getCharacterWalletPromptForChat;
   window.resetCharacterWallet = resetCharacterWallet;
   window.openCharacterWalletLogs = openCharacterWalletLogs;
   window.switchFundTab = switchFundTab;

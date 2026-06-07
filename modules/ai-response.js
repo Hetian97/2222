@@ -2486,6 +2486,13 @@ ${enabledEntries}
             }
           }
 
+          if (window.getCharacterWalletPromptForChat && chat?.id) {
+            const walletPrompt = await window.getCharacterWalletPromptForChat(chat.id);
+            if (walletPrompt) {
+              systemPrompt += '\n\n' + walletPrompt;
+            }
+          }
+
           messagesPayload = filteredHistory.map(msg => {
             if (msg.isHidden) return null;
 
@@ -3335,6 +3342,13 @@ ${getActiveThoughtsPrompt()}
             const shoppingCartPrompt = await window.getShoppingCartPromptForChat(chat.id);
             if (shoppingCartPrompt) {
               systemPrompt += '\n\n' + shoppingCartPrompt;
+            }
+          }
+
+          if (window.getCharacterWalletPromptForChat && chat?.id) {
+            const walletPrompt = await window.getCharacterWalletPromptForChat(chat.id);
+            if (walletPrompt) {
+              systemPrompt += '\n\n' + walletPrompt;
             }
           }
 
@@ -6838,6 +6852,13 @@ ${linkedContents}
         const shoppingCartPrompt = await window.getShoppingCartPromptForChat(chat.id);
         if (shoppingCartPrompt) {
           systemPrompt += '\n\n' + shoppingCartPrompt;
+        }
+      }
+
+      if (window.getCharacterWalletPromptForChat && chat?.id) {
+        const walletPrompt = await window.getCharacterWalletPromptForChat(chat.id);
+        if (walletPrompt) {
+          systemPrompt += '\n\n' + walletPrompt;
         }
       }
 

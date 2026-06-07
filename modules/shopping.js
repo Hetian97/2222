@@ -1493,7 +1493,7 @@ async function handleShoppingCartCommandFromAI(chatId, aiText) {
         price: item.price * item.quantity,
         quantity: item.quantity,
         status: '已购买',
-        reason: 'AI指令清空购物车',
+        reason: '清空购物车',
         image_prompt: `${item.name}, product photography`,
         timestamp: Date.now()
       });
@@ -1504,7 +1504,7 @@ async function handleShoppingCartCommandFromAI(chatId, aiText) {
       amount: -totalCost,
       balanceBefore: oldBalance,
       balanceAfter: newBalance,
-      note: 'AI清空购物车',
+      note: '清空购物车',
       timestamp: Date.now()
     });
 
