@@ -1272,6 +1272,10 @@
                overflow: hidden;
            }
 
+           #todo-list-container .todo-item {
+               flex-shrink: 0;
+           }
+
            .todo-item.completed {
                opacity: 0.6;
                background-color: #f9f9f9;
@@ -1369,6 +1373,21 @@
                margin-top: 50px;
            }
 
+           #todo-list-screen {
+               display: flex;
+               flex-direction: column;
+               height: 100%;
+               overflow: hidden;
+           }
+
+           #todo-list-container {
+               flex: 1;
+               min-height: 0;
+               overflow-y: auto;
+               -webkit-overflow-scrolling: touch;
+               padding-bottom: 90px;
+           }
+
            /* --- 类型选择器样式 --- */
            .todo-type-selector {
                display: flex;
@@ -1419,6 +1438,23 @@
            }
 
            /* --- 暗黑模式适配 --- */
+
+           #phone-screen.dark-mode .todo-type-option,
+           #phone-screen.dark-mode .todo-item-type-option,
+           #phone-screen.dark-mode .todo-owner-type-option {
+               background: #2c2c2e;
+               border-color: #3a3a3c;
+               color: #f2f2f7;
+           }
+
+           #phone-screen.dark-mode .todo-type-option.active,
+           #phone-screen.dark-mode .todo-item-type-option.active,
+           #phone-screen.dark-mode .todo-owner-type-option.active {
+               background: var(--tag-color, #007aff);
+               border-color: var(--tag-color, #007aff);
+               color: #fff;
+           }
+
            #phone-screen.dark-mode #todo-list-screen {
                background-color: #000 !important;
            }
@@ -1434,6 +1470,10 @@
 
            #phone-screen.dark-mode .todo-item.completed {
                background-color: #121212;
+           }
+
+           #phone-screen.dark-mode .todo-item.is-shared {
+               background-color: #3a1f2b;
            }
 
            #phone-screen.dark-mode .todo-type-option {
@@ -1485,10 +1525,39 @@
                /* 删除按钮在最左边，给右边留空隙 */
            }
 
+           /* 6. 共同事项/共同行程：靠右，浅粉色 */
+           .todo-item.is-shared {
+               flex-direction: row-reverse;
+               background-color: #fff4f8;
+           }
+
+           .todo-item.is-shared .todo-info {
+               text-align: right;
+               align-items: flex-end;
+           }
+
+           .todo-item.is-shared .todo-meta {
+               justify-content: flex-end;
+           }
+
+           .todo-item.is-shared .todo-checkbox {
+               margin-right: 0;
+               margin-left: 12px;
+           }
+
+           .todo-item.is-shared .todo-delete-btn {
+               margin-left: 0;
+               margin-right: 5px;
+           }
+
            /* 暗黑模式适配 */
            #phone-screen.dark-mode .todo-item.is-user {
                background-color: #1a2a3a;
                /* 暗黑模式下的深蓝色背景 */
+           }
+
+           #phone-screen.dark-mode .todo-item.is-shared {
+               background-color: #3a1f2b;
            }
 
            #todo-current-date-display {

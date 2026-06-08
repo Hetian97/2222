@@ -2864,54 +2864,56 @@ ${enabledEntries}
 - 位置: 可以放在对话前作为铺垫，也可以放在对话后作为留白。
 `;
           }
-          // --- To-Do List Context Injection (新版：读今天所有 + 未来待办 + 临近提醒) ---
+          // --- Schedule / To-Do Context Injection ---
           let todoListContext = "";
           if (chat.settings.enableTodoList && chat.todoList && chat.todoList.length > 0) {
             const now = new Date();
-            const todayStr = getTodoDateString(now); // 获取今天的日期字符串 (YYYY-MM-DD)
-            const currentTimestamp = now.getTime(); // 当前时间戳
+            const todayStr = getTodoDateString(now);
+            const currentTimestamp = now.getTime();
 
-            // 筛选逻辑：
             const relevantTasks = chat.todoList.filter(t => {
-              // 1. 今天的任务：全读
               if (t.date === todayStr) return true;
-
-              // 2. 未来的任务：只读未完成
               if (t.date > todayStr && t.status !== 'completed') return true;
-
-              // 3. 过去的任务：只读未完成 (过期未做)
               if (t.date < todayStr && t.status !== 'completed') return true;
-
               return false;
             });
 
-            // 排序优化：先按日期 -> 再按完成状态(未完成在前) -> 最后按时间
+            relevantTasks.forEach(t => {
+              if (!t.itemType) t.itemType = 'todo';
+              if (!t.ownerType) t.ownerType = 'user';
+              if (!t.source) t.source = t.creator === 'ai' ? 'ai' : 'manual';
+            });
+
             relevantTasks.sort((a, b) => {
               if (a.date !== b.date) return a.date.localeCompare(b.date);
               if (a.status !== b.status) return a.status === 'completed' ? 1 : -1;
-              return (a.time || '00:00').localeCompare(b.time || '00:00');
+              return (a.time || a.startTime || '00:00').localeCompare(b.time || b.startTime || '00:00');
             });
 
-            // 限制数量
-            const tasksToShow = relevantTasks.slice(0, 30);
+            const tasksToShow = relevantTasks.slice(0, 40);
 
             if (tasksToShow.length > 0) {
-              // 1. 定义两个数组用于分组
-              const aiTasks = [];
-              const userTasks = [];
+              const groups = {
+                userSchedule: [],
+                characterSchedule: [],
+                sharedSchedule: [],
+                userTodo: [],
+                characterTodo: [],
+                sharedTodo: []
+              };
 
-              // 获取用户昵称
-              const userLabel = chat.settings.myNickname || '对方';
-
-              tasksToShow.forEach(t => {
-                // 格式化状态
+              const formatTaskLine = (t) => {
                 const statusIcon = t.status === 'completed' ? '✅已完成' : '🔴未完成';
                 const dateDisplay = t.date === todayStr ? '今天' : t.date;
+                const startTime = t.startTime || t.time || '';
+                const endTime = t.endTime || '';
+                const timeDisplay = startTime
+                  ? (endTime ? `${startTime}-${endTime}` : startTime)
+                  : '';
 
-                // --- 时间提醒逻辑 ---
                 let timeAlert = "";
-                if (t.time && t.status !== 'completed') {
-                  const taskDateTimeStr = `${t.date}T${t.time}:00`;
+                if (startTime && t.status !== 'completed') {
+                  const taskDateTimeStr = `${t.date}T${startTime}:00`;
                   const taskTime = new Date(taskDateTimeStr).getTime();
                   const diffMinutes = (taskTime - currentTimestamp) / (1000 * 60);
 
@@ -2921,44 +2923,66 @@ ${enabledEntries}
                     timeAlert = ` (⏰已超时!)`;
                   }
                 }
-                // ---------------------------
 
-                // 生成单行内容
-                const line = `- [${dateDisplay}${t.time ? ' ' + t.time : ''}] 【${t.type}】 ${statusIcon}${timeAlert}: ${t.content}`;
+                const tagText = t.type ? `【${t.type}】` : '';
+                const locationText = t.location ? ` @${t.location}` : '';
+                const descriptionText = t.description ? `｜${t.description}` : '';
 
-                // 分组
-                if (t.creator === 'char') {
-                  aiTasks.push(line);
+                return `- [${dateDisplay}${timeDisplay ? ' ' + timeDisplay : ''}] ${tagText}${statusIcon}${timeAlert}: ${t.content || t.title || ''}${locationText}${descriptionText}`;
+              };
+
+              tasksToShow.forEach(t => {
+                const line = formatTaskLine(t);
+                const itemType = t.itemType || 'todo';
+                const ownerType = t.ownerType || 'user';
+
+                if (itemType === 'schedule') {
+                  if (ownerType === 'character') {
+                    groups.characterSchedule.push(line);
+                  } else if (ownerType === 'shared') {
+                    groups.sharedSchedule.push(line);
+                  } else {
+                    groups.userSchedule.push(line);
+                  }
                 } else {
-                  userTasks.push(line);
+                  if (ownerType === 'character') {
+                    groups.characterTodo.push(line);
+                  } else if (ownerType === 'shared') {
+                    groups.sharedTodo.push(line);
+                  } else {
+                    groups.userTodo.push(line);
+                  }
                 }
               });
 
-              // 2. 构建结构化文本
+              const appendGroup = (title, items) => {
+                return items.length > 0 ? `\n${title}\n${items.join('\n')}\n` : '';
+              };
+
               let taskListString = "";
+              taskListString += appendGroup("【我的行程】", groups.userSchedule);
+              taskListString += appendGroup("【TA的行程】", groups.characterSchedule);
+              taskListString += appendGroup("【共同日程】", groups.sharedSchedule);
+              taskListString += appendGroup("【我的待办】", groups.userTodo);
+              taskListString += appendGroup("【TA的待办】", groups.characterTodo);
+              taskListString += appendGroup("【共同待办】", groups.sharedTodo);
 
-              if (aiTasks.length > 0) {
-                taskListString += `【我(自己)记录的事项】:\n${aiTasks.join('\n')}\n`;
-              }
-
-              if (userTasks.length > 0) {
-                if (aiTasks.length > 0) taskListString += "\n";
-                taskListString += `【${userLabel}记录的事项】:\n${userTasks.join('\n')}`;
-              }
-
-              // 3. 生成最终 Context (已把行为指导语加回来)
               todoListContext = `
-# 【待办事项清单 (To-Do List)】
-(这是用户启用的功能。清单已按记录人分类。请注意清单中的时间标记：
-1. 看到【⚠️还有XX分钟到期】的任务：请务必在回复中**主动提醒**用户去完成！
-2. 看到【✅已完成】的任务：给予夸奖或询问结果。
-3. 看到【🔴未完成】的普通任务：适当提醒或鼓励。)
+# 【今日行程与待办】
+这是用户启用的行程/待办功能。请自然参考这些安排，不要机械复述。
+- 行程比普通待办更影响当前场景、时间感和角色行动。
+- 【我的行程/待办】属于用户。
+- 【TA的行程/待办】属于你，即当前角色。
+- 【共同日程/共同待办】属于你和用户共同参与的安排。
+- 看到【⚠️还有XX分钟到期】的事项：请优先主动提醒。
+- 看到【⏰已超时】的事项：可以自然提醒或询问是否已经处理。
+- 看到【✅已完成】的事项：可以夸奖、回应结果或自然承接。
 当前时间: ${now.toLocaleString('zh-CN', { hour12: false })}
 
 ${taskListString}
 `;
             } else {
-              todoListContext = `\n# 待办事项清单\n(目前没有需要关注的任务)`;
+              todoListContext = `\n# 今日行程与待办\n(目前没有需要关注的行程或待办)`;
             }
           }
           let todoInstruction = "";

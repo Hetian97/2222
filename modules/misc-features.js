@@ -4309,11 +4309,10 @@ ${email.content}
       const ownerType = todo.ownerType || 'user';
       const source = todo.source || (todo.creator === 'ai' ? 'ai' : 'manual');
 
-      const isUser = todo.creator
-        ? (todo.creator === 'user')
-        : (ownerType === 'user');
-
-      const creatorClass = isUser ? 'is-user' : 'is-char';
+      const creatorClass =
+        ownerType === 'character' ? 'is-char' :
+        ownerType === 'shared' ? 'is-shared' :
+        'is-user';
 
       item.className = `todo-item ${todo.status || 'pending'} ${creatorClass} ${itemType === 'schedule' ? 'is-schedule' : 'is-todo'}`;
       item.dataset.id = todo.id;
@@ -4338,6 +4337,10 @@ ${email.content}
         ownerType === 'character' ? 'TA的' :
         ownerType === 'shared' ? '共同' :
         '我的';
+      const ownerTagColor =
+        ownerType === 'character' ? '#1677ff' :
+        ownerType === 'shared' ? '#f4a3bd' :
+        '#5ac8fa';
       const sourceLabel = source === 'ai' ? 'AI' : '手动';
 
       const startTime = todo.startTime || todo.time || '';
@@ -4357,7 +4360,7 @@ ${email.content}
           ` : ''}
           <div class="todo-meta">
             <span class="todo-tag" style="--tag-color: ${tagColor};">${todo.type || '日常'}</span>
-            <span class="todo-tag" style="--tag-color:${itemType === 'schedule' ? '#1677ff' : '#8e8e93'};">${ownerLabel}${itemType === 'schedule' ? '行程' : '待办'}</span>
+            <span class="todo-tag" style="--tag-color:${ownerTagColor};">${ownerLabel}${itemType === 'schedule' ? '行程' : '待办'}</span>
             ${source === 'ai' ? `<span class="todo-tag" style="--tag-color:#af52de;">AI生成</span>` : ''}
             ${timeText ? `<span class="todo-time">⏰${timeText}</span>` : ''}
             ${todo.location ? `<span class="todo-time">📍${escapeHTML(todo.location)}</span>` : ''}

@@ -14,8 +14,8 @@
   <link rel="stylesheet" href="css/settings-font.css?v=0.0.36">
   <link rel="stylesheet" href="css/main-ui.css?v=0.0.36">
   <link rel="stylesheet" href="css/voice-recording.css?v=0.0.36">
-  <link rel="stylesheet" href="css/features-1.css?v=0.0.36">
-  <link rel="stylesheet" href="css/features-2.css?v=0.0.38">
+  <link rel="stylesheet" href="css/features-1.css?v=0.0.37">
+  <link rel="stylesheet" href="css/features-2.css?v=0.0.44">
   <link rel="stylesheet" href="css/features-3.css?v=0.0.36">
   <link rel="stylesheet" href="css/features-4.css?v=0.0.36">
   <link rel="stylesheet" href="update-notification.css?v=0.0.36">
@@ -66,7 +66,7 @@
   <script src="modules/chat-interface.js?v=0.0.37" defer></script>
   <script src="modules/chat-input.js?v=0.0.36" defer></script>
   <!-- 第四层：AI 核心 -->
-  <script src="modules/ai-response.js?v=0.0.47" defer></script>
+  <script src="modules/ai-response.js?v=0.0.48" defer></script>
   <script src="modules/ai-group.js?v=0.0.36" defer></script>
   <!-- 第五层：功能模块 -->
   <script src="modules/music-player.js?v=0.0.36" defer></script>
@@ -102,7 +102,7 @@
   <script src="modules/card-import.js?v=0.0.36" defer></script>
   <script src="modules/character-export.js?v=0.0.36" defer></script>
   <script src="modules/data-management.js?v=0.0.36" defer></script>
-  <script src="modules/misc-features.js?v=0.0.41" defer></script>
+  <script src="modules/misc-features.js?v=0.0.42" defer></script>
   <!-- 第八层：初始化（必须在所有模块之后） -->
   <!-- 数据定义（无依赖） -->
   <script src="modules/init-avatar-frames.js?v=0.0.36" defer></script>
@@ -5869,7 +5869,7 @@
         <button id="todo-next-day-btn">›</button>
     </div>
 
-    <div id="todo-list-container" class="list-container" style="padding: 15px;">
+    <div id="todo-list-container" class="list-container" style="padding: 15px; flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: 90px;">
         </div>
 </div>
 <div id="green-river-screen" class="screen gr-theme">
