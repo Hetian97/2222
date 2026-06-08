@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="css/main-ui.css?v=0.0.36">
   <link rel="stylesheet" href="css/voice-recording.css?v=0.0.36">
   <link rel="stylesheet" href="css/features-1.css?v=0.0.37">
-  <link rel="stylesheet" href="css/features-2.css?v=0.0.44">
+  <link rel="stylesheet" href="css/features-2.css?v=0.0.46">
   <link rel="stylesheet" href="css/features-3.css?v=0.0.36">
   <link rel="stylesheet" href="css/features-4.css?v=0.0.36">
   <link rel="stylesheet" href="update-notification.css?v=0.0.36">
@@ -102,7 +102,7 @@
   <script src="modules/card-import.js?v=0.0.36" defer></script>
   <script src="modules/character-export.js?v=0.0.36" defer></script>
   <script src="modules/data-management.js?v=0.0.36" defer></script>
-  <script src="modules/misc-features.js?v=0.0.42" defer></script>
+  <script src="modules/misc-features.js?v=0.0.44" defer></script>
   <!-- 第八层：初始化（必须在所有模块之后） -->
   <!-- 数据定义（无依赖） -->
   <script src="modules/init-avatar-frames.js?v=0.0.36" defer></script>
@@ -5867,6 +5867,11 @@
         <button id="todo-prev-day-btn">‹</button>
         <div id="todo-current-date-display">今天</div>
         <button id="todo-next-day-btn">›</button>
+    </div>
+
+    <div class="todo-ai-actions">
+        <button class="todo-ai-user-btn" onclick="generateTodoSchedule('user')">生成我的行程</button>
+        <button class="todo-ai-char-btn" onclick="generateTodoSchedule('character')">生成TA的行程</button>
     </div>
 
     <div id="todo-list-container" class="list-container" style="padding: 15px; flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: 90px;">

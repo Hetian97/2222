@@ -4564,6 +4564,272 @@ ${email.content}
     renderTodoList();
   }
 
+  function getScheduleApiKey(apiKey) {
+    if (!apiKey) return '';
+    return String(apiKey)
+      .split(/[,，\n]/)
+      .map(s => s.trim())
+      .filter(Boolean)[0] || '';
+  }
+
+  function extractScheduleJson(text) {
+    const raw = String(text || '').trim();
+    const cleaned = raw
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/```$/i, '')
+      .trim();
+
+    try {
+      return JSON.parse(cleaned);
+    } catch (e) {
+      const match = cleaned.match(/\{[\s\S]*\}/);
+      if (match) return JSON.parse(match[0]);
+      throw e;
+    }
+  }
+
+  async function callScheduleAI(chat, prompt) {
+    const proxyUrl = chat.apiOverride?.proxyUrl || state.apiConfig.proxyUrl;
+    const apiKey = getScheduleApiKey(chat.apiOverride?.apiKey || state.apiConfig.apiKey);
+    const model = chat.apiOverride?.model || state.apiConfig.model;
+
+    if (!proxyUrl || !apiKey || !model) {
+      throw new Error('API配置不完整，请先检查全局API或角色API设置。');
+    }
+
+    const isGemini = proxyUrl.includes('generativelanguage.googleapis.com');
+
+    if (isGemini) {
+      const body = {
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: prompt }]
+          }
+        ],
+        generationConfig: {
+          temperature: state.globalSettings.apiTemperature || 0.8
+        }
+      };
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err?.error?.message || 'Gemini API请求失败');
+      }
+
+      const data = await response.json();
+      return data.candidates?.[0]?.content?.parts?.map(p => p.text).join('\n') || '';
+    }
+
+    const response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: '你是行程生成器。你必须只输出JSON，不要输出解释。'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: state.globalSettings.apiTemperature || 0.8
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err?.error?.message || 'API请求失败');
+    }
+
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content || '';
+  }
+
+  async function generateTodoSchedule(ownerType = 'character') {
+    const chat = state.chats[state.activeChatId];
+    if (!chat) return;
+
+    const targetDate = getTodoDateString(currentTodoDate);
+    const ownerLabel =
+      ownerType === 'user' ? '用户' :
+      ownerType === 'shared' ? '用户和角色共同' :
+      '当前角色';
+
+    const recentMessages = (chat.history || [])
+      .filter(m => !m.isHidden)
+      .slice(-30)
+      .map(m => {
+        const text = String(m.content || m.dialogue || m.description || '').replace(/\s+/g, ' ').slice(0, 180);
+        return `${m.role}: ${text}`;
+      })
+      .join('\n');
+
+    const existingItems = (chat.todoList || [])
+      .filter(t => t.date === targetDate)
+      .map(t => {
+        const itemType = t.itemType || 'todo';
+        const itemOwner = t.ownerType || 'user';
+        const time = t.startTime || t.time || '';
+        const endTime = t.endTime || '';
+        return `- ${itemType}/${itemOwner} ${time}${endTime ? '-' + endTime : ''} ${t.content || t.title || ''}`;
+      })
+      .join('\n');
+
+    const prompt = `
+请为${ownerLabel}生成 ${targetDate} 的行程。
+
+角色名：${chat.name}
+
+角色人设：
+${chat.settings?.aiPersona || '无'}
+
+用户昵称：
+${chat.settings?.myNickname || '用户'}
+
+最近聊天：
+${recentMessages || '无'}
+
+当天已有行程/待办：
+${existingItems || '无'}
+
+要求：
+1. 只输出 JSON，不要解释。
+2. 生成 1-5 条行程。
+3. 行程要符合角色人设、最近聊天、关系状态和当天已有安排。
+4. 不要和已有行程重复。
+5. ownerType 只能是：
+   - "user"：用户自己的行程
+   - "character"：角色自己的行程
+   - "shared"：用户和角色共同参与的行程
+6. 本次主要生成 ownerType="${ownerType}" 的行程；如果明显是两个人共同参与，可以使用 "shared"。
+7. type 只能从以下标签中选择，并按含义选择最合适的一个：
+- "日常"：普通生活安排，比如吃饭、休息、洗澡、散步、买东西。
+- "工作"：上班、学习、任务、会议、实验、值班等职责性安排。
+- "重要"：必须优先处理、不能错过的安排，比如考试、面试、约定、紧急事务。
+- "生活"：偏现实生活管理，比如做饭、打扫、购物、看病、运动。
+- "约会"：两人见面、吃饭、看电影、出门、通话等亲密互动安排。
+- "记账"：和消费、付款、预算、购物、账单相关的安排。
+- "固定"：长期规律性安排，比如工作日上班、固定课程、固定训练、每天睡觉时间。
+- "动态"：根据最近聊天临时生成的安排，比如刚约好明天见面、临时去买东西。
+- "剧情"：根据当前剧情推进生成的安排，比如调查线索、参加宴会、去某个剧情地点。
+- "关系"：根据关系状态、承诺、情绪、亲密度生成的安排，比如哄人、见面、纪念日、陪伴。
+8. startTime 和 endTime 用 HH:mm 格式；如果无法确定 endTime，可以留空。
+9. 内容自然简短，不要太机械。
+10. description 是显示在行程下面的备注，请写成自然的补充说明。
+11. description 可以写提醒、地点细节、准备事项、情绪氛围或剧情补充。
+12. description 禁止出现“用户”“角色”“AI”“基于最近聊天”“根据聊天”“根据已知行程”“根据角色设定”等元叙述。
+13. 不要解释为什么生成这条行程。
+14. 如果没有自然备注，description 留空。
+15. content 只写事项本身，不要写解释。
+16. description 可以使用 {{用户昵称}} 和 {{角色名}} 作为占位符，但只能在自然需要点名时使用：
+   - {{用户昵称}} 表示用户的昵称。
+   - {{角色名}} 表示当前角色的名字。
+   - 不要每条备注都强行使用占位符。
+
+输出格式：
+{
+  "schedules": [
+    {
+      "content": "去公司上班",
+      "description": "根据角色的工作设定生成",
+      "date": "${targetDate}",
+      "startTime": "09:00",
+      "endTime": "18:00",
+      "location": "公司",
+      "type": "固定",
+      "ownerType": "${ownerType}"
+    }
+  ]
+}
+`;
+
+    try {
+      if (typeof showToast === 'function') {
+        showToast('正在生成行程...', 'info');
+      }
+
+      const aiText = await callScheduleAI(chat, prompt);
+      const parsed = extractScheduleJson(aiText);
+      const schedules = Array.isArray(parsed.schedules) ? parsed.schedules : [];
+
+      if (schedules.length === 0) {
+        await showCustomAlert('没有生成行程', 'AI没有返回有效行程。');
+        return;
+      }
+
+      if (!chat.todoList) chat.todoList = [];
+
+      let addedCount = 0;
+
+      schedules.forEach(item => {
+        const content = String(item.content || item.title || '').trim();
+        if (!content) return;
+
+        const date = item.date || targetDate;
+        const startTime = item.startTime || item.time || '';
+        const endTime = item.endTime || '';
+        const scheduleOwner = ['user', 'character', 'shared'].includes(item.ownerType)
+          ? item.ownerType
+          : ownerType;
+
+        let description = String(item.description || '').trim();
+        description = description
+          .replace(/\{\{用户昵称\}\}/g, chat.settings?.myNickname || '你')
+          .replace(/\{\{角色名\}\}/g, chat.name || 'TA');
+
+        chat.todoList.push({
+          id: Date.now() + Math.floor(Math.random() * 100000),
+          content,
+          date,
+          time: startTime,
+          startTime,
+          endTime,
+          type: item.type || '动态',
+          status: 'pending',
+          creator: scheduleOwner === 'character' ? 'ai' : 'user',
+          itemType: 'schedule',
+          ownerType: scheduleOwner,
+          source: 'ai',
+          location: item.location || '',
+          description,
+          timestamp: Date.now(),
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        });
+
+        addedCount++;
+      });
+
+      await db.chats.put(chat);
+      currentTodoDate = new Date(targetDate);
+      updateTodoDateDisplay();
+      await renderTodoList();
+
+      if (typeof showToast === 'function') {
+        showToast(`已生成 ${addedCount} 条行程`, 'success');
+      } else {
+        await showCustomAlert('生成完成', `已生成 ${addedCount} 条行程`);
+      }
+    } catch (error) {
+      console.error('[TodoSchedule] 生成行程失败:', error);
+      await showCustomAlert('生成失败', error.message || String(error));
+    }
+  }
+
   window.renderTodoList = renderTodoList;
   window.loadMoreTodos = loadMoreTodos;
   window.saveTodo = saveTodo;
@@ -4571,6 +4837,7 @@ ${email.content}
   window.changeTodoDate = changeTodoDate;
   window.openTodoEditor = openTodoEditor;
   window.openTodoList = openTodoList;
+  window.generateTodoSchedule = generateTodoSchedule;
 
   // ========== 从 script.js 迁移：快捷回复相关函数 ==========
   // activeQuickReplyCategoryId 已在 utils.js 中声明为全局变量，此处不再重复声明
