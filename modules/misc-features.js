@@ -4156,6 +4156,7 @@ ${email.content}
   let currentTodoDate = new Date();
   // todoCache, todoRenderCount, isLoadingMoreTodos 已在 utils.js 中声明
   let editingTodoId = null;
+  let currentTodoOwnerFilter = 'all';
 
   async function openTodoList() {
     if (!state.activeChatId) return;
@@ -4187,64 +4188,198 @@ ${email.content}
     renderTodoList();
   }
 
+  function renderTodoOwnerTabs(container) {
+    const tabWrap = document.createElement('div');
+    tabWrap.style.cssText = 'display:flex; gap:8px; padding:10px 0 12px;';
+
+    const tabs = [
+      { value: 'all', label: '全部' },
+      { value: 'user', label: '我的' },
+      { value: 'character', label: 'TA的' },
+      { value: 'shared', label: '共同' }
+    ];
+
+    tabs.forEach(tab => {
+      const btn = document.createElement('button');
+      btn.textContent = tab.label;
+      btn.style.cssText = `
+        border:none;
+        border-radius:18px;
+        padding:7px 18px;
+        font-size:14px;
+        background:${currentTodoOwnerFilter === tab.value ? '#007aff' : '#fff'};
+        color:${currentTodoOwnerFilter === tab.value ? '#fff' : '#333'};
+        box-shadow:0 1px 4px rgba(0,0,0,0.08);
+      `;
+
+      btn.onclick = () => {
+        currentTodoOwnerFilter = tab.value;
+        renderTodoList();
+      };
+
+      tabWrap.appendChild(btn);
+    });
+
+    container.appendChild(tabWrap);
+  }
+
   async function renderTodoList() {
     const container = document.getElementById('todo-list-container');
     container.innerHTML = '';
+
     const chat = state.chats[state.activeChatId];
     if (!chat) return;
+
+    renderTodoOwnerTabs(container);
+
     const targetDateStr = getTodoDateString(currentTodoDate);
     const todos = chat.todoList || [];
-    const dayTodos = todos.filter(t => t.date === targetDateStr);
-    dayTodos.sort((a, b) => {
-      if (a.status === b.status) return (a.time || '00:00').localeCompare(b.time || '00:00');
-      return a.status === 'completed' ? 1 : -1;
+
+    let dayTodos = todos.filter(t => t.date === targetDateStr);
+
+    dayTodos.forEach(t => {
+      if (!t.itemType) t.itemType = 'todo';
+      if (!t.ownerType) t.ownerType = 'user';
+      if (!t.source) t.source = t.creator === 'ai' ? 'ai' : 'manual';
     });
+
+    if (currentTodoOwnerFilter !== 'all') {
+      dayTodos = dayTodos.filter(t => (t.ownerType || 'user') === currentTodoOwnerFilter);
+    }
+
+    const schedules = dayTodos.filter(t => t.itemType === 'schedule');
+    const todoItems = dayTodos.filter(t => t.itemType !== 'schedule');
+
+    const sortItems = (a, b) => {
+      if (a.status === b.status) {
+        return (a.time || a.startTime || '00:00').localeCompare(b.time || b.startTime || '00:00');
+      }
+      return a.status === 'completed' ? 1 : -1;
+    };
+
+    schedules.sort(sortItems);
+    todoItems.sort(sortItems);
+
     if (dayTodos.length === 0) {
-      container.innerHTML = `<div class="todo-empty-state">📅 ${targetDateStr}<br>暂无待办事项</div>`;
+      container.innerHTML += `<div class="todo-empty-state">📅 ${targetDateStr}<br>暂无行程和待办事项</div>`;
       return;
     }
-    todoCache = dayTodos;
+
+    if (schedules.length > 0) {
+      const scheduleSection = document.createElement('div');
+      scheduleSection.className = 'todo-section';
+      scheduleSection.innerHTML = `<div style="font-weight:700; font-size:15px; margin:10px 0 8px;">行程</div>`;
+      container.appendChild(scheduleSection);
+    }
+
+    todoCache = schedules;
+    todoRenderCount = 0;
+    loadMoreTodos();
+
+    if (todoItems.length > 0) {
+      const todoSection = document.createElement('div');
+      todoSection.className = 'todo-section';
+      todoSection.innerHTML = `<div style="font-weight:700; font-size:15px; margin:14px 0 8px;">待办清单</div>`;
+      container.appendChild(todoSection);
+    }
+
+    todoCache = todoItems;
     todoRenderCount = 0;
     loadMoreTodos();
   }
 
   function loadMoreTodos() {
     if (isLoadingMoreTodos) return;
+
     const container = document.getElementById('todo-list-container');
     if (!container) return;
     if (todoRenderCount >= todoCache.length) return;
+
     isLoadingMoreTodos = true;
+
     const BATCH_SIZE = 30;
     const nextSliceEnd = todoRenderCount + BATCH_SIZE;
     const itemsToRender = todoCache.slice(todoRenderCount, nextSliceEnd);
     const fragment = document.createDocumentFragment();
+
     itemsToRender.forEach(todo => {
       const item = document.createElement('div');
-      const isUser = (todo.creator === 'user' || !todo.creator);
+
+      const itemType = todo.itemType || 'todo';
+      const ownerType = todo.ownerType || 'user';
+      const source = todo.source || (todo.creator === 'ai' ? 'ai' : 'manual');
+
+      const isUser = todo.creator
+        ? (todo.creator === 'user')
+        : (ownerType === 'user');
+
       const creatorClass = isUser ? 'is-user' : 'is-char';
-      item.className = `todo-item ${todo.status} ${creatorClass}`;
+
+      item.className = `todo-item ${todo.status || 'pending'} ${creatorClass} ${itemType === 'schedule' ? 'is-schedule' : 'is-todo'}`;
       item.dataset.id = todo.id;
+
       const colorMap = {
-        '日常': '#8e8e93', '工作': '#007aff', '重要': '#ff3b30',
-        '生活': '#34c759', '约会': '#af52de', '学习': '#ff9500', '记账': '#ffc107'
+        '日常': '#8e8e93',
+        '工作': '#007aff',
+        '重要': '#ff3b30',
+        '生活': '#34c759',
+        '约会': '#af52de',
+        '学习': '#ff9500',
+        '记账': '#ffc107',
+        '固定': '#007aff',
+        '动态': '#34c759',
+        '剧情': '#af52de',
+        '关系': '#ff2d55',
+        '用户': '#ff9500'
       };
+
       const tagColor = colorMap[todo.type] || '#8e8e93';
+      const ownerLabel =
+        ownerType === 'character' ? 'TA的' :
+        ownerType === 'shared' ? '共同' :
+        '我的';
+      const sourceLabel = source === 'ai' ? 'AI' : '手动';
+
+      const startTime = todo.startTime || todo.time || '';
+      const endTime = todo.endTime || '';
+      const timeText = startTime
+        ? (endTime ? `${startTime}-${endTime}` : startTime)
+        : '';
+
       item.innerHTML = `
-            <div class="todo-checkbox"></div>
-            <div class="todo-info">
-                <div class="todo-content">${escapeHTML(todo.content)}</div>
-                <div class="todo-meta">
-                    <span class="todo-tag" style="--tag-color: ${tagColor};">${todo.type || '日常'}</span>
-                    ${todo.time ? `<span class="todo-time">⏰ ${todo.time}</span>` : ''}
-                </div>
+        <div class="todo-checkbox"></div>
+        <div class="todo-info">
+          <div class="todo-content">${escapeHTML(todo.content || todo.title || '')}</div>
+          ${todo.description ? `
+            <div style="font-size:12px; color:#999; margin-top:4px; line-height:1.4;">
+              ${escapeHTML(todo.description)}
             </div>
-            <button class="todo-delete-btn">×</button>
-        `;
-      item.querySelector('.todo-checkbox').addEventListener('click', (e) => { e.stopPropagation(); toggleTodoStatus(todo.id); });
-      item.querySelector('.todo-delete-btn').addEventListener('click', (e) => { e.stopPropagation(); deleteTodo(todo.id); });
+          ` : ''}
+          <div class="todo-meta">
+            <span class="todo-tag" style="--tag-color: ${tagColor};">${todo.type || '日常'}</span>
+            <span class="todo-tag" style="--tag-color:${itemType === 'schedule' ? '#1677ff' : '#8e8e93'};">${ownerLabel}${itemType === 'schedule' ? '行程' : '待办'}</span>
+            ${source === 'ai' ? `<span class="todo-tag" style="--tag-color:#af52de;">AI生成</span>` : ''}
+            ${timeText ? `<span class="todo-time">⏰${timeText}</span>` : ''}
+            ${todo.location ? `<span class="todo-time">📍${escapeHTML(todo.location)}</span>` : ''}
+          </div>
+        </div>
+        <button class="todo-delete-btn">×</button>
+      `;
+
+      item.querySelector('.todo-checkbox').addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleTodoStatus(todo.id);
+      });
+
+      item.querySelector('.todo-delete-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteTodo(todo.id);
+      });
+
       item.addEventListener('click', () => openTodoEditor(todo));
       fragment.appendChild(item);
     });
+
     container.appendChild(fragment);
     todoRenderCount += itemsToRender.length;
     isLoadingMoreTodos = false;
@@ -4276,19 +4411,74 @@ ${email.content}
     }
   }
 
+  function updateTodoEditorMode() {
+    const itemTypeEl = document.querySelector('.todo-item-type-option.active');
+    const itemType = itemTypeEl ? itemTypeEl.dataset.value : 'todo';
+    const isSchedule = itemType === 'schedule';
+
+    const ownerGroup = document.getElementById('todo-owner-type-group');
+    const endTimeGroup = document.getElementById('todo-end-time-group');
+    const locationGroup = document.getElementById('todo-location-group');
+    const descriptionGroup = document.getElementById('todo-description-group');
+
+    if (ownerGroup) ownerGroup.style.display = '';
+    if (endTimeGroup) endTimeGroup.style.display = isSchedule ? '' : 'none';
+    if (locationGroup) locationGroup.style.display = isSchedule ? '' : 'none';
+    if (descriptionGroup) descriptionGroup.style.display = isSchedule ? '' : 'none';
+  }
+
   function openTodoEditor(todo = null) {
     const modal = document.getElementById('todo-editor-modal');
     const titleEl = document.getElementById('todo-editor-title');
+
     editingTodoId = todo ? todo.id : null;
-    titleEl.textContent = todo ? '编辑事项' : '添加事项';
-    document.getElementById('todo-content-input').value = todo ? todo.content : '';
+
+    const itemType = todo ? (todo.itemType || 'todo') : 'todo';
+    const ownerType = todo ? (todo.ownerType || 'user') : 'user';
+
+    titleEl.textContent = todo
+      ? (itemType === 'schedule' ? '编辑行程' : '编辑事项')
+      : '添加事项';
+
+    document.getElementById('todo-content-input').value = todo ? (todo.content || todo.title || '') : '';
     document.getElementById('todo-date-input').value = todo ? todo.date : getTodoDateString(currentTodoDate);
-    document.getElementById('todo-time-input').value = todo ? todo.time : '';
+    document.getElementById('todo-time-input').value = todo ? (todo.time || todo.startTime || '') : '';
+
+    const endTimeInput = document.getElementById('todo-end-time-input');
+    const locationInput = document.getElementById('todo-location-input');
+    const descriptionInput = document.getElementById('todo-description-input');
+
+    if (endTimeInput) endTimeInput.value = todo ? (todo.endTime || '') : '';
+    if (locationInput) locationInput.value = todo ? (todo.location || '') : '';
+    if (descriptionInput) descriptionInput.value = todo ? (todo.description || '') : '';
+
+    const itemTypeOptions = document.querySelectorAll('.todo-item-type-option');
+    itemTypeOptions.forEach(opt => {
+      opt.classList.toggle('active', opt.dataset.value === itemType);
+      opt.onclick = () => {
+        itemTypeOptions.forEach(o => o.classList.remove('active'));
+        opt.classList.add('active');
+        updateTodoEditorMode();
+      };
+    });
+
+    const ownerTypeOptions = document.querySelectorAll('.todo-owner-type-option');
+    ownerTypeOptions.forEach(opt => {
+      opt.classList.toggle('active', opt.dataset.value === ownerType);
+      opt.onclick = () => {
+        ownerTypeOptions.forEach(o => o.classList.remove('active'));
+        opt.classList.add('active');
+      };
+    });
+
     const typeOptions = document.querySelectorAll('.todo-type-option');
     typeOptions.forEach(opt => opt.classList.remove('active'));
-    const targetType = todo ? todo.type : '日常';
+
+    const targetType = todo ? (todo.type || '日常') : '日常';
     const activeOption = Array.from(typeOptions).find(opt => opt.dataset.value === targetType);
     if (activeOption) activeOption.classList.add('active');
+
+    updateTodoEditorMode();
     modal.classList.add('visible');
   }
 
@@ -4296,20 +4486,77 @@ ${email.content}
     const content = document.getElementById('todo-content-input').value.trim();
     const date = document.getElementById('todo-date-input').value;
     const time = document.getElementById('todo-time-input').value;
+
+    const endTimeInput = document.getElementById('todo-end-time-input');
+    const locationInput = document.getElementById('todo-location-input');
+    const descriptionInput = document.getElementById('todo-description-input');
+
+    const endTime = endTimeInput ? endTimeInput.value : '';
+    const location = locationInput ? locationInput.value.trim() : '';
+    const description = descriptionInput ? descriptionInput.value.trim() : '';
+
+    const itemTypeEl = document.querySelector('.todo-item-type-option.active');
+    const ownerTypeEl = document.querySelector('.todo-owner-type-option.active');
     const typeEl = document.querySelector('.todo-type-option.active');
+
+    const itemType = itemTypeEl ? itemTypeEl.dataset.value : 'todo';
+    const ownerType = ownerTypeEl ? ownerTypeEl.dataset.value : 'user';
     const type = typeEl ? typeEl.dataset.value : '日常';
-    if (!content || !date) { alert("内容和日期不能为空！"); return; }
+
+    if (!content || !date) {
+      alert("内容和日期不能为空！");
+      return;
+    }
+
     const chat = state.chats[state.activeChatId];
     if (!chat.todoList) chat.todoList = [];
+
     if (editingTodoId) {
       const todo = chat.todoList.find(t => t.id === editingTodoId);
-      if (todo) { todo.content = content; todo.date = date; todo.time = time; todo.type = type; }
+      if (todo) {
+        todo.content = content;
+        todo.date = date;
+        todo.time = time;
+        todo.startTime = time;
+        todo.endTime = itemType === 'schedule' ? endTime : '';
+        todo.type = type;
+        todo.itemType = itemType;
+        todo.ownerType = ownerType;
+        todo.source = todo.source || 'manual';
+        todo.location = itemType === 'schedule' ? location : '';
+        todo.description = itemType === 'schedule' ? description : '';
+        todo.updatedAt = Date.now();
+      }
     } else {
-      chat.todoList.push({ id: Date.now(), content, date, time, type, status: 'pending', creator: 'user', timestamp: Date.now() });
+      chat.todoList.push({
+        id: Date.now(),
+        content,
+        date,
+        time,
+        startTime: time,
+        endTime: itemType === 'schedule' ? endTime : '',
+        type,
+        status: 'pending',
+        creator: ownerType === 'character' ? 'ai' : 'user',
+        itemType,
+        ownerType,
+        source: 'manual',
+        location: itemType === 'schedule' ? location : '',
+        description: itemType === 'schedule' ? description : '',
+        timestamp: Date.now(),
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
     }
+
     await db.chats.put(chat);
+
     const newDate = new Date(date);
-    if (!isNaN(newDate.getTime())) { currentTodoDate = newDate; updateTodoDateDisplay(); }
+    if (!isNaN(newDate.getTime())) {
+      currentTodoDate = newDate;
+      updateTodoDateDisplay();
+    }
+
     document.getElementById('todo-editor-modal').classList.remove('visible');
     renderTodoList();
   }

@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="css/main-ui.css?v=0.0.36">
   <link rel="stylesheet" href="css/voice-recording.css?v=0.0.36">
   <link rel="stylesheet" href="css/features-1.css?v=0.0.36">
-  <link rel="stylesheet" href="css/features-2.css?v=0.0.37">
+  <link rel="stylesheet" href="css/features-2.css?v=0.0.38">
   <link rel="stylesheet" href="css/features-3.css?v=0.0.36">
   <link rel="stylesheet" href="css/features-4.css?v=0.0.36">
   <link rel="stylesheet" href="update-notification.css?v=0.0.36">
@@ -102,7 +102,7 @@
   <script src="modules/card-import.js?v=0.0.36" defer></script>
   <script src="modules/character-export.js?v=0.0.36" defer></script>
   <script src="modules/data-management.js?v=0.0.36" defer></script>
-  <script src="modules/misc-features.js?v=0.0.36" defer></script>
+  <script src="modules/misc-features.js?v=0.0.41" defer></script>
   <!-- 第八层：初始化（必须在所有模块之后） -->
   <!-- 数据定义（无依赖） -->
   <script src="modules/init-avatar-frames.js?v=0.0.36" defer></script>
@@ -7741,9 +7741,27 @@
         </div>
         <div class="modal-body">
             <div class="form-group">
+                <label>事项类型</label>
+                <div class="todo-type-selector" id="todo-item-type-options">
+                    <span class="todo-item-type-option active" data-value="todo" style="--tag-color: #8e8e93;">待办</span>
+                    <span class="todo-item-type-option" data-value="schedule" style="--tag-color: #ff7aa2;">行程</span>
+                </div>
+            </div>
+
+            <div class="form-group" id="todo-owner-type-group" style="display:none;">
+                <label>归属</label>
+                <div class="todo-type-selector" id="todo-owner-type-options">
+                    <span class="todo-owner-type-option active" data-value="user" style="--tag-color: #007aff;">我的</span>
+                    <span class="todo-owner-type-option" data-value="character" style="--tag-color: #af52de;">TA的</span>
+                    <span class="todo-owner-type-option" data-value="shared" style="--tag-color: #ff7aa2;">共同</span>
+                </div>
+            </div>
+
+            <div class="form-group">
                 <label>内容</label>
                 <input type="text" id="todo-content-input" placeholder="例如：记得吃药、下午开会">
             </div>
+
             <div class="form-group">
                 <label>类型/标签</label>
                 <div class="todo-type-selector" id="todo-type-options">
@@ -7753,15 +7771,36 @@
                     <span class="todo-type-option" data-value="生活" style="--tag-color: #34c759;">生活</span>
                     <span class="todo-type-option" data-value="约会" style="--tag-color: #af52de;">约会</span>
                     <span class="todo-type-option" data-value="记账" style="--tag-color: #ffc107;">记账</span>
+                    <span class="todo-type-option" data-value="固定" style="--tag-color: #007aff;">固定</span>
+                    <span class="todo-type-option" data-value="动态" style="--tag-color: #34c759;">动态</span>
+                    <span class="todo-type-option" data-value="剧情" style="--tag-color: #af52de;">剧情</span>
+                    <span class="todo-type-option" data-value="关系" style="--tag-color: #ff2d55;">关系</span>
                 </div>
             </div>
+
             <div class="form-group">
                 <label>日期</label>
                 <input type="date" id="todo-date-input">
             </div>
+
             <div class="form-group">
-                <label>具体时间 (可选)</label>
+                <label>开始时间（可选）</label>
                 <input type="time" id="todo-time-input">
+            </div>
+
+            <div class="form-group" id="todo-end-time-group" style="display:none;">
+                <label>结束时间（可选）</label>
+                <input type="time" id="todo-end-time-input">
+            </div>
+
+            <div class="form-group" id="todo-location-group" style="display:none;">
+                <label>地点（可选）</label>
+                <input type="text" id="todo-location-input" placeholder="例如：学校、公司、咖啡店">
+            </div>
+
+            <div class="form-group" id="todo-description-group" style="display:none;">
+                <label>备注（可选）</label>
+                <textarea id="todo-description-input" rows="3" placeholder="补充行程背景、原因或注意事项"></textarea>
             </div>
         </div>
         <div class="modal-footer">

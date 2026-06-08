@@ -1393,6 +1393,31 @@
                border-color: var(--tag-color);
            }
 
+           .todo-type-option,
+           .todo-item-type-option,
+           .todo-owner-type-option {
+               display: inline-flex;
+               align-items: center;
+               justify-content: center;
+               padding: 8px 18px;
+               border-radius: 18px;
+               border: 1px solid #e5e5ea;
+               background: #fff;
+               color: #333;
+               font-size: 14px;
+               cursor: pointer;
+               margin: 4px;
+               transition: all 0.2s ease;
+           }
+
+           .todo-type-option.active,
+           .todo-item-type-option.active,
+           .todo-owner-type-option.active {
+               background: var(--tag-color, #007aff);
+               color: #fff;
+               border-color: var(--tag-color, #007aff);
+           }
+
            /* --- 暗黑模式适配 --- */
            #phone-screen.dark-mode #todo-list-screen {
                background-color: #000 !important;
