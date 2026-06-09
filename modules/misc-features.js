@@ -4396,8 +4396,11 @@ ${email.content}
       const isCompleting = todo.status !== 'completed';
       todo.status = isCompleting ? 'completed' : 'pending';
       if (isCompleting) {
-        const myNickname = chat.settings.myNickname || '我';
-        const systemHint = `[系统提示：用户(${myNickname}) 刚刚在待办清单中勾选完成了："${todo.content}"。]`;
+        const myNickname = chat.settings?.myNickname || '我';
+        const itemTypeLabel = todo.itemType === 'schedule' ? '行程' : '待办';
+        const ownerTypeLabel = todo.ownerType === 'character' ? 'TA的' : (todo.ownerType === 'shared' ? '共同' : '我的');
+        const todoText = todo.content || todo.title || '';
+        const systemHint = `[系统提示：用户(${myNickname}) 刚刚在行程/待办清单中勾选完成了【${ownerTypeLabel}${itemTypeLabel}】："${todoText}"。]`;
         chat.history.push({ role: 'system', content: systemHint, timestamp: Date.now(), isHidden: true });
       }
       await db.chats.put(chat);

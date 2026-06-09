@@ -2986,33 +2986,94 @@ ${taskListString}
             }
           }
           let todoInstruction = "";
-          if (chat.settings.enableTodoList) {
+          if (chat.settings.enableTodoList && chat.settings.enableAutoTodoSchedule) {
+            const autoTodoScheduleProbability = chat.settings.autoTodoScheduleProbability ?? 15;
+
             todoInstruction = `
-- **待办事项管理 (指令: add_todo)**:
-1. **自动拆解触发器 (Auto-Breakdown)**:
-   - **触发条件**: 当用户提到一个**笼统的、宏大的**目标（如"我要复习"、"想减肥"、"大扫除"、"准备旅行"）时。
-   - **你的行动**: 你【必须】立即化身为执行教练，将该目标拆解为 **3-5 个具体的、可执行的小步骤**。
-   - **禁止行为**: 绝对禁止只用纯文本回复（如"好的加油"）。你必须**直接生成指令**帮用户记下来。
+- **待办/行程管理 (指令: add_todo)**:
+你可以在合适时机使用 \`add_todo\` 指令，为用户、你自己或你们共同添加待办或行程。
 
-2. **内容风格 (Character Style)**:
-   - 任务内容 \`content\` 必须带有你的人设风格批注（写在括号里）。
-   - *示例*: "翻开书本第1页 (笨蛋，别发呆了)" 或 "准备运动鞋 (动起来！)"。
+0. **触发频率控制**:
+   - 当前角色允许自动生成待办/日程。
+   - 自动生成待办/日程概率为：${autoTodoScheduleProbability}%。
+   - 你不要每次回复都生成。只有当聊天中出现明确的目标、提醒、约定、任务、出行、工作、学习、剧情行动或两人共同安排时才生成。
+   - 如果只是普通闲聊、情绪回应、暧昧互动、日常寒暄，不要强行生成待办或行程。
 
-3. **状态管理规则**:
-   - **新建任务**: 默认使用 \`"status": "pending"\`。
-   - **汇报完成**: 只有当用户明确说"我做完了XXX"时，才使用 \`"status": "completed"\` 并记录下来。
+1. **什么时候生成待办 todo**:
+   - 用户说出需要做但没有明确具体时间的事项时，生成待办。
+   - 例如：复习、整理资料、买东西、记得吃药、提交报告、准备材料、维护装备。
+   - item_type 使用 "todo"。
 
-4. **指令标准格式**:
-   \`{"type": "add_todo", "content": "任务内容(批注)", "date": "YYYY-MM-DD", "time": "HH:mm(可选)", "task_type": "日常/工作/学习", "status": "pending"}\`
+2. **什么时候生成行程 schedule**:
+   - 出现明确日期、时间、地点、约定、会议、出行、任务、巡航、训练、见面、约会等安排时，生成行程。
+   - item_type 使用 "schedule"。
+   - 行程尽量写 date、time，可选 endTime、location、description。
 
-**示例**:
-用户: "我要开始复习了"
-你的回复(JSON数组): 
+3. **owner_type 归属规则**:
+   - "user"：属于用户自己的待办/行程，例如用户要复习、开会、买东西、休息。
+   - "character"：属于你/当前角色自己的待办/行程，例如你要开会、巡航、训练、处理工作、回公寓。
+   - "shared"：属于你和用户共同参与的安排，例如一起吃饭、一起出门、一起通话、一起回老宅、一起处理剧情事件。
+   - 不要把共同安排拆成两条 user 和 character，除非两个人确实有不同事项。
+
+4. **标签 task_type 规则**:
+   task_type 只能从以下标签中选择，并按含义选择最合适的一个：
+   - "日常"：普通生活安排，比如吃饭、休息、洗澡、散步、买东西。
+   - "工作"：上班、学习、任务、会议、实验、值班、报告等职责性安排。
+   - "重要"：必须优先处理、不能错过的安排，比如考试、面试、紧急事务。
+   - "生活"：偏现实生活管理，比如做饭、打扫、购物、看病、运动。
+   - "约会"：两人见面、吃饭、看电影、出门、通话等亲密互动安排。
+   - "记账"：和消费、付款、预算、购物、账单相关的安排。
+   - "固定"：长期规律性安排，比如工作日上班、固定课程、固定训练、睡觉时间。
+   - "动态"：根据最近聊天临时生成的安排，比如刚约好见面、临时去买东西。
+   - "剧情"：根据当前剧情推进生成的安排，比如调查线索、参加宴会、去某个剧情地点。
+   - "关系"：根据关系状态、承诺、情绪、亲密度生成的安排，比如哄人、纪念日、陪伴。
+
+5. **description 备注规则**:
+   - description 是显示在行程/待办下面的备注，请写成自然的补充说明。
+   - 可以写提醒、地点细节、准备事项、情绪氛围或剧情补充。
+   - 禁止出现“用户”“角色”“AI”“基于最近聊天”“根据聊天”“根据已知行程”“根据角色设定”等元叙述。
+   - 不要解释为什么生成这条事项。
+   - 如果没有自然备注，description 留空。
+   - description 可以使用 {{用户昵称}} 和 {{角色名}} 作为占位符，但只能在自然需要点名时使用。不要每条都强行使用占位符。
+
+6. **状态规则**:
+   - 新增事项默认使用 \`"status": "pending"\`。
+   - 只有当用户明确说“我做完了/已经完成了XXX”时，才使用 \`"status": "completed"\`。
+
+7. **指令标准格式**:
+\`\`\`json
+{
+  "type": "add_todo",
+  "item_type": "todo 或 schedule",
+  "owner_type": "user 或 character 或 shared",
+  "content": "事项内容",
+  "date": "YYYY-MM-DD",
+  "time": "HH:mm，可选",
+  "endTime": "HH:mm，可选，仅行程使用",
+  "location": "地点，可选，仅行程使用",
+  "description": "自然备注，可选",
+  "task_type": "日常/工作/重要/生活/约会/记账/固定/动态/剧情/关系",
+  "status": "pending 或 completed"
+}
+\`\`\`
+
+**示例一：用户提出学习目标，生成我的待办**
 [
-  {"type": "text", "content": "好呀，计划我都给你列好了，不许偷懒！"},
-  {"type": "add_todo", "content": "手机开启勿扰模式 (专注！)", "date": "${new Date().toISOString().split('T')[0]}", "task_type": "学习", "status": "pending"},
-  {"type": "add_todo", "content": "复习前两章重点 (先看目录)", "date": "${new Date().toISOString().split('T')[0]}", "task_type": "学习", "status": "pending"},
-  {"type": "add_todo", "content": "坚持专注30分钟 (奖励你休息)", "date": "${new Date().toISOString().split('T')[0]}", "task_type": "学习", "status": "pending"}
+  {"type": "text", "content": "好，先别急，我帮你拆成几步。"},
+  {"type": "add_todo", "item_type": "todo", "owner_type": "user", "content": "整理今天要复习的章节", "date": "${new Date().toISOString().split('T')[0]}", "task_type": "学习", "status": "pending"},
+  {"type": "add_todo", "item_type": "todo", "owner_type": "user", "content": "完成30分钟专注复习", "date": "${new Date().toISOString().split('T')[0]}", "task_type": "学习", "status": "pending"}
+]
+
+**示例二：你自己有安排，生成TA的行程**
+[
+  {"type": "text", "content": "我下午要去处理一场临时会议，可能会晚点回来。"},
+  {"type": "add_todo", "item_type": "schedule", "owner_type": "character", "content": "参加远空舰队临时会议", "date": "${new Date().toISOString().split('T')[0]}", "time": "15:00", "endTime": "16:30", "location": "远空舰队指挥区", "description": "会议结束后可能会晚一点回消息。", "task_type": "工作", "status": "pending"}
+]
+
+**示例三：两人共同约定，生成共同行程**
+[
+  {"type": "text", "content": "那就说好了，晚上我来接你。"},
+  {"type": "add_todo", "item_type": "schedule", "owner_type": "shared", "content": "一起吃晚饭", "date": "${new Date().toISOString().split('T')[0]}", "time": "19:00", "endTime": "20:30", "location": "寰飞商厦", "description": "记得提前一点出门。", "task_type": "约会", "status": "pending"}
 ]
     `;
           }
@@ -4030,40 +4091,87 @@ ${getActiveThoughtsPrompt()}
         switch (msgData.type) {
           case 'add_todo': {
             if (!chat.settings.enableTodoList) continue;
+            if (!chat.settings.enableAutoTodoSchedule) continue;
 
-            const todoContent = msgData.content;
+            const autoTodoScheduleProbability = (chat.settings.autoTodoScheduleProbability ?? 15) / 100;
+            if (Math.random() > autoTodoScheduleProbability) {
+              console.log('[TodoSchedule] 跳过自动生成待办/日程：未命中概率');
+              continue;
+            }
+
+            const todoContent = String(msgData.content || msgData.title || '').trim();
             const todoDate = msgData.date || new Date().toISOString().split('T')[0];
-            const todoTime = msgData.time || '';
-            const todoType = msgData.task_type || '日常';
 
+            const rawItemType = msgData.itemType || msgData.item_type || msgData.kind || 'todo';
+            const itemType = rawItemType === 'schedule' ? 'schedule' : 'todo';
+
+            const rawOwnerType = msgData.ownerType || msgData.owner_type || 'user';
+            const ownerType = ['user', 'character', 'shared'].includes(rawOwnerType)
+              ? rawOwnerType
+              : 'user';
+
+            const todoTime = msgData.startTime || msgData.start_time || msgData.time || '';
+            const endTime = itemType === 'schedule'
+              ? (msgData.endTime || msgData.end_time || '')
+              : '';
+
+            const todoType =
+              msgData.task_type ||
+              msgData.schedule_type ||
+              msgData.type_label ||
+              (itemType === 'schedule' ? '动态' : '日常');
 
             const todoStatus = (msgData.status === 'completed') ? 'completed' : 'pending';
+
+            let description = String(msgData.description || msgData.note || '').trim();
+            description = description
+              .replace(/\{\{用户昵称\}\}/g, chat.settings?.myNickname || '你')
+              .replace(/\{\{角色名\}\}/g, chat.name || 'TA');
+
+            const location = itemType === 'schedule'
+              ? String(msgData.location || '').trim()
+              : '';
 
             if (todoContent) {
               if (!chat.todoList) chat.todoList = [];
 
               const newTodo = {
-                id: Date.now() + Math.random(),
+                id: Date.now() + Math.floor(Math.random() * 100000),
                 content: todoContent,
                 date: todoDate,
                 time: todoTime,
+                startTime: todoTime,
+                endTime,
                 type: todoType,
-
-                status: todoStatus, // <--- 这里使用变量
-
-                creator: 'char',
-                timestamp: Date.now()
+                status: todoStatus,
+                creator: ownerType === 'character' ? 'ai' : 'user',
+                itemType,
+                ownerType,
+                source: 'ai',
+                location,
+                description,
+                timestamp: Date.now(),
+                createdAt: Date.now(),
+                updatedAt: Date.now()
               };
 
               chat.todoList.push(newTodo);
 
-              // (可选) 如果是已完成的任务，系统提示也可以稍微变一下
-              const actionText = todoStatus === 'completed' ? '记录了一条已完成事项' : '为你添加了待办';
+              const ownerLabel =
+                ownerType === 'character' ? 'TA的' :
+                ownerType === 'shared' ? '共同' :
+                '我的';
+
+              const itemLabel = itemType === 'schedule' ? '行程' : '待办';
+              const actionText = todoStatus === 'completed'
+                ? `记录了一条已完成的${ownerLabel}${itemLabel}`
+                : `添加了一条${ownerLabel}${itemLabel}`;
+
               visibleSystemMessage = {
                 content: `[${chat.name} ${actionText}: "${todoContent}"]`
               };
 
-              console.log(`AI 添加事项: ${todoContent}, 状态: ${todoStatus}`);
+              console.log(`[TodoSchedule] AI 添加${ownerLabel}${itemLabel}: ${todoContent}, 状态: ${todoStatus}`);
             }
             break;
           }

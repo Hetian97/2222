@@ -64,9 +64,9 @@
   <!-- 第三层：核心聊天功能 -->
   <script src="modules/chat-list.js?v=0.0.36" defer></script>
   <script src="modules/chat-interface.js?v=0.0.37" defer></script>
-  <script src="modules/chat-input.js?v=0.0.36" defer></script>
+  <script src="modules/chat-input.js?v=0.0.37" defer></script>
   <!-- 第四层：AI 核心 -->
-  <script src="modules/ai-response.js?v=0.0.48" defer></script>
+  <script src="modules/ai-response.js?v=0.0.50" defer></script>
   <script src="modules/ai-group.js?v=0.0.36" defer></script>
   <!-- 第五层：功能模块 -->
   <script src="modules/music-player.js?v=0.0.36" defer></script>
@@ -102,7 +102,7 @@
   <script src="modules/card-import.js?v=0.0.36" defer></script>
   <script src="modules/character-export.js?v=0.0.36" defer></script>
   <script src="modules/data-management.js?v=0.0.36" defer></script>
-  <script src="modules/misc-features.js?v=0.0.45" defer></script>
+  <script src="modules/misc-features.js?v=0.0.47" defer></script>
   <!-- 第八层：初始化（必须在所有模块之后） -->
   <!-- 数据定义（无依赖） -->
   <script src="modules/init-avatar-frames.js?v=0.0.36" defer></script>
@@ -114,7 +114,7 @@
   <!-- PIN/城市（依赖 DOM） -->
   <script src="modules/init-pin-city.js?v=0.0.36" defer></script>
   <!-- 事件绑定和功能（依赖 state, db） -->
-  <script src="modules/init-event-bindingsA.js?v=0.0.37" defer></script>
+  <script src="modules/init-event-bindingsA.js?v=0.0.38" defer></script>
   <script src="modules/init-event-bindingsB.js?v=0.0.36" defer></script>
   <script src="modules/init-features.js?v=0.0.36" defer></script>
   <!-- 主入口（最后加载，调用 init） -->
@@ -4699,6 +4699,26 @@
                     <label>自动清空概率 (%)</label>
                     <div class="settings-right">
                         <input type="number" id="char-auto-cart-clear-probability" min="0" max="100" value="30" class="settings-num-input">
+                    </div>
+                </div>
+
+                <!-- 允许自动生成待办/日程 -->
+                <div class="settings-item" style="display: flex !important; justify-content: space-between !important; align-items: center !important; flex-direction: row !important;">
+                     <div style="flex: 1; padding-right: 10px; display: flex; flex-direction: column; align-items: flex-start;">
+                        <label style="margin-bottom: 2px;">允许自动生成待办/日程</label>
+                        <div class="settings-desc">角色可根据聊天、关系和当前情境主动添加待办或行程</div>
+                    </div>
+                    <label class="toggle-switch" style="margin: 0;"> 
+                        <input type="checkbox" id="char-auto-todo-schedule-switch"> 
+                        <span class="slider"></span> 
+                    </label>
+                </div>
+
+                <!-- 自动生成待办/日程概率 -->
+                <div class="settings-item">
+                    <label>自动生成待办/日程概率 (%)</label>
+                    <div class="settings-right">
+                        <input type="number" id="char-auto-todo-schedule-probability" min="0" max="100" value="15" class="settings-num-input">
                     </div>
                 </div>
                 

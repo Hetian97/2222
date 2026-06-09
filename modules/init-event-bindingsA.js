@@ -3181,6 +3181,8 @@ window.initEventBindingsA = async function(state, db) {
         document.getElementById('inject-thought-toggle').checked = chat.settings.injectLatestThought;
         document.getElementById('char-auto-cart-clear-switch').checked = chat.settings.enableAutoCartClear || false;
         document.getElementById('char-auto-cart-clear-probability').value = chat.settings.autoCartClearProbability ?? 30;
+        document.getElementById('char-auto-todo-schedule-switch').checked = chat.settings.enableAutoTodoSchedule || false;
+        document.getElementById('char-auto-todo-schedule-probability').value = chat.settings.autoTodoScheduleProbability ?? 15;
         
         // 新增：加载后台查看用户手机设置
         const charViewMyPhoneBgSelect = document.getElementById('char-view-myphone-bg-select');
@@ -3957,6 +3959,8 @@ window.initEventBindingsA = async function(state, db) {
         chat.settings.enableBackgroundActivity = document.getElementById('char-background-activity-switch').checked;
         chat.settings.enableAutoCartClear = document.getElementById('char-auto-cart-clear-switch').checked;
         chat.settings.autoCartClearProbability = parseInt(document.getElementById('char-auto-cart-clear-probability').value) || 30;
+        chat.settings.enableAutoTodoSchedule = document.getElementById('char-auto-todo-schedule-switch').checked;
+        chat.settings.autoTodoScheduleProbability = parseInt(document.getElementById('char-auto-todo-schedule-probability').value) || 15;
         
         // 新增：保存后台查看用户手机设置
         const charViewMyPhoneBgSelect = document.getElementById('char-view-myphone-bg-select');

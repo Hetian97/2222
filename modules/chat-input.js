@@ -252,7 +252,9 @@
   }
 
   function exitSelectionMode() {
-    cleanupWaimaiTimers();
+    if (typeof cleanupWaimaiTimers === 'function') {
+      cleanupWaimaiTimers();
+    }
     if (!isSelectionMode) return;
     isSelectionMode = false;
     document.getElementById('chat-interface-screen').classList.remove('selection-mode');
