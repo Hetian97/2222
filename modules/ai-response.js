@@ -2890,7 +2890,7 @@ ${enabledEntries}
               return (a.time || a.startTime || '00:00').localeCompare(b.time || b.startTime || '00:00');
             });
 
-            const tasksToShow = relevantTasks.slice(0, 40);
+            const tasksToShow = relevantTasks.slice(0, 15);
 
             if (tasksToShow.length > 0) {
               const groups = {
