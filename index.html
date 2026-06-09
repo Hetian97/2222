@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="css/main-ui.css?v=0.0.36">
   <link rel="stylesheet" href="css/voice-recording.css?v=0.0.36">
   <link rel="stylesheet" href="css/features-1.css?v=0.0.37">
-  <link rel="stylesheet" href="css/features-2.css?v=0.0.46">
+  <link rel="stylesheet" href="css/features-2.css?v=0.0.47">
   <link rel="stylesheet" href="css/features-3.css?v=0.0.36">
   <link rel="stylesheet" href="css/features-4.css?v=0.0.36">
   <link rel="stylesheet" href="update-notification.css?v=0.0.36">
@@ -102,7 +102,7 @@
   <script src="modules/card-import.js?v=0.0.36" defer></script>
   <script src="modules/character-export.js?v=0.0.36" defer></script>
   <script src="modules/data-management.js?v=0.0.36" defer></script>
-  <script src="modules/misc-features.js?v=0.0.44" defer></script>
+  <script src="modules/misc-features.js?v=0.0.45" defer></script>
   <!-- 第八层：初始化（必须在所有模块之后） -->
   <!-- 数据定义（无依赖） -->
   <script src="modules/init-avatar-frames.js?v=0.0.36" defer></script>
@@ -5873,6 +5873,23 @@
         <button class="todo-ai-user-btn" onclick="generateTodoSchedule('user')">生成我的行程</button>
         <button class="todo-ai-char-btn" onclick="generateTodoSchedule('character')">生成TA的行程</button>
     </div>
+
+    <div class="todo-schedule-settings">
+        <details>
+            <summary>行程生成参考</summary>
+            <div class="todo-schedule-settings-body">
+                <label>参考日程</label>
+                <textarea id="todo-reference-schedule-input" rows="3" placeholder="例如：工作日 9:00-18:00 上班，周末下午常去咖啡店，晚上通常会回家。"></textarea>
+
+                <label>基础世界观</label>
+                <textarea id="todo-base-world-input" rows="3" placeholder="例如：临空市是近未来城市，角色住在旧城区，工作地点在港口区，通勤约40分钟。"></textarea>
+
+                <button id="save-todo-schedule-settings-btn" onclick="saveTodoScheduleSettings()">保存参考设置</button>
+            </div>
+        </details>
+    </div>
+
+    <div id="todo-list-container" class="list-container" style="padding: 15px; flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: 90px;">
 
     <div id="todo-list-container" class="list-container" style="padding: 15px; flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: 90px;">
         </div>

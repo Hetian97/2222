@@ -4162,6 +4162,7 @@ ${email.content}
     if (!state.activeChatId) return;
     currentTodoDate = new Date();
     updateTodoDateDisplay();
+    loadTodoScheduleSettings();
     await renderTodoList();
     showScreen('todo-list-screen');
   }
@@ -4659,6 +4660,39 @@ ${email.content}
     return data.choices?.[0]?.message?.content || '';
   }
 
+  function loadTodoScheduleSettings() {
+    const chat = state.chats[state.activeChatId];
+    if (!chat) return;
+
+    const settings = chat.scheduleSettings || {};
+    const referenceInput = document.getElementById('todo-reference-schedule-input');
+    const baseWorldInput = document.getElementById('todo-base-world-input');
+
+    if (referenceInput) referenceInput.value = settings.referenceSchedule || '';
+    if (baseWorldInput) baseWorldInput.value = settings.baseWorld || '';
+  }
+
+  async function saveTodoScheduleSettings() {
+    const chat = state.chats[state.activeChatId];
+    if (!chat) return;
+
+    const referenceInput = document.getElementById('todo-reference-schedule-input');
+    const baseWorldInput = document.getElementById('todo-base-world-input');
+
+    chat.scheduleSettings = {
+      ...(chat.scheduleSettings || {}),
+      referenceSchedule: referenceInput ? referenceInput.value.trim() : '',
+      baseWorld: baseWorldInput ? baseWorldInput.value.trim() : '',
+      updatedAt: Date.now()
+    };
+
+    await db.chats.put(chat);
+
+    if (typeof showToast === 'function') {
+      showToast('已保存行程生成参考', 'success');
+    }
+  }
+
   async function generateTodoSchedule(ownerType = 'character') {
     const chat = state.chats[state.activeChatId];
     if (!chat) return;
@@ -4677,6 +4711,10 @@ ${email.content}
         return `${m.role}: ${text}`;
       })
       .join('\n');
+
+    const scheduleSettings = chat.scheduleSettings || {};
+    const referenceSchedule = scheduleSettings.referenceSchedule || '';
+    const baseWorld = scheduleSettings.baseWorld || '';
 
     const existingItems = (chat.todoList || [])
       .filter(t => t.date === targetDate)
@@ -4702,6 +4740,12 @@ ${chat.settings?.myNickname || '用户'}
 
 最近聊天：
 ${recentMessages || '无'}
+
+参考日程：
+${referenceSchedule || '无'}
+
+基础世界观：
+${baseWorld || '无'}
 
 当天已有行程/待办：
 ${existingItems || '无'}
@@ -4838,6 +4882,7 @@ ${existingItems || '无'}
   window.openTodoEditor = openTodoEditor;
   window.openTodoList = openTodoList;
   window.generateTodoSchedule = generateTodoSchedule;
+  window.saveTodoScheduleSettings = saveTodoScheduleSettings;
 
   // ========== 从 script.js 迁移：快捷回复相关函数 ==========
   // activeQuickReplyCategoryId 已在 utils.js 中声明为全局变量，此处不再重复声明
