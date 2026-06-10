@@ -72,20 +72,51 @@
   function restoreCoupleSpaceLocalStorage(localStorageData) {
     if (!localStorageData || typeof localStorageData !== 'object') {
       console.log('备份中没有 localStorage 数据，跳过恢复');
-      return;
+      return { restoredCount: 0, failedCount: 0, failedKeys: [], failedSize: 0 };
     }
-    
+
     let restoredCount = 0;
+    let failedCount = 0;
+    let failedSize = 0;
+    const failedKeys = [];
+
     for (const key in localStorageData) {
       try {
         localStorage.setItem(key, localStorageData[key]);
         restoredCount++;
       } catch (e) {
+        failedCount++;
+        failedKeys.push(key);
+
+        const value = localStorageData[key] || '';
+        failedSize += String(value).length;
+
         console.warn(`无法恢复 localStorage 键: ${key}`, e);
       }
     }
-    
-    console.log(`已恢复 ${restoredCount} 个情侣空间相关的 localStorage 键`);
+
+    const failedSizeMB = (failedSize / 1024 / 1024).toFixed(2);
+    console.log(`已恢复 ${restoredCount} 个情侣空间相关的 localStorage 键，失败 ${failedCount} 个，失败数据约 ${failedSizeMB} MB`);
+
+    if (failedCount > 0) {
+      setTimeout(() => {
+        const message =
+          `情侣空间部分数据恢复失败。\n\n` +
+          `成功恢复：${restoredCount} 个 localStorage 键\n` +
+          `失败：${failedCount} 个 localStorage 键\n` +
+          `失败数据约：${failedSizeMB} MB\n\n` +
+          `这通常是手机浏览器 localStorage 容量不足导致的，尤其是情侣空间相册图片以 base64 存储时更容易发生。\n\n` +
+          `失败键：\n${failedKeys.slice(0, 10).join('\n')}${failedKeys.length > 10 ? '\n...' : ''}`;
+
+        if (typeof showCustomAlert === 'function') {
+          showCustomAlert('情侣空间相册恢复不完整', message);
+        } else {
+          alert(message);
+        }
+      }, 500);
+    }
+
+    return { restoredCount, failedCount, failedKeys, failedSize };
   }
 
   // ============================================================
