@@ -1055,7 +1055,20 @@ window.initEventBindingsA = async function(state, db) {
       if (e.target === document.getElementById('custom-modal-overlay')) hideCustomModal();
     });
     // 查看数据分布按钮
-    document.getElementById('view-data-distribution-btn').addEventListener('click', viewDataDistribution);
+    document.getElementById('view-data-distribution-btn').addEventListener('click', () => {
+      const cleanDetail = document.getElementById('clean-chat-detail-screen');
+      if (cleanDetail) {
+        cleanDetail.style.display = 'none';
+        cleanDetail.classList.remove('active');
+      }
+
+      viewDataDistribution();
+
+      const screen = document.getElementById('data-distribution-screen');
+      if (screen) {
+        screen.style.zIndex = '10000';
+      }
+    });
     
     // 数据分析统计界面按钮
     document.getElementById('data-distribution-back-btn').addEventListener('click', () => {
