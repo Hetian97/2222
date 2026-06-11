@@ -414,6 +414,7 @@
     p = p.replace(/\$\{multiLayeredSummaryContext\}/g, '{{multiLayeredSummaryContext}}');
     p = p.replace(/\$\{multiLayeredSummaryContext_group\}/g, '{{multiLayeredSummaryContext_group}}');
     p = p.replace(/\$\{todoListContext\}/g, '{{todoListContext}}');
+    p = p.replace(/\$\{todoInstruction\}/g, '{{todoInstruction}}');
     p = p.replace(/\$\{periodSummaryContext\}/g, '{{periodSummaryContext}}');
     p = p.replace(/\$\{myNickname\}/g, '{{myNickname}}');
     p = p.replace(/\$\{myOriginalName\}/g, '{{myOriginalName}}');
@@ -2986,18 +2987,35 @@ ${taskListString}
             }
           }
           let todoInstruction = "";
-          if (chat.settings.enableTodoList && chat.settings.enableAutoTodoSchedule) {
+          if (chat.settings.enableTodoList) {
             const autoTodoScheduleProbability = chat.settings.autoTodoScheduleProbability ?? 15;
 
             todoInstruction = `
 - **待办/行程管理 (指令: add_todo)**:
-你可以在合适时机使用 \`add_todo\` 指令，为用户、你自己或你们共同添加待办或行程。
+你具备记录待办和行程的能力。add_todo 是你可用的内部指令，可以为用户、你自己或你们共同添加待办或行程。
 
-0. **触发频率控制**:
-   - 当前角色允许自动生成待办/日程。
-   - 自动生成待办/日程概率为：${autoTodoScheduleProbability}%。
-   - 你不要每次回复都生成。只有当聊天中出现明确的目标、提醒、约定、任务、出行、工作、学习、剧情行动或两人共同安排时才生成。
+重要能力声明：
+- 当用户明确要求你“记一下 / 加到待办 / 加到日程 / 提醒我 / 帮我安排”时，你必须使用 add_todo 指令完成记录。
+- 不要说“我不能记录”“我没有这个功能”“我无法修改日程”“我只能提醒你自己记”。
+- add_todo 不需要用户手动操作，也不是普通文字描述，而是你可以输出的内部指令。
+- 你可以在同一次 JSON 数组回复中同时输出 text 和 add_todo。
+- text 用来告诉用户你正在记录；add_todo 用来真正写入清单。
+- 如果你只用 text 说“记好了”，但没有输出 add_todo，就等于没有真正记录。
+
+0. **触发类型 trigger 与频率控制**:
+   - 如果用户明确要求你“记一下 / 加到待办 / 加到日程 / 提醒我 / 帮我安排”，使用 "trigger": "explicit"。这种情况不受自动生成概率限制。
+   - 如果不是用户明确要求，而是你根据聊天内容主动添加，使用 "trigger": "proactive"。这种情况受自动生成开关和概率限制。
+   - 当前自动生成待办/日程设置：${chat.settings.enableAutoTodoSchedule ? '已开启' : '未开启'}。
+   - 当前自动生成待办/日程概率为：${autoTodoScheduleProbability}%。
+   - 如果自动生成未开启，禁止主动生成 "trigger": "proactive" 的事项，但仍可响应用户明确要求生成 "trigger": "explicit" 的事项。
+   - 你不要每次回复都主动生成。只有当聊天中出现明确的目标、提醒、约定、任务、出行、工作、学习、剧情行动或两人共同安排时才生成。
    - 如果只是普通闲聊、情绪回应、暧昧互动、日常寒暄，不要强行生成待办或行程。
+
+特别规则：
+- 如果你在回复中说“已记录 / 记好了 / 已加入日程 / 已加入待办 / 我帮你记下了”，则本次 JSON 数组中必须同时包含一条 add_todo 指令。
+- 绝对禁止只用 text 口头声称已经记录，却不输出 add_todo 指令。
+- 如果你不能或不打算输出 add_todo 指令，就不要说已经记录。
+- 用户明确要求“帮我记一下 / 加到日程 / 加到待办 / 提醒我”时，必须优先输出 add_todo 指令，而不是只口头回应。
 
 1. **什么时候生成待办 todo**:
    - 用户说出需要做但没有明确具体时间的事项时，生成待办。
@@ -3041,9 +3059,9 @@ ${taskListString}
    - 只有当用户明确说“我做完了/已经完成了XXX”时，才使用 \`"status": "completed"\`。
 
 7. **指令标准格式**:
-\`\`\`json
 {
   "type": "add_todo",
+  "trigger": "explicit 或 proactive",
   "item_type": "todo 或 schedule",
   "owner_type": "user 或 character 或 shared",
   "content": "事项内容",
@@ -3055,25 +3073,24 @@ ${taskListString}
   "task_type": "日常/工作/重要/生活/约会/记账/固定/动态/剧情/关系",
   "status": "pending 或 completed"
 }
-\`\`\`
 
 **示例一：用户提出学习目标，生成我的待办**
 [
   {"type": "text", "content": "好，先别急，我帮你拆成几步。"},
-  {"type": "add_todo", "item_type": "todo", "owner_type": "user", "content": "整理今天要复习的章节", "date": "${new Date().toISOString().split('T')[0]}", "task_type": "学习", "status": "pending"},
-  {"type": "add_todo", "item_type": "todo", "owner_type": "user", "content": "完成30分钟专注复习", "date": "${new Date().toISOString().split('T')[0]}", "task_type": "学习", "status": "pending"}
+  {"type": "add_todo", "trigger": "explicit", "item_type": "todo", "owner_type": "user", "content": "整理今天要复习的章节", "date": "${new Date().toISOString().split('T')[0]}", "task_type": "学习", "status": "pending"},
+  {"type": "add_todo", "trigger": "explicit", "item_type": "todo", "owner_type": "user", "content": "完成30分钟专注复习", "date": "${new Date().toISOString().split('T')[0]}", "task_type": "学习", "status": "pending"}
 ]
 
 **示例二：你自己有安排，生成TA的行程**
 [
   {"type": "text", "content": "我下午要去处理一场临时会议，可能会晚点回来。"},
-  {"type": "add_todo", "item_type": "schedule", "owner_type": "character", "content": "参加远空舰队临时会议", "date": "${new Date().toISOString().split('T')[0]}", "time": "15:00", "endTime": "16:30", "location": "远空舰队指挥区", "description": "会议结束后可能会晚一点回消息。", "task_type": "工作", "status": "pending"}
+  {"type": "add_todo", "trigger": "explicit", "item_type": "schedule", "owner_type": "character", "content": "参加远空舰队临时会议", "date": "${new Date().toISOString().split('T')[0]}", "time": "15:00", "endTime": "16:30", "location": "远空舰队指挥区", "description": "会议结束后可能会晚一点回消息。", "task_type": "工作", "status": "pending"}
 ]
 
 **示例三：两人共同约定，生成共同行程**
 [
   {"type": "text", "content": "那就说好了，晚上我来接你。"},
-  {"type": "add_todo", "item_type": "schedule", "owner_type": "shared", "content": "一起吃晚饭", "date": "${new Date().toISOString().split('T')[0]}", "time": "19:00", "endTime": "20:30", "location": "寰飞商厦", "description": "记得提前一点出门。", "task_type": "约会", "status": "pending"}
+  {"type": "add_todo", "trigger": "explicit", "item_type": "schedule", "owner_type": "shared", "content": "一起吃晚饭", "date": "${new Date().toISOString().split('T')[0]}", "time": "19:00", "endTime": "20:30", "location": "寰飞商厦", "description": "记得提前一点出门。", "task_type": "约会", "status": "pending"}
 ]
     `;
           }
@@ -3413,6 +3430,14 @@ ${getActiveThoughtsPrompt()}
           };
 
           systemPrompt = replaceTemplateVars(systemPromptTemplate, contextMapSingle);
+
+          if (todoListContext && !systemPrompt.includes('今日行程与待办')) {
+            systemPrompt += '\n\n' + todoListContext;
+          }
+
+          if (todoInstruction && !systemPrompt.includes('待办/行程管理')) {
+            systemPrompt += '\n\n' + todoInstruction;
+          }
 
           systemPrompt = processPromptWithSettings(systemPrompt, 'single');
 
@@ -4091,12 +4116,18 @@ ${getActiveThoughtsPrompt()}
         switch (msgData.type) {
           case 'add_todo': {
             if (!chat.settings.enableTodoList) continue;
-            if (!chat.settings.enableAutoTodoSchedule) continue;
 
-            const autoTodoScheduleProbability = (chat.settings.autoTodoScheduleProbability ?? 15) / 100;
-            if (Math.random() > autoTodoScheduleProbability) {
-              console.log('[TodoSchedule] 跳过自动生成待办/日程：未命中概率');
-              continue;
+            const triggerType = msgData.trigger || msgData.trigger_type || 'explicit';
+            const isProactiveAdd = triggerType === 'proactive' || triggerType === 'auto';
+
+            if (isProactiveAdd) {
+              if (!chat.settings.enableAutoTodoSchedule) continue;
+
+              const autoTodoScheduleProbability = (chat.settings.autoTodoScheduleProbability ?? 15) / 100;
+              if (Math.random() > autoTodoScheduleProbability) {
+                console.log('[TodoSchedule] 跳过自动生成待办/日程：未命中概率');
+                continue;
+              }
             }
 
             const todoContent = String(msgData.content || msgData.title || '').trim();
