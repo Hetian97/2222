@@ -629,13 +629,30 @@ async function backupSqliteDb() {
     await db.backup(backupFile);
     await db.backup(latestBackupFile);
 
+    // 只保留最近 3 个历史备份，防止 backups 文件夹无限变大
+    const keepCount = 3;
+    const backupFiles = fs.readdirSync(BACKUP_DIR)
+      .filter(name => /^memory-.*\.db$/.test(name))
+      .sort();
+
+    const filesToDelete = backupFiles.slice(0, Math.max(0, backupFiles.length - keepCount));
+
+    for (const file of filesToDelete) {
+      try {
+        fs.unlinkSync(path.join(BACKUP_DIR, file));
+      } catch (deleteError) {
+        console.warn('[memory-server] 删除旧备份失败:', file, deleteError.message);
+      }
+    }
+
     console.log('[memory-server] 已备份 memory.db:', backupFile);
 
     return {
       ok: true,
       backupFile,
       latestBackupFile,
-      timestamp
+      timestamp,
+      keptBackups: Math.min(backupFiles.length, keepCount)
     };
   } catch (error) {
     console.warn('[memory-server] 备份 memory.db 失败:', error.message);

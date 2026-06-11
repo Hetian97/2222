@@ -659,8 +659,17 @@ class VariableMemoryManager {
     return vm.fragments.filter(f => f.category === 'C');
   }
 
-  addCoreMemory(chat, content) {
-    return this.createFragment(chat, { content, category: 'C', importance: 10, tags: ['核心设定'] });
+  addCoreMemory(chat, content, options = {}) {
+    return this.createFragment(chat, {
+      content,
+      category: 'C',
+      importance: options.importance || 10,
+      emotionalWeight: options.emotionalWeight || 10,
+      memoryTime: options.memoryTime || Date.now(),
+      embedding: options.embedding || null,
+      source: options.source || 'manual-core',
+      tags: options.tags || ['核心设定']
+    });
   }
 
   async editCoreMemory(chat, id, newContent) {

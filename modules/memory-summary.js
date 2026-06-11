@@ -1045,6 +1045,51 @@ function bindVectorMemoryEvents(chat, container) {
         category = 'E';
       }
 
+      const formatDateTimeInput = (timestamp = Date.now()) => {
+        const d = new Date(Number(timestamp) || Date.now());
+        const pad = n => String(n).padStart(2, '0');
+
+        return [
+          d.getFullYear(),
+          pad(d.getMonth() + 1),
+          pad(d.getDate())
+        ].join('-') + ' ' + [
+          pad(d.getHours()),
+          pad(d.getMinutes())
+        ].join(':');
+      };
+
+      const parseMemoryTimeInput = value => {
+        const text = String(value || '').trim();
+        if (!text) return Date.now();
+
+        const normalized = text
+          .replace(/\./g, '-')
+          .replace(/\//g, '-')
+          .replace('T', ' ')
+          .replace(/\s+/g, ' ');
+
+        const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{1,2}))?/);
+        if (!match) return Date.now();
+
+        const year = Number(match[1]);
+        const month = Number(match[2]);
+        const day = Number(match[3]);
+        const hour = match[4] !== undefined ? Number(match[4]) : 0;
+        const minute = match[5] !== undefined ? Number(match[5]) : 0;
+
+        const parsed = new Date(year, month - 1, day, hour, minute, 0, 0).getTime();
+        return Number.isFinite(parsed) ? parsed : Date.now();
+      };
+
+      const memoryTimeText = await showCustomPrompt(
+        '设置记忆时间',
+        '请输入这条记忆对应的时间，格式：YYYY-MM-DD HH:mm。可改成过去时间。',
+        formatDateTimeInput(Date.now())
+      );
+
+      const memoryTime = parseMemoryTimeInput(memoryTimeText);
+
       let importance = await showCustomPrompt('设置重要度', '请输入 1-10 的数字：', '5');
       importance = parseInt(importance, 10);
       if (!Number.isFinite(importance)) importance = 5;
@@ -1063,6 +1108,7 @@ function bindVectorMemoryEvents(chat, container) {
         category,
         importance,
         emotionalWeight,
+        memoryTime,
         embedding,
         source: 'manual'
       });
@@ -1079,7 +1125,62 @@ function bindVectorMemoryEvents(chat, container) {
     addCoreBtn.addEventListener('click', async () => {
       const content = await showCustomPrompt('添加核心记忆', '核心记忆会永远注入到对话中：');
       if (!content || !content.trim()) return;
-      window.vectorMemoryManager.addCoreMemory(chat, content.trim());
+
+      const formatDateTimeInput = (timestamp = Date.now()) => {
+        const d = new Date(Number(timestamp) || Date.now());
+        const pad = n => String(n).padStart(2, '0');
+
+        return [
+          d.getFullYear(),
+          pad(d.getMonth() + 1),
+          pad(d.getDate())
+        ].join('-') + ' ' + [
+          pad(d.getHours()),
+          pad(d.getMinutes())
+        ].join(':');
+      };
+
+      const parseMemoryTimeInput = value => {
+        const text = String(value || '').trim();
+        if (!text) return Date.now();
+
+        const normalized = text
+          .replace(/\./g, '-')
+          .replace(/\//g, '-')
+          .replace('T', ' ')
+          .replace(/\s+/g, ' ');
+
+        const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+(\d{1,2}):(\d{1,2}))?/);
+        if (!match) return Date.now();
+
+        const year = Number(match[1]);
+        const month = Number(match[2]);
+        const day = Number(match[3]);
+        const hour = match[4] !== undefined ? Number(match[4]) : 0;
+        const minute = match[5] !== undefined ? Number(match[5]) : 0;
+
+        const parsed = new Date(year, month - 1, day, hour, minute, 0, 0).getTime();
+        return Number.isFinite(parsed) ? parsed : Date.now();
+      };
+
+      const memoryTimeText = await showCustomPrompt(
+        '设置核心记忆时间',
+        '请输入这条核心记忆对应的时间，格式：YYYY-MM-DD HH:mm。可改成过去时间。',
+        formatDateTimeInput(Date.now())
+      );
+
+      const memoryTime = parseMemoryTimeInput(memoryTimeText);
+      const embedding = await window.vectorMemoryManager.getEmbedding(content.trim(), chat);
+
+      window.vectorMemoryManager.addCoreMemory(chat, content.trim(), {
+        memoryTime,
+        embedding,
+        importance: 10,
+        emotionalWeight: 10,
+        source: 'manual-core',
+        tags: ['核心设定']
+      });
+
       await db.chats.put(chat);
       renderVectorMemoryView();
       showToast('核心记忆已添加', 'success');
