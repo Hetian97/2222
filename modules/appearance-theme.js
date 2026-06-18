@@ -556,6 +556,9 @@
   };
   window.lockScreenState = lockScreenState;
 
+  let isLockScreenEventsBound = false;
+  let lockScreenClockInterval = null;
+
   function initLockScreen() {
     const lockScreen = document.getElementById('lock-screen');
 
@@ -573,7 +576,8 @@
       updateLockScreenClock();
 
       // 启动锁屏时钟更新
-      setInterval(updateLockScreenClock, 1000);
+      if (lockScreenClockInterval) clearInterval(lockScreenClockInterval);
+      lockScreenClockInterval = setInterval(updateLockScreenClock, 1000);
     }
 
     // 绑定设置界面的事件
@@ -602,43 +606,47 @@
     }
 
     // ===== 绑定解锁事件（从 script.js 迁移时遗漏） =====
-    const lockSwipeArea = document.getElementById('lock-swipe-area');
+    if (!isLockScreenEventsBound) {
+      const lockSwipeArea = document.getElementById('lock-swipe-area');
 
-    // 1. 点击底部横条解锁（兼容鼠标点击）
-    if (lockSwipeArea) {
-      lockSwipeArea.addEventListener('click', handleUnlockTrigger);
-    }
+      // 1. 点击底部横条解锁（兼容鼠标点击）
+      if (lockSwipeArea) {
+        lockSwipeArea.addEventListener('click', handleUnlockTrigger);
+      }
 
-    // 2. 全屏上滑解锁监听
-    if (lockScreen) {
-      let touchStartY = 0;
+      // 2. 全屏上滑解锁监听
+      if (lockScreen) {
+        let touchStartY = 0;
 
-      lockScreen.addEventListener('touchstart', (e) => {
-        touchStartY = e.changedTouches[0].screenY;
-      }, { passive: true });
+        lockScreen.addEventListener('touchstart', (e) => {
+          touchStartY = e.changedTouches[0].screenY;
+        }, { passive: true });
 
-      lockScreen.addEventListener('touchend', (e) => {
-        const touchEndY = e.changedTouches[0].screenY;
-        const swipeDistance = touchStartY - touchEndY;
-        // 向上滑动超过 50px 触发解锁
-        if (swipeDistance > 50) {
-          handleUnlockTrigger();
-        }
+        lockScreen.addEventListener('touchend', (e) => {
+          const touchEndY = e.changedTouches[0].screenY;
+          const swipeDistance = touchStartY - touchEndY;
+          // 向上滑动超过 50px 触发解锁
+          if (swipeDistance > 50) {
+            handleUnlockTrigger();
+          }
+        });
+      }
+
+      // 3. 锁屏键盘按键事件
+      document.querySelectorAll('.lock-keypad .key').forEach(key => {
+        key.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const action = key.dataset.action;
+          if (action === 'delete') {
+            deleteKeypadInput();
+          } else if (key.dataset.num) {
+            handleKeypadInput(key.dataset.num);
+          }
+        });
       });
+      
+      isLockScreenEventsBound = true;
     }
-
-    // 3. 锁屏键盘按键事件
-    document.querySelectorAll('.lock-keypad .key').forEach(key => {
-      key.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const action = key.dataset.action;
-        if (action === 'delete') {
-          deleteKeypadInput();
-        } else if (key.dataset.num) {
-          handleKeypadInput(key.dataset.num);
-        }
-      });
-    });
   }
 
   function updateLockScreenClock() {
@@ -907,6 +915,56 @@
     }
   }
   window.handleEmergencyAppearanceReset = handleEmergencyAppearanceReset;
+
+  async function handleResetVisualResources() {
+    const confirmed = await showCustomConfirm(
+      "重置壁纸和组件资源？",
+      "此操作将仅重置以下内容为默认状态：\n\n- 主屏幕/CPhone/MYPhone的壁纸\n- 全局聊天背景\n- 锁屏壁纸\n- 小组件的自定义内容（头像/文案等）\n- 所有APP自定义图标\n\n✅ 你的 CSS代码、字体、主题颜色等排版设置将被保留。\n\n确定要执行吗？",
+      { confirmButtonClass: 'btn-danger', confirmText: '重置资源' }
+    );
+
+    if (!confirmed) return;
+
+    await showCustomAlert("处理中...", "正在清理资源...");
+
+    try {
+      const defaultAppIcons = { ...DEFAULT_APP_ICONS };
+      const defaultCPhoneIcons = { ...DEFAULT_CPHONE_ICONS };
+      const defaultMyPhoneIcons = { ...DEFAULT_MYPHONE_ICONS };
+
+      state.globalSettings.wallpaper = 'linear-gradient(135deg, #89f7fe, #66a6ff)';
+      state.globalSettings.cphoneWallpaper = 'linear-gradient(135deg, #f6d365, #fda085)';
+      state.globalSettings.myphoneWallpaper = 'linear-gradient(135deg, #a8edea, #fed6e3)';
+      state.globalSettings.globalChatBackground = '';
+      state.globalSettings.lockScreenWallpaper = '';
+      
+      state.globalSettings.appIcons = defaultAppIcons;
+      state.globalSettings.cphoneAppIcons = defaultCPhoneIcons;
+      state.globalSettings.myphoneAppIcons = defaultMyPhoneIcons;
+      
+      // 清空小组件数据
+      state.globalSettings.widgetData = {};
+
+      await db.globalSettings.put(state.globalSettings);
+
+      applyGlobalWallpaper();
+      applyCPhoneWallpaper();
+      applyMyPhoneWallpaper();
+
+      applyAppIcons();
+      applyCPhoneAppIcons();
+      applyMyPhoneAppIconsGlobal();
+      
+      // 重新加载页面刷新组件的DOM结构至默认
+      await showCustomAlert("重置成功", "壁纸、图标和小组件资源已恢复默认！即将刷新页面以应用更改。");
+      window.location.reload();
+
+    } catch (error) {
+      console.error("重置资源失败:", error);
+      await showCustomAlert("错误", `重置失败: ${error.message}`);
+    }
+  }
+  window.handleResetVisualResources = handleResetVisualResources;
 
   // ========== 从 script.js 迁移：uploadImageLocally ==========
   function uploadImageLocally() {
