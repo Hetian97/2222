@@ -167,7 +167,7 @@ function listMemories(filters = {}) {
     params.push(q, q, q, q);
   }
 
-  const safeLimit = Math.min(1000, Math.max(1, Number(filters.limit) || 500));
+  const safeLimit = Math.min(10000, Math.max(1, Number(filters.limit) || 500));
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
   const rows = db.prepare(`

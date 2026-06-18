@@ -105,7 +105,7 @@ class VariableMemoryManager {
           memoryTime: core.createdAt || Date.now(), // 关键：新增 memoryTime
           lastRecalled: 0,
           recallCount: 0,
-          embedding: null, // 需要重新生成
+          // 不在前端保存 embedding，向量只保留在 memory-server SQLite
           linkedMemories: [],
           source: 'migrate_core',
           context: ''
@@ -124,11 +124,13 @@ class VariableMemoryManager {
         else if (frag.category === 'R') newCat = 'R'; // 关系 -> 关系
         else if (frag.category === 'M') newCat = 'M'; // 情绪 -> 情绪
 
+        const { embedding, ...cleanFrag } = frag;
+        
         vm.fragments.push({
-          ...frag,
+          ...cleanFrag,
           category: newCat,
-          memoryTime: frag.dialogueTimeRange?.start || frag.createdAt || Date.now(), // 优先使用对话时间作为记忆时间
-          dialogueTimeRange: undefined // 废弃该字段，统一用 memoryTime
+          memoryTime: frag.dialogueTimeRange?.start || frag.createdAt || Date.now(),
+          dialogueTimeRange: undefined
         });
       }
     }
@@ -274,11 +276,17 @@ class VariableMemoryManager {
 
       // 外部存储模式：用 memory-server 的内容覆盖本地 UI 缓存
       // 注意：这里只作为前端显示缓存，真正数据以 memory-server 为准
-      vm.fragments = result.memories.map(memory => ({
-        ...memory,
-        embedding: memory.embedding || null,
-        _externalCache: true
-      }));
+      vm.fragments = result.memories.map(memory => {
+        const copy = { ...memory };
+
+        delete copy.embedding;
+
+        return {
+          ...copy,
+          embedding: null,
+          _externalCache: true
+        };
+      });
 
       vm.stats.totalFragments = vm.fragments.length;
       vm.stats.lastUpdated = Date.now();
@@ -297,10 +305,25 @@ class VariableMemoryManager {
     if (!this.isExternalMemoryEnabled(chat)) return null;
 
     try {
+      console.log('[debug save external]', {
+        id: fragment.id,
+        embedding: Array.isArray(fragment.embedding) ? fragment.embedding.length : fragment.embedding,
+        model: fragment.embeddingModel,
+        dim: fragment.embeddingDim
+      });
+      
+      const saveFragment = {
+        ...fragment
+      };
+
       const result = await this.externalMemoryRequest(chat, '/memory/add', {
         method: 'POST',
-        body: fragment
+        body: saveFragment
       });
+
+      if (result?.ok) {
+        fragment.embedding = null;
+      }
 
       console.log('[变量记忆] 已同步到外部 memory-server:', result?.memory?.id || fragment.id);
       return result;
@@ -694,6 +717,60 @@ class VariableMemoryManager {
 
   // ==================== Embedding 获取 ====================
 
+  async reembedUnembeddedMemories(chat) {
+    const vm = this.getVariableMemory(chat);
+
+    let count = 0;
+
+    for (const frag of vm.fragments) {
+      if (!frag.embeddingModel || !frag.embeddingDim) {
+        try {
+          const embedding = await this.getEmbedding(frag.content, chat);
+
+          if (Array.isArray(embedding) && embedding.length > 0) {
+
+            const saveFrag = {
+              ...frag,
+              embedding,
+              embeddingModel: this.getCurrentEmbeddingModel(chat),
+              embeddingDim: embedding.length,
+              embeddingUpdatedAt: Date.now()
+            };
+
+            if (this.isExternalMemoryEnabled(chat)) {
+              await this.saveFragmentToExternalServer(chat, saveFrag);
+            }
+
+            // 前端只保留元信息
+            frag.embedding = null;
+            frag.embeddingModel = saveFrag.embeddingModel;
+            frag.embeddingDim = saveFrag.embeddingDim;
+            frag.embeddingUpdatedAt = saveFrag.embeddingUpdatedAt;
+
+            count++;
+
+            console.log(
+              '[变量记忆] 重新向量化成功:',
+              frag.id,
+              'dim=',
+              embedding.length
+            );
+          }
+        } catch (error) {
+          console.warn(
+            '[变量记忆] 重新向量化失败:',
+            frag.id,
+            error.message
+          );
+        }
+      }
+    }
+
+    vm.stats.lastUpdated = Date.now();
+  
+    return { count };
+  }
+
   async getEmbedding(text, chat) {
     if (!text || !text.trim()) return null;
 
@@ -1045,7 +1122,7 @@ ${output}`;
     // 更新最后提取的消息索引 (修复每轮都提取的Bug)
     if (this._tempLastMsgIndex !== undefined && this._tempLastMsgIndex !== -1) {
       vm.settings.lastExtractedMsgIndex = this._tempLastMsgIndex;
-    }
+    }window.vectorMemoryManager.getEmbedding
 
     return newIds;
   }
@@ -1097,6 +1174,7 @@ ${output}`;
       </button>
       <button class="vm-toolbar-btn" id="vm-export-btn">导出全部</button>
       <button class="vm-toolbar-btn" id="vm-import-btn">导入</button>
+      <button class="vm-toolbar-btn" id="vm-reembed-btn">修复未向量化</button>
       <button class="vm-toolbar-btn" id="vm-settings-btn">设置</button>
       <button class="vm-toolbar-btn" id="vm-guide-btn">便携教程</button>
     `;
@@ -1195,7 +1273,16 @@ ${output}`;
     listContainer.className = 'vm-list-container';
     
     const categories = this.getCategories(chat);
-    const displayFragments = this.applyPanelFilters(vm.fragments || [], vm._panelFilters || {});
+
+    const filteredFragments = this.applyPanelFilters(
+      vm.fragments || [],
+      vm._panelFilters || {}
+    );
+
+    // 分页：默认显示100条
+    const displayLimit = vm.renderLimit || 100;
+
+    const displayFragments = filteredFragments.slice(0, displayLimit);
     
     // 按分类分组渲染
     for (const [code, catInfo] of Object.entries(categories)) {
@@ -1214,7 +1301,7 @@ ${output}`;
           <input type="checkbox" class="vm-batch-element vm-section-select-all" style="display:none; margin-right:8px;" data-category="${code}">
           <span class="vm-section-tag" style="background:${catInfo.color}">${code}</span>
           <span class="vm-section-title">${catInfo.name}</span>
-          <span class="vm-section-count">${frags.length}</span>
+          <span class="vm-section-count">${frags.length}/${vm.fragments.filter(f => f.category === code).length}</span>
         </div>
       `;
       
@@ -1253,7 +1340,7 @@ ${output}`;
             <div class="vm-item-meta">
               <input type="datetime-local" class="vm-time-picker" data-id="${frag.id}" value="${localISOTime}" title="修改记忆发生时间">
               <span class="vm-meta-tag">重要度:${frag.importance}</span>
-              ${frag.embedding ? '<span class="vm-meta-tag" title="已向量化">Vector✓</span>' : '<span class="vm-meta-tag" style="color:#ff9500">BM25</span>'}
+              ${(frag.embeddingModel && frag.embeddingDim > 0) || frag.embedding ? '<span class="vm-meta-tag" title="已向量化">Vector✓</span>' : '<span class="vm-meta-tag" style="color:#ff9500">BM25</span>'}
             </div>
           </div>
           <div class="vm-item-actions">
@@ -1281,6 +1368,22 @@ ${output}`;
     }
 
     container.appendChild(listContainer);
+
+    if (displayLimit < filteredFragments.length) {
+      const moreBtn = document.createElement('button');
+
+      moreBtn.className = 'vm-toolbar-btn';
+      moreBtn.style.margin = '15px auto';
+      moreBtn.style.display = 'block';
+      moreBtn.textContent = `显示更多（${displayLimit}/${filteredFragments.length}）`;
+
+      moreBtn.onclick = () => {
+        vm.renderLimit = displayLimit + 100;
+        this.renderMemoryUI(chat, container);
+      };
+
+      container.appendChild(moreBtn);
+    }
   }
 
   // ==================== 设置面板 ====================

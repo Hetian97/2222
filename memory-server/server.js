@@ -1598,7 +1598,7 @@ const server = http.createServer(async (req, res) => {
       minImportance: url.searchParams.get('minImportance') || '',
       maxImportance: url.searchParams.get('maxImportance') || '',
       query: url.searchParams.get('query') || '',
-      limit: url.searchParams.get('limit') || 500
+      limit: url.searchParams.get('limit') || 5000
     };
 
     const memories = listMemories(filters);
@@ -1652,6 +1652,70 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         memory: savedMemory
       });
+    } catch (error) {
+      sendJson(res, 400, {
+        ok: false,
+        error: error.message
+      });
+    }
+
+    return;
+  }
+
+  // ↓↓↓ 从这里开始粘贴 reembed 接口
+
+  if (pathname === '/memory/reembed-unembedded' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+
+      const memories = listUnembeddedMemories(body.limit || 1000);
+
+      const embeddingConfig = {
+        endpoint: body.embeddingEndpoint || process.env.EMBEDDING_ENDPOINT || '',
+        apiKey: body.embeddingApiKey || process.env.EMBEDDING_API_KEY || '',
+        model: body.embeddingModel || process.env.EMBEDDING_MODEL || 'BAAI/bge-m3'
+      };
+
+      let success = 0;
+      let failed = 0;
+
+      for (const memory of memories) {
+        try {
+          const embedding = await createQueryEmbedding({
+            endpoint: embeddingConfig.endpoint,
+            apiKey: embeddingConfig.apiKey,
+            model: embeddingConfig.model,
+            input: memory.content
+          });
+
+          if (Array.isArray(embedding) && embedding.length > 0) {
+            addMemory({
+              ...memory,
+              embedding,
+              embeddingModel: embeddingConfig.model,
+              embeddingDim: embedding.length,
+              embeddingUpdatedAt: String(Date.now()),
+              updatedAt: Date.now()
+            });
+
+            success++;
+          } else {
+            failed++;
+          }
+
+        } catch (error) {
+          console.warn('[reembed] failed:', memory.id, error.message);
+          failed++;
+        }
+      }
+
+      sendJson(res, 200, {
+        ok: true,
+        total: memories.length,
+        success,
+        failed
+      });
+
     } catch (error) {
       sendJson(res, 400, {
         ok: false,

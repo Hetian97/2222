@@ -1170,11 +1170,9 @@ function bindVectorMemoryEvents(chat, container) {
       );
 
       const memoryTime = parseMemoryTimeInput(memoryTimeText);
-      const embedding = await window.vectorMemoryManager.getEmbedding(content.trim(), chat);
 
       window.vectorMemoryManager.addCoreMemory(chat, content.trim(), {
         memoryTime,
-        embedding,
         importance: 10,
         emotionalWeight: 10,
         source: 'manual-core',
@@ -1277,6 +1275,31 @@ function bindVectorMemoryEvents(chat, container) {
   if (settingsBtn) {
     settingsBtn.addEventListener('click', () => {
       openVectorMemorySettings(chat, 'settings');
+    });
+  }
+
+  const reembedBtn = container.querySelector('#vm-reembed-btn');
+
+  if (reembedBtn) {
+    reembedBtn.addEventListener('click', async () => {
+      try {
+        reembedBtn.disabled = true;
+        reembedBtn.textContent = '修复中...';
+
+        const result = await vectorMemoryManager.reembedUnembeddedMemories(chat);
+
+        alert(`完成：重新向量化 ${result.count || 0} 条记忆`);
+
+        await vectorMemoryManager.loadFragmentsFromExternalServer(chat);
+        vectorMemoryManager.renderMemoryUI(chat, container);
+
+      } catch (error) {
+        console.error(error);
+        alert('重新向量化失败：' + error.message);
+      } finally {
+        reembedBtn.disabled = false;
+        reembedBtn.textContent = '修复未向量化';
+      }
     });
   }
 
