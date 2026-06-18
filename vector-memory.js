@@ -1140,7 +1140,7 @@ ${output}`;
     const autoInterval = vm.settings.autoExtractionMsgInterval || 20;
     const remainingToAuto = Math.max(0, autoInterval - unextractedMessages);
     
-    const embeddedCount = frags.filter(f => f.embedding).length;
+    const embeddedCount = frags.filter(f => f.embeddingModel && f.embeddingDim > 0).length;
     let embeddingHealth = frags.length === 0 ? 'empty' : (embeddedCount === frags.length ? 'perfect' : (embeddedCount > 0 ? 'partial' : 'failed'));
 
     return {
@@ -1168,6 +1168,13 @@ ${output}`;
       <button class="vm-toolbar-btn" id="vm-add-fragment-btn">添加记忆</button>
       <button class="vm-toolbar-btn" id="vm-add-core-btn">添加核心</button>
       <button class="vm-toolbar-btn" id="vm-batch-toggle-btn">批量操作</button>
+
+      <span style="font-size:13px;color:#666;margin-left:10px;">
+        总数 ${stats.totalFragments}
+        | Vector ${stats.embeddedCount}
+        | BM25 ${stats.totalFragments - stats.embeddedCount}
+      </span>
+
       <div style="flex:1"></div>
       <button class="vm-toolbar-btn vm-primary" id="vm-summary-btn" title="剩余 ${stats.remainingToAuto} 条消息后自动触发">
         提取记忆 (${stats.unextractedMessages}/${stats.autoInterval})
@@ -1676,9 +1683,9 @@ ${output}`;
     }
 
     if (vector === 'vector') {
-      result = result.filter(f => Array.isArray(f.embedding) && f.embedding.length > 0);
+      result = result.filter(f => !!f.embeddingModel && Number(f.embeddingDim) > 0);
     } else if (vector === 'bm25') {
-      result = result.filter(f => !Array.isArray(f.embedding) || f.embedding.length === 0);
+      result = result.filter(f => !f.embeddingModel || Number(f.embeddingDim) <= 0);
     }
 
     if (Number.isFinite(minImportance)) {
