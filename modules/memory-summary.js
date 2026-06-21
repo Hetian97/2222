@@ -2516,14 +2516,26 @@ async function doSmartConvertWithAI(chat, allItems, selectedIndices, keepOrigina
     const userNickname = chat.settings?.myNickname || window.state?.qzoneSettings?.nickname || '用户';
 
     const prompt = `
+# 你的任务：
 你是一个专业的记忆整理专家。请将以下来自${userNickname}和AI角色"${roleName}"的【旧文本记忆/杂乱旧记忆】重新精炼、合并重复项，并分配到最合适的分类中。
 
-# 你的任务
+# 写作视角：
 - 以"${roleName}"的第一人称视角整理记忆。
 - 用“我”指代"${roleName}"。
 - 用“她”或“${userNickname}”指代用户。
 - 保留旧记忆中的事实、时间线、关系变化、重要设定和稳定偏好。
+
+# 主体识别规则：
+- 整理记忆前，必须确认原记忆中的行为、决定、表达和经历的实际主体。
+- “我”必须始终指代当前角色（${roleName}），不能代替用户。
+- 不要把用户做过的事、说过的话、计划或感受改写成角色自己的经历。
+- 不要把角色做过的事、说过的话、计划或感受归属于用户。
+- 如果原记忆使用“我”“你”“她”等代词，必须结合上下文判断真实指代。
+
+# 整理规则：
 - 可以合并意思重复或高度相近的记忆，但不要编造旧记忆中没有的信息。
+- 如果同一事实、同一设定、同一地点或同一事件已经存在于旧记忆中，应优先合并，而不是生成新的重复记忆。
+- 只有出现新的信息、关系变化、意义变化或重要进展时，才保留为新的独立记忆。
 - 不要把一次性行为改写成“习惯”“总是”“长期如此”“以后都会”等长期模式，除非旧记忆明确表达了持续性。
 - 没有意义、重复度高、过于琐碎或无法理解的内容可以丢弃。
 
@@ -2541,7 +2553,7 @@ async function doSmartConvertWithAI(chat, allItems, selectedIndices, keepOrigina
 ]
 \`\`\`
 
-# 10大精细分类说明
+# 10大精细分类说明：
 请优先选择最具体的分类，不要把所有“发生过的事”都归为 E；只有无法归入其他具体分类的一次共同经历，才归为 E。
 
 - U = 用户设定 (${userNickname}的外貌/性格/喜好/身份、稳定偏好、习惯、身体感受、生活需求等)
@@ -2555,7 +2567,7 @@ async function doSmartConvertWithAI(chat, allItems, selectedIndices, keepOrigina
 - C = 核心灵魂 (必须长期牢记的关键设定、生死攸关的事、绝对底线)
 - E = 经历/事件 (${roleName}与${userNickname}共同经历的一次具体事件，例如共同外出、到达某个新地点、完成某件事或发生一次值得回忆的互动；仅在不属于 U/A/R/I/L/P/T/M/C 时使用)
 
-# 评分规则 (1-10)
+# 评分规则 (1-10)：
 - importance: 1-10。
 - 1-4：轻量信息、普通日常、低影响事件、可不长期追踪的短期安排。
 - 5-6：值得记住的偏好、普通承诺、普通共同经历、一般地点信息、会推动下一场景的短期计划。
@@ -2564,14 +2576,15 @@ async function doSmartConvertWithAI(chat, allItems, selectedIndices, keepOrigina
 - 普通“今晚/明天要去某地”“我会安排车”通常为 5-6；只有代表长期安排或重大转折时才给 7 以上。
 - emotionalWeight: 1-10。普通安排通常 2-4；明显亲密、恐惧、崩溃、和好、告白、深层心理转折等才给 6 以上。
 
-# memoryTime 规则
+# memoryTime 规则：
 - 如果旧记忆前面的时间可以判断，请尽量沿用对应时间，输出为毫秒时间戳。
 - 如果无法判断具体时间，可以省略 memoryTime 或使用当前批次中最接近的原始时间。
 - 不要为了补全 memoryTime 编造不存在的日期。
 
-# 待处理的旧记忆
+# 待处理的旧记忆：
 ${formattedMemories}
 
+# 输出要求：
 请直接输出 JSON 数组，不要解释，不要 markdown。如果没有值得保留的内容，输出空数组 []。`;
 
     try {
