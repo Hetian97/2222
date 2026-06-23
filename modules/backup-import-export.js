@@ -166,6 +166,7 @@
         inventory,
         emails,
         watchTogetherPlaylist
+        coupleAlbumPhotos
       ] = await Promise.all([
         db.chats.toArray(),
         db.worldBooks.toArray(),
@@ -216,6 +217,7 @@
         db.inventory.toArray(),
         db.emails.toArray(),
         db.watchTogetherPlaylist.toArray()
+        db.coupleAlbumPhotos.toArray()
       ]);
 
       // 方案3：导出时移除API历史记录
@@ -276,6 +278,7 @@
         inventory,
         emails,
         watchTogetherPlaylist,
+        coupleAlbumPhotos,
         
         // 情侣空间 localStorage 数据
         localStorage: coupleSpaceLocalStorage
@@ -1066,6 +1069,7 @@
         if (Array.isArray(backupData.inventory)) await db.inventory.bulkPut(backupData.inventory);
         if (Array.isArray(backupData.emails)) await db.emails.bulkPut(backupData.emails);
         if (Array.isArray(backupData.watchTogetherPlaylist)) await db.watchTogetherPlaylist.bulkPut(backupData.watchTogetherPlaylist);
+        if (Array.isArray(backupData.coupleAlbumPhotos)) await db.coupleAlbumPhotos.bulkPut(backupData.coupleAlbumPhotos);
       });
       
       // 3. 如果备份中有 localStorage 数据，则恢复

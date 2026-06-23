@@ -103,4 +103,9 @@ db.version(57).stores({
   secondaryApiPresets: '++id, name'
 });
 
+// 情侣空间相册迁移
+db.version(58).stores({
+  coupleAlbumPhotos: '++id, chatId, timestamp'
+});
+
 window.db = db;

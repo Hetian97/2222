@@ -1,6 +1,32 @@
 // ========== 情侣空间 ==========
 const COUPLE_SPACE_STORAGE_KEY = 'coupleSpaces';
 
+async function getCoupleAlbumPhotos(charId) {
+  try {
+    if (window.db && db.coupleAlbumPhotos) {
+      const records = await db.coupleAlbumPhotos
+        .where('chatId')
+        .equals(charId)
+        .sortBy('timestamp');
+
+      if (records.length) {
+        return records.map(r => r.photo);
+      }
+    }
+  } catch(e) {
+    console.error('读取IndexedDB相册失败', e);
+  }
+
+  // 兼容旧数据
+  try {
+    return JSON.parse(
+      localStorage.getItem('coupleAlbum_' + charId) || '[]'
+    );
+  } catch(e) {
+    return [];
+  }
+}
+
 // 获取情侣空间API配置（优先使用情侣空间专用API，否则回退到主API）
 function getCoupleSpaceApiConfig() {
   const useCoupleSpaceApi = state.apiConfig.couplespaceProxyUrl && 
@@ -24,7 +50,7 @@ function getCoupleSpaceApiConfig() {
 
 // 通用定时补执行工具：检查今天是否已过设定时间但还没执行过，如果是则立即补执行
 // 通用情侣空间离线保存/推送工具
-function sendOrSaveCoupleSpaceData(charId, msgObj, storageKey, itemToSave) {
+async function sendOrSaveCoupleSpaceData(charId, msgObj, storageKey, itemToSave) {
   const iframe = document.getElementById('couple-space-iframe');
   const isIframeOpenForThisChar = iframe && iframe.src && iframe.src.includes('330--main/index.html') && localStorage.getItem('coupleSpaceLastId') === charId;
   
@@ -34,10 +60,26 @@ function sendOrSaveCoupleSpaceData(charId, msgObj, storageKey, itemToSave) {
       console.log(`[情侣空间] 📥 已将数据 (${msgObj.type}) 推送到打开的页面`);
     } catch(e) { console.error('Failed to notify iframe:', e); }
   } else if (storageKey && itemToSave) {
+
     try {
-      const items = JSON.parse(localStorage.getItem(storageKey + charId) || '[]');
-      items.push(itemToSave);
-      localStorage.setItem(storageKey + charId, JSON.stringify(items));
+      if (storageKey === 'coupleAlbum_' && typeof db !== 'undefined' && db.coupleAlbumPhotos) {
+        console.log("🚩进入相册IndexedDB保存分支", {
+          storageKey,
+          charId,
+          itemToSave
+        });
+        await db.coupleAlbumPhotos.add({
+          chatId: charId,
+          timestamp: itemToSave.timestamp || Date.now(),
+          photo: itemToSave
+        });
+
+        console.log('[情侣空间] 💾 相册已保存到 IndexedDB');
+      } else {
+        const items = JSON.parse(localStorage.getItem(storageKey + charId) || '[]');
+        items.push(itemToSave);
+        localStorage.setItem(storageKey + charId, JSON.stringify(items));
+      }
       console.log(`[情侣空间] 💾 页面未打开，已将数据安全保存到本地离线存储 (${storageKey})`);
       
       // 检查是否开启了后台更新弹窗提醒
@@ -1670,7 +1712,7 @@ async function triggerAutoAlbumPost(charId, isTimer = false) {
 
   for (let i = 0; i < postCount; i++) {
     try {
-      const recentPhotos = JSON.parse(localStorage.getItem('coupleAlbum_' + charId) || '[]').slice(-10);
+      const recentPhotos = (await getCoupleAlbumPhotos(charId)).slice(-10);
       const result = await generateCoupleSpaceAlbumAi(chat, { charId, recentPhotos });
 
       let imageData = null;

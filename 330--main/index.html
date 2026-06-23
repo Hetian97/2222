@@ -3227,10 +3227,31 @@ function notifyDiarySettingsChanged() {
 
 // ===== ALBUM =====
 var albumFabOpen = false;
-function getAlbumPhotos() {
+async function getAlbumPhotos() {
   if (!currentCharId) return [];
-  try { return JSON.parse(localStorage.getItem('coupleAlbum_' + currentCharId)) || []; }
-  catch(e) { return []; }
+
+  try {
+    if (window.parent.db && window.parent.db.coupleAlbumPhotos) {
+      const records = await window.parent.db.coupleAlbumPhotos
+        .where('chatId')
+        .equals(currentCharId)
+        .sortBy('timestamp');
+
+      if (records.length) {
+        return records.map(r => r.photo);
+      }
+    }
+  } catch(e) {
+    console.error('读取IndexedDB相册失败', e);
+  }
+
+  try {
+    return JSON.parse(
+      localStorage.getItem('coupleAlbum_' + currentCharId)
+    ) || [];
+  } catch(e) {
+    return [];
+  }
 }
 function saveAlbumPhotos(list) {
   if (!currentCharId) return;
@@ -3246,10 +3267,10 @@ function saveAlbumSettings(s) {
   localStorage.setItem('coupleAlbumSettings_' + currentCharId, JSON.stringify(s));
 }
 
-function renderAlbumList() {
+async function renderAlbumList() {
   var container = document.getElementById('album-list-container');
   if (!container) return;
-  var photos = getAlbumPhotos();
+  var photos = await getAlbumPhotos();
   if (photos.length === 0) {
     container.innerHTML = '';
     container.className = '';
@@ -3426,8 +3447,8 @@ function closeAlbumUpload() {
 
 // --- Album Detail ---
 var currentAlbumPhotoId = null;
-function openAlbumDetail(photoId) {
-  var photos = getAlbumPhotos();
+async function openAlbumDetail(photoId) {
+  var photos = await getAlbumPhotos();
   var photo = photos.find(function(p) { return p.id === photoId; });
   if (!photo) return;
   currentAlbumPhotoId = photoId;
@@ -3855,10 +3876,18 @@ window.addEventListener('message', function(e) {
       tags: e.data.tags || [],
       imagePrompt: e.data.imagePrompt || ''
     };
-    var photos = getAlbumPhotos();
-    photos.push(photo);
-    saveAlbumPhotos(photos);
-    renderAlbumList();
+    if (window.parent.db && window.parent.db.coupleAlbumPhotos) {
+      window.parent.db.coupleAlbumPhotos.add({
+        chatId: currentCharId,
+        timestamp: photo.timestamp || Date.now(),
+        photo: photo
+      });
+    } else {
+      var photos = getAlbumPhotos();
+      photos.push(photo);
+      saveAlbumPhotos(photos);
+    }
+renderAlbumList();
     showAlbumToast((csCharName || 'TA') + '发了一张照片');
   }
 
@@ -3875,9 +3904,17 @@ window.addEventListener('message', function(e) {
       tags: e.data.tags || [],
       imagePrompt: e.data.imagePrompt || ''
     };
-    var photos = getAlbumPhotos();
-    photos.push(photo);
-    saveAlbumPhotos(photos);
+    if (window.parent.db && window.parent.db.coupleAlbumPhotos) {
+      window.parent.db.coupleAlbumPhotos.add({
+        chatId: currentCharId,
+        timestamp: photo.timestamp || Date.now(),
+        photo: photo
+      });
+    } else {
+      var photos = getAlbumPhotos();
+      photos.push(photo);
+      saveAlbumPhotos(photos);
+    }
     renderAlbumList();
   }
 
@@ -4589,9 +4626,17 @@ window.addEventListener('message', function(e) {
       tags: e.data.tags || ['聊天截图'],
       screenshotMeta: e.data.meta || {}
     };
-    var photos = getAlbumPhotos();
-    photos.push(photo);
-    saveAlbumPhotos(photos);
+    if (window.parent.db && window.parent.db.coupleAlbumPhotos) {
+      window.parent.db.coupleAlbumPhotos.add({
+        chatId: currentCharId,
+        timestamp: photo.timestamp || Date.now(),
+        photo: photo
+      });
+    } else {
+      var photos = getAlbumPhotos();
+      photos.push(photo);
+      saveAlbumPhotos(photos);
+    }
     renderAlbumList();
     showAlbumToast((csCharName || 'TA') + '截了一张聊天记录');
   }
