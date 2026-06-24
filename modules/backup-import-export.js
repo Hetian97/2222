@@ -165,7 +165,7 @@
         auctions,
         inventory,
         emails,
-        watchTogetherPlaylist
+        watchTogetherPlaylist,
         coupleAlbumPhotos
       ] = await Promise.all([
         db.chats.toArray(),
@@ -216,7 +216,7 @@
         db.auctions.toArray(),
         db.inventory.toArray(),
         db.emails.toArray(),
-        db.watchTogetherPlaylist.toArray()
+        db.watchTogetherPlaylist.toArray(),
         db.coupleAlbumPhotos.toArray()
       ]);
 

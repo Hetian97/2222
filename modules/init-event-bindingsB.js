@@ -874,6 +874,28 @@ window.initEventBindingsB = function(state, db) {
         })();
       }
     });
+    document.getElementById('bg-url-btn')?.addEventListener('click', async () => {
+      if (!state.activeChatId) return;
+
+      const url = prompt('请输入聊天背景图片URL');
+      if (!url || !url.trim()) return;
+
+      const chat = state.chats[state.activeChatId];
+
+      chat.settings.background = url.trim();
+
+      const bgPreview = document.getElementById('bg-preview');
+      bgPreview.src = url.trim();
+      bgPreview.style.display = 'block';
+
+      document.getElementById('remove-bg-btn').style.display = 'inline-block';
+
+      await db.chats.put(chat);
+
+      renderChatInterface(state.activeChatId);
+
+      await showCustomAlert("成功", "聊天背景URL已保存！");
+    });
     setupFileUpload('preset-avatar-input', (base64) => document.getElementById('preset-avatar-preview').src = base64);
     document.getElementById('remove-bg-btn').addEventListener('click', () => {
       if (state.activeChatId) {
@@ -1300,8 +1322,63 @@ window.initEventBindingsB = function(state, db) {
         renderQzoneScreen();
       }
     });
-    document.getElementById('qzone-avatar-container').addEventListener('click', () => document.getElementById('qzone-avatar-input').click());
-    document.getElementById('qzone-banner-container').addEventListener('click', () => document.getElementById('qzone-banner-input').click());
+        document.getElementById('qzone-avatar-container').addEventListener('click', async () => {
+      const choice = await showChoiceModal(
+        '更换头像',
+        [
+          { text: '上传文件', value: 'file' },
+          { text: '填写URL', value: 'url' },
+        ]
+      );
+
+      if (choice === 'file') {
+        document.getElementById('qzone-avatar-input').click();
+      }
+
+      if (choice === 'url') {
+        const url = await showCustomPrompt(
+          '设置头像',
+          '请输入头像图片URL',
+          state.qzoneSettings.avatar || '',
+          'url'
+        );
+
+        if (url && url.trim()) {
+          state.qzoneSettings.avatar = url.trim();
+          await saveQzoneSettings();
+          renderQzoneScreen();
+        }
+      }
+    });
+
+    document.getElementById('qzone-banner-container').addEventListener('click', async () => {
+      const choice = await showChoiceModal(
+        '更换背景',
+        [
+          { text: '上传文件', value: 'file' },
+          { text: '填写URL', value: 'url' },
+        ]
+      );
+
+      if (choice === 'file') {
+        document.getElementById('qzone-banner-input').click();
+      }
+
+      if (choice === 'url') {
+        const url = await showCustomPrompt(
+          '设置背景',
+          '请输入背景图片URL',
+          state.qzoneSettings.banner || '',
+          'url'
+        );
+
+        if (url && url.trim()) {
+          state.qzoneSettings.banner = url.trim();
+          await saveQzoneSettings();
+          renderQzoneScreen();
+        }
+      }
+    });
     document.getElementById('qzone-avatar-input').addEventListener('change', async (event) => {
       const file = event.target.files[0];
       if (file) {
@@ -1316,6 +1393,7 @@ window.initEventBindingsB = function(state, db) {
       }
       event.target.value = null;
     });
+
     document.getElementById('qzone-banner-input').addEventListener('change', async (event) => {
       const file = event.target.files[0];
       if (file) {
@@ -4027,6 +4105,12 @@ window.initEventBindingsB = function(state, db) {
       document.getElementById('my-avatar-upload-input').click();
     });
     document.getElementById('my-avatar-upload-input').addEventListener('change', handleLocalMyAvatarUpload);
+    document.getElementById('my-avatar-url-btn').addEventListener('click', async () => {
+      const url = prompt('请输入头像URL');
+      if (url && url.trim()) {
+        document.getElementById('my-avatar-preview').src = url.trim();
+      }
+    });
     document.getElementById('add-my-avatar-batch-btn').addEventListener('click', async () => {
       const placeholderText = `请按照以下格式粘贴，一行一个：\n\n焦虑 2a9wte.jpeg\n大惊失色 or8qf4.png\n没有灵感 njwujh.jpeg`;
       const pastedText = await showCustomPrompt('批量导入头像', placeholderText, '', 'textarea');

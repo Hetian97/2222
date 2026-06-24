@@ -1099,11 +1099,11 @@ window.initEventBindingsA = async function(state, db) {
 
 
       if (choice === 'slice') {
-        exportDataAsSlicedZip();
+        window.exportDataAsSlicedZip();
       } else if (choice === 'stream') {
-        exportDataAsStream();
+        window.exportDataAsStream();
       } else if (choice === 'blob') {
-        exportDataAsBlob();
+        window.exportDataAsBlob();
       }
 
     });
@@ -2965,6 +2965,14 @@ window.initEventBindingsA = async function(state, db) {
       if (!state.activeChatId) return;
       const chat = state.chats[state.activeChatId];
       const isGroup = chat.isGroup;
+
+      const charNaiGroup = document.getElementById('nai-character-settings-group');
+      const groupNaiGroup = document.getElementById('group-nai-settings-group');
+
+      if (charNaiGroup && groupNaiGroup) {
+        charNaiGroup.style.display = isGroup ? 'none' : 'block';
+        groupNaiGroup.style.display = isGroup ? 'block' : 'none';
+      }
 
       const weatherSection = document.getElementById('weather-settings-section');
       if (isGroup) {

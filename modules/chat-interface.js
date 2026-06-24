@@ -1501,6 +1501,21 @@
     } else {
       showScreen('chat-settings-screen');
     }
+
+    const chat = state.chats[state.activeChatId];
+
+    const charNai = document.getElementById('nai-character-settings-group');
+    const groupNai = document.getElementById('group-nai-settings-group');
+
+    if (charNai && groupNai && chat) {
+      if (chat.isGroup) {
+        charNai.style.display = 'none';
+        groupNai.style.display = 'block';
+      } else {
+        charNai.style.display = 'block';
+        groupNai.style.display = 'none';
+      }
+    }
   }
   window.openChatSettings = openChatSettings;
 

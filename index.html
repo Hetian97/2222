@@ -3256,9 +3256,16 @@
         </div>
         <div class="qzone-content">
           <div class="qzone-profile-header">
-            <div id="qzone-banner-container" class="qzone-banner-container"> <img id="qzone-banner-img" src="https://files.catbox.moe/r5heyt.gif" alt="背景"> <input type="file" id="qzone-banner-input" accept="image/*" hidden> </div>
+            <div id="qzone-banner-container" class="qzone-banner-container">
+              <img id="qzone-banner-img" src="https://files.catbox.moe/r5heyt.gif" alt="背景">
+              <input type="file" id="qzone-banner-input" accept="image/*" hidden>
+            </div>
             <div class="qzone-user-info">
-              <div id="qzone-avatar-container" class="qzone-avatar-container"> <img id="qzone-avatar-img" src="https://files.catbox.moe/q6z5fc.jpeg" alt="头像"> <input type="file" id="qzone-avatar-input" accept="image/*" hidden> </div> <span id="qzone-nickname">{{user}}</span>
+              <div id="qzone-avatar-container" class="qzone-avatar-container">
+                <img id="qzone-avatar-img" src="https://files.catbox.moe/q6z5fc.jpeg" alt="头像">
+                <input type="file" id="qzone-avatar-input" accept="image/*" hidden>
+              </div>
+              <span id="qzone-nickname">{{user}}</span>
             </div>
           </div>
           <div class="qzone-actions-bar">
@@ -3331,7 +3338,7 @@
         <div class="modal-header"> <span id="npc-editor-title"data-lang-key="add">添加 NPC</span> </div>
         <div class="modal-body">
           <div class="form-group"> <label>NPC 头像</label>
-            <div class="avatar-upload"> <img id="npc-avatar-preview" src="https://i.postimg.cc/VkQfgzGJ/1.jpg"> <button onclick="document.getElementById('npc-avatar-input').click()">上传头像</button> <input type="file" id="npc-avatar-input" accept="image/*" hidden> </div>
+            <div class="avatar-upload"> <img id="npc-avatar-preview" src="https://i.postimg.cc/VkQfgzGJ/1.jpg"> <button onclick="document.getElementById('npc-avatar-input').click()">上传头像</button> <button onclick="setNpcAvatarUrl()">URL</button> <input type="file" id="npc-avatar-input" accept="image/*" hidden> </div>
           </div>
           <div class="form-group"> <label for="npc-name-input">NPC 昵称</label> <input type="text" id="npc-name-input" placeholder="输入NPC的常用名"> </div>
           <div class="form-group"> <label for="npc-persona-input">NPC 人设</label> <textarea id="npc-persona-input" rows="4" placeholder="详细描述这个NPC的性格、背景、说话方式等..."></textarea> </div>
@@ -4523,6 +4530,12 @@
                          <!-- 按钮组在右 -->
                          <div class="avatar-btn-group">
                              <button class="settings-mini-btn" onclick="document.getElementById('ai-avatar-input').click()">更换</button>
+                             <button class="settings-mini-btn" onclick="
+                             const url = prompt('输入对方头像URL');
+                             if(url){
+                                 document.getElementById('ai-avatar-preview').src = url;
+                             }
+                             ">URL</button>
                              <button class="settings-mini-btn" id="manage-ai-avatar-library-btn">图库</button>
                              <button class="settings-mini-btn change-frame-btn" data-type="ai">挂件</button>
                              <input type="file" id="ai-avatar-input" accept="image/*" hidden>
@@ -4538,6 +4551,12 @@
                          <img id="group-avatar-preview" class="settings-avatar">
                          <div class="avatar-btn-group">
                              <button class="settings-mini-btn" onclick="document.getElementById('group-avatar-input').click()">更换</button>
+                             <button class="settings-mini-btn" onclick="
+                             const url = prompt('输入群头像URL');
+                             if(url){
+                                 document.getElementById('group-avatar-preview').src = url;
+                             }
+                             ">URL</button>
                              <button class="settings-mini-btn" id="manage-group-avatar-library-btn">图库</button>
                              <input type="file" id="group-avatar-input" accept="image/*" hidden>
                          </div>
@@ -4552,6 +4571,12 @@
                          <img id="my-avatar-preview" class="settings-avatar">
                          <div class="avatar-btn-group">
                              <button class="settings-mini-btn" onclick="document.getElementById('my-avatar-input').click()">更换</button>
+                             <button class="settings-mini-btn" onclick="
+                             const url = prompt('输入我的头像URL');
+                             if(url){
+                                 document.getElementById('my-avatar-preview').src = url;
+                             }
+                             ">URL</button>
                              <button class="settings-mini-btn" id="manage-my-avatar-library-btn">图库</button>
                              <button class="settings-mini-btn change-frame-btn" data-type="my">挂件</button>
                              <button class="settings-mini-btn" id="open-persona-library-btn">预设</button>
@@ -5514,6 +5539,7 @@
                      <div class="avatar-btn-group" style="justify-content: flex-end; width: 100%;">
                          <!-- 升级为实体小按钮 -->
                          <button class="settings-mini-btn" onclick="document.getElementById('bg-input').click()">上传</button>
+                         <button class="settings-mini-btn" id="bg-url-btn">URL</button>
                          <button class="settings-mini-btn" id="remove-bg-btn">移除</button>
                          
                          <!-- 保持原有的隐藏 input 和预览图逻辑 -->
@@ -7053,6 +7079,7 @@
       </div>
     </div>
   </div> <input type="file" id="my-avatar-upload-input" accept="image/*" hidden>
+  <button id="my-avatar-url-btn">输入头像URL</button>
   <div id="gift-recipient-modal" class="modal">
     <div class="modal-content" style="height: 70%;">
       <div class="modal-header"> <span>选择收礼人</span> <label style="font-size: 14px; font-weight: normal; display: flex; align-items: center; gap: 5px;"> <input type="checkbox" id="select-all-recipients"> 全选 </label> </div>

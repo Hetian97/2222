@@ -108,7 +108,10 @@
 #custom-confirm-overlay,
 #choice-modal,
 #custom-choice-modal,
+#novelai-settings-modal,
+#novelai-test-modal,
+#character-nai-prompts-modal,
 .modal.visible {
-  z-index: 20000 !important;
+  z-index: 30000 !important;
   position: fixed;
 }

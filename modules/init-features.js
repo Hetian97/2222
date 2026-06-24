@@ -1541,6 +1541,18 @@ window.initFeatures = function(state, db) {
         reader.readAsDataURL(file);
       }
     });
+
+    window.setNpcAvatarUrl = async function() {
+      const url = await showCustomPrompt(
+        '输入NPC头像URL',
+        '请输入图片URL地址'
+      );
+
+      if (url && url.trim()) {
+        document.getElementById('npc-avatar-preview').src = url.trim();
+      }
+    };
+
     document.getElementById('chat-lock-overlay').addEventListener('click', (e) => {
 
       if (e.target.id === 'spectator-reroll-btn') {
