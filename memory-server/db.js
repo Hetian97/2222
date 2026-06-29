@@ -93,6 +93,11 @@ function normalizeMemory(row) {
 function addMemory(memory) {
   const now = Date.now();
 
+  const normalizedEmbedding =
+    Array.isArray(memory.embedding) && memory.embedding.length > 0
+      ? memory.embedding
+      : null;
+
   const item = {
     id: memory.id || `mem_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     chatId: memory.chatId || null,
@@ -106,10 +111,10 @@ function addMemory(memory) {
     updatedAt: String(memory.updatedAt ?? now),
     lastRecalled: String(memory.lastRecalled ?? 0),
     recallCount: Number(memory.recallCount || 0),
-    embedding: safeJsonStringify(memory.embedding || null),
-    embeddingModel: memory.embeddingModel ? String(memory.embeddingModel) : '',
-    embeddingDim: Number(memory.embeddingDim || (Array.isArray(memory.embedding) ? memory.embedding.length : 0)),
-    embeddingUpdatedAt: memory.embeddingUpdatedAt ? String(memory.embeddingUpdatedAt) : (memory.embedding ? String(Date.now()) : ''),
+    embedding: safeJsonStringify(normalizedEmbedding),
+    embeddingModel: normalizedEmbedding ? (memory.embeddingModel ? String(memory.embeddingModel) : '') : '',
+    embeddingDim: normalizedEmbedding ? Number(memory.embeddingDim || normalizedEmbedding.length) : 0,
+    embeddingUpdatedAt: normalizedEmbedding ? (memory.embeddingUpdatedAt ? String(memory.embeddingUpdatedAt) : String(Date.now())) : '',
     linkedMemories: safeJsonStringify(memory.linkedMemories || []),
     source: memory.source ? String(memory.source) : 'external',
     context: memory.context ? String(memory.context) : ''
