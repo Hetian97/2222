@@ -1618,9 +1618,19 @@ const server = http.createServer(async (req, res) => {
         updatedAt: now()
       });
 
+      const hasEmbedding =
+        Array.isArray(savedMemory?.embedding) && savedMemory.embedding.length > 0;
+
+      const { embedding, ...publicSavedMemory } = savedMemory || {};
+
       sendJson(res, 200, {
         ok: true,
-        memory: savedMemory
+        memory: {
+          ...publicSavedMemory,
+          hasEmbedding,
+          _hasEmbedding: hasEmbedding,
+          _embeddingDim: hasEmbedding ? savedMemory.embedding.length : 0
+        }
       });
     } catch (error) {
       sendJson(res, 400, {

@@ -322,7 +322,25 @@ class VariableMemoryManager {
       });
 
       if (result?.ok) {
+        const saved = result.memory || {};
+        const hasEmbedding = saved.hasEmbedding === true || saved._hasEmbedding === true;
+
         fragment.embedding = null;
+        fragment.hasEmbedding = hasEmbedding;
+        fragment._hasEmbedding = hasEmbedding;
+        fragment._embeddingDim = Number(saved._embeddingDim || saved.embeddingDim || fragment.embeddingDim || 0);
+
+        if (saved.embeddingModel !== undefined) {
+          fragment.embeddingModel = saved.embeddingModel || '';
+        }
+
+        if (saved.embeddingDim !== undefined) {
+          fragment.embeddingDim = Number(saved.embeddingDim || 0);
+        }
+
+        if (saved.embeddingUpdatedAt !== undefined) {
+          fragment.embeddingUpdatedAt = saved.embeddingUpdatedAt || '';
+        }
       }
 
       console.log('[变量记忆] 已同步到外部 memory-server:', result?.memory?.id || fragment.id);
