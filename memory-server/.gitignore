@@ -1,0 +1,4 @@
+.venv-chroma/
+chroma-data/
+*.bak-chroma-routes
+patch-*.js

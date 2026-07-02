@@ -12,6 +12,11 @@ const {
   listUnembeddedMemories
 } = require('./db');
 
+const {
+  getChromaStatus,
+  upsertMemoriesToChroma
+} = require('./chroma-client');
+
 const PORT = 8765;
 const BACKUP_DIR = path.join(__dirname, 'backups');
 
@@ -1593,6 +1598,49 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/memory/chroma/status' && req.method === 'GET') {
+    try {
+      const status = await getChromaStatus();
+
+      sendJson(res, 200, {
+        ok: true,
+        chroma: status
+      });
+    } catch (error) {
+      sendJson(res, 500, {
+        ok: false,
+        error: error.message || String(error)
+      });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/chroma/rebuild' && req.method === 'POST') {
+    try {
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      const limit = Number(url.searchParams.get('limit') || 10000);
+      const batchSize = Number(url.searchParams.get('batchSize') || 100);
+
+      const memories = listMemories({ limit });
+      const result = await upsertMemoriesToChroma(memories, { batchSize });
+      const status = await getChromaStatus();
+
+      sendJson(res, 200, {
+        ok: true,
+        sqlite: {
+          loaded: memories.length
+        },
+        rebuild: result,
+        chroma: status
+      });
+    } catch (error) {
+      sendJson(res, 500, {
+        ok: false,
+        error: error.message || String(error)
+      });
+    }
+    return;
+  }
   if (pathname === '/memory/unembedded' && req.method === 'GET') {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const limit = url.searchParams.get('limit') || 100;
