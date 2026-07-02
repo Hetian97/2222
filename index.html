@@ -102,7 +102,7 @@
   <script src="modules/card-import.js?v=0.0.36" defer></script>
   <script src="modules/character-export.js?v=0.0.36" defer></script>
   <script src="modules/data-management.js?v=0.0.36" defer></script>
-  <script src="modules/misc-features.js?v=0.0.47" defer></script>
+  <script src="modules/misc-features.js?v=0.0.48" defer></script>
   <!-- 第八层：初始化（必须在所有模块之后） -->
   <!-- 数据定义（无依赖） -->
   <script src="modules/init-avatar-frames.js?v=0.0.36" defer></script>
@@ -258,9 +258,9 @@
 </div>
 
     <div id="home-screen" class="screen active">
-      <div id="home-screen-pages-container">
-        <div id="home-screen-pages">
-          <div class="home-screen-page">
+      <div id="home-screen-pages-container" style="overflow:hidden;width:100%;height:100%;">
+        <div id="home-screen-pages" style="display:flex;width:400%;height:100%;transition:transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);">
+          <div class="home-screen-page" style="flex:0 0 25%;width:25%;max-width:25%;height:100%;">
             <div id="main-content-area">
               <div id="profile-widget"> <img id="profile-banner-img" src="https://i.imgur.com/1n3a43H.jpeg" class="editable-image">
                 <div class="profile-avatar-container"> <img id="profile-avatar-img" src="https://i.postimg.cc/y8xWzCqj/anime-boy.jpg" class="editable-image"> </div>
@@ -298,7 +298,7 @@
               </div>
             </div>
           </div>
-          <div class="home-screen-page">
+          <div class="home-screen-page" style="flex:0 0 25%;width:25%;max-width:25%;height:100%;">
             <div class="polaroid-widget-container">
               <div class="polaroid-photos">
                 <div class="polaroid-photo" style="transform: rotate(-6deg);" onclick="handleWidgetImageChange('polaroid-img-1')"> <img id="polaroid-img-1" src="https://i.imgur.com/Bv63o3h.jpg" alt="Photo 1"> </div>
@@ -359,9 +359,9 @@
         </div>
         <div class="small-widget" onclick="showScreen('tutorial-screen'); refreshMcpManagerStatus(); refreshMcpManagerChatSelect();">
             <div class="small-widget-icon-wrapper">
-                <img class="small-widget-img" id="icon-img-tutorial" src="https://i.postimg.cc/d10GjC4g/IMG-7302.jpg" alt="MCP">
+                <img class="small-widget-img" id="icon-img-tutorial" src="https://i.postimg.cc/d10GjC4g/IMG-7302.jpg" alt="记忆宫殿">
             </div>
-            <span class="small-widget-label">MCP</span>
+            <span class="small-widget-label">记忆宫殿</span>
         </div>
         <div class="small-widget" onclick="openWerewolfLobby('global')">
             <div class="small-widget-icon-wrapper"> 
@@ -395,7 +395,7 @@
                           </svg>
                       </div>
                   </div> </div> </div> </div>
-          <div class="home-screen-page">
+          <div class="home-screen-page" style="flex:0 0 25%;width:25%;max-width:25%;height:100%;">
             <div id="page-3-content">
               <!-- 顶部个人资料小组件 -->
               <div class="p3-profile-widget">
@@ -516,9 +516,22 @@
               </div>
             </div>
           </div>
+          <div class="home-screen-page" style="flex:0 0 25%;width:25%;max-width:25%;height:100%;">
+            <div id="page-4-content" style="height:100%;box-sizing:border-box;padding:42px 28px;">
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:22px;">
+                <div class="desktop-app-icon" onclick="showScreen('mcp-service-screen')">
+                  <div class="icon-bg-desktop">
+                    <img id="icon-img-mcp-service" src="https://i.postimg.cc/MTC3Tkw8/IMG-6436.jpg" alt="MCP服务">
+                  </div>
+                  <span class="label">MCP服务</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div> </div>
       <div id="home-screen-pagination">
         <div class="pagination-dot active"></div>
+        <div class="pagination-dot"></div>
         <div class="pagination-dot"></div>
         <div class="pagination-dot"></div>
       </div>
@@ -1661,7 +1674,7 @@
     <div id="tutorial-screen" class="screen">
       <div class="header">
         <span class="back-btn" onclick="showScreen('home-screen')">‹</span>
-        <span>MCP 服务管理器</span>
+        <span>记忆宫殿</span>
         <span style="width: 30px;"></span>
       </div>
 
@@ -1732,6 +1745,99 @@
             <div>ingest_summary：写入总结记忆</div>
             <div>ingest_raw：写入原文并由 server 提取</div>
             <div>当前建议：njj 使用 search_memory + ingest_summary；暂时关闭 ingest_raw。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="mcp-service-screen" class="screen">
+      <div class="header">
+        <span class="back-btn" onclick="showScreen('home-screen')">‹</span>
+        <span>MCP 服务</span>
+        <span style="width: 30px;"></span>
+      </div>
+
+      <div class="list-container" style="padding:16px;overflow-y:auto;">
+        <div style="background:#fff;border-radius:18px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,0.06);margin-bottom:14px;">
+          <div style="font-size:18px;font-weight:700;margin-bottom:8px;">外部 MCP 服务</div>
+          <div style="font-size:13px;color:#666;line-height:1.7;margin-bottom:10px;">
+            用于连接外部 MCP 标准接口。先用 tools/list 发现工具，再用 tools/call 测试调用。
+          </div>
+          <div style="font-size:13px;color:#666;line-height:1.7;">
+            状态：<span id="mcp-service-status" style="font-weight:700;color:#999;">未检测</span>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
+            <label style="font-size:13px;color:#555;">MCP URL</label>
+            <input id="mcp-service-url-input" type="text" placeholder="例如：https://xxx/mcp" style="
+              width:100%;
+              box-sizing:border-box;
+              border:1px solid rgba(0,0,0,0.12);
+              border-radius:10px;
+              padding:10px;
+              font-size:13px;
+              background:#fff;
+            ">
+
+            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">
+              <button class="settings-button" onclick="testMcpServiceToolsList()">测试 tools/list</button>
+            </div>
+
+            <label style="font-size:13px;color:#555;margin-top:8px;">toolName</label>
+            <input id="mcp-service-tool-name-input" type="text" value="search" style="
+              width:100%;
+              box-sizing:border-box;
+              border:1px solid rgba(0,0,0,0.12);
+              border-radius:10px;
+              padding:10px;
+              font-size:13px;
+              background:#fff;
+            ">
+
+            <label style="font-size:13px;color:#555;">arguments JSON</label>
+            <textarea id="mcp-service-tool-args-input" style="
+              width:100%;
+              box-sizing:border-box;
+              min-height:110px;
+              border:1px solid rgba(0,0,0,0.12);
+              border-radius:10px;
+              padding:10px;
+              font-size:12px;
+              line-height:1.5;
+              background:#fff;
+              font-family:Consolas, monospace;
+            ">{
+  "query": "OpenAI 最新消息",
+  "limit": 3,
+  "engines": ["bing"]
+}</textarea>
+
+            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">
+              <button class="settings-button" onclick="testMcpServiceToolsCall()">测试 tools/call</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="background:#fff;border-radius:18px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,0.06);margin-bottom:14px;">
+          <div style="font-size:18px;font-weight:700;margin-bottom:8px;">调用结果</div>
+          <pre id="mcp-service-output" style="
+            white-space:pre-wrap;
+            word-break:break-word;
+            background:rgba(0,0,0,0.04);
+            border-radius:12px;
+            padding:12px;
+            min-height:180px;
+            font-size:12px;
+            line-height:1.5;
+            color:#333;
+          ">输入外部 MCP URL 后，可以测试 tools/list / tools/call。</pre>
+        </div>
+
+        <div style="background:#fff;border-radius:18px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,0.06);">
+          <div style="font-size:18px;font-weight:700;margin-bottom:8px;">说明</div>
+          <div style="font-size:13px;color:#666;line-height:1.7;">
+            <div>这里是 MCP 聚合/整合入口，不是本地记忆库。</div>
+            <div>本地 SQLite / Chroma 状态仍在“记忆宫殿”的记忆库页面里。</div>
+            <div>后续可扩展为：启用服务、允许角色主动调用、缓存工具结果。</div>
           </div>
         </div>
       </div>
@@ -8907,6 +9013,8 @@
   const MCP_MANAGER_HEALTH_URL = MCP_MANAGER_BASE_URL + '/health';
   const MCP_MANAGER_STATS_URL = MCP_MANAGER_BASE_URL + '/memory/stats';
   const MCP_MANAGER_CHROMA_STATUS_URL = MCP_MANAGER_BASE_URL + '/memory/chroma/status';
+  const MCP_SERVICE_EXTERNAL_TOOLS_LIST_URL = MCP_MANAGER_BASE_URL + '/external-mcp/tools-list';
+  const MCP_SERVICE_EXTERNAL_TOOLS_CALL_URL = MCP_MANAGER_BASE_URL + '/external-mcp/tools-call';
 
   function setMcpManagerOutput(text) {
     const output = document.getElementById('mcp-manager-output');
@@ -9091,6 +9199,172 @@
       setMcpManagerOutput('/memory/stats 请求失败：\n' + error.message);
     }
   }
+
+  function setMcpServiceOutput(text) {
+    const output = document.getElementById('mcp-service-output');
+    if (output) output.textContent = text;
+  }
+
+  function setMcpServiceStatus(text, color) {
+    const status = document.getElementById('mcp-service-status');
+    if (status) {
+      status.textContent = text;
+      status.style.color = color || '#999';
+    }
+  }
+
+  function getMcpServiceUrl() {
+    const input = document.getElementById('mcp-service-url-input');
+    const url = input ? input.value.trim() : '';
+
+    if (url) {
+      try {
+        localStorage.setItem('mcpServiceLastUrl', url);
+      } catch {}
+    }
+
+    return url;
+  }
+
+  function restoreMcpServiceLastUrl() {
+    try {
+      const input = document.getElementById('mcp-service-url-input');
+      const saved = localStorage.getItem('mcpServiceLastUrl') || '';
+      if (input && saved && !input.value) input.value = saved;
+    } catch {}
+  }
+
+  function parseMcpServiceArguments() {
+    const textarea = document.getElementById('mcp-service-tool-args-input');
+    const text = textarea ? textarea.value.trim() : '{}';
+
+    if (!text) return {};
+
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      throw new Error('arguments JSON 格式错误：' + error.message);
+    }
+  }
+
+  function formatMcpServiceTools(data) {
+    const tools = Array.isArray(data?.tools) ? data.tools : [];
+    const lines = [];
+
+    lines.push('外部 MCP tools/list 成功');
+    lines.push('URL：' + (data.url || ''));
+    lines.push('initialized：' + (data.initialized ? 'true' : 'false'));
+    lines.push('server：' + (data.initialize?.result?.serverInfo?.name || ''));
+    lines.push('version：' + (data.initialize?.result?.serverInfo?.version || ''));
+    lines.push('工具数量：' + tools.length);
+    lines.push('');
+
+    for (const tool of tools) {
+      lines.push('- ' + tool.name);
+      if (tool.description) {
+        lines.push('  ' + tool.description);
+      }
+    }
+
+    lines.push('');
+    lines.push('完整返回：');
+    lines.push(JSON.stringify(data, null, 2));
+
+    return lines.join('\n');
+  }
+
+  async function testMcpServiceToolsList() {
+    const url = getMcpServiceUrl();
+
+    if (!url) {
+      setMcpServiceOutput('请先填写外部 MCP URL。');
+      return;
+    }
+
+    setMcpServiceStatus('测试中...', '#ff9500');
+    setMcpServiceOutput('正在请求外部 MCP tools/list...');
+
+    try {
+      const response = await fetch(MCP_SERVICE_EXTERNAL_TOOLS_LIST_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url,
+          timeoutMs: 30000
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || ('HTTP ' + response.status));
+      }
+
+      setMcpServiceStatus('在线 · tools/list ✓', '#34c759');
+      setMcpServiceOutput(formatMcpServiceTools(data));
+    } catch (error) {
+      setMcpServiceStatus('异常', '#ff3b30');
+      setMcpServiceOutput('外部 MCP tools/list 失败：\n' + error.message);
+    }
+  }
+
+  async function testMcpServiceToolsCall() {
+    const url = getMcpServiceUrl();
+    const toolNameInput = document.getElementById('mcp-service-tool-name-input');
+    const toolName = toolNameInput ? toolNameInput.value.trim() : '';
+
+    if (!url) {
+      setMcpServiceOutput('请先填写外部 MCP URL。');
+      return;
+    }
+
+    if (!toolName) {
+      setMcpServiceOutput('请先填写 toolName。');
+      return;
+    }
+
+    let args = {};
+    try {
+      args = parseMcpServiceArguments();
+    } catch (error) {
+      setMcpServiceOutput(error.message);
+      return;
+    }
+
+    setMcpServiceStatus('调用中...', '#ff9500');
+    setMcpServiceOutput('正在调用外部 MCP tools/call：' + toolName + '...');
+
+    try {
+      const response = await fetch(MCP_SERVICE_EXTERNAL_TOOLS_CALL_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url,
+          toolName,
+          arguments: args,
+          timeoutMs: 30000
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || ('HTTP ' + response.status));
+      }
+
+      setMcpServiceStatus('在线 · tools/call ✓', '#34c759');
+      setMcpServiceOutput(
+        '外部 MCP tools/call 成功。\n\n' +
+        'toolName：' + toolName + '\n\n' +
+        JSON.stringify(data, null, 2)
+      );
+    } catch (error) {
+      setMcpServiceStatus('调用失败', '#ff3b30');
+      setMcpServiceOutput('外部 MCP tools/call 失败：\n' + error.message);
+    }
+  }
+
+  setTimeout(restoreMcpServiceLastUrl, 0);
 
   async function testMcpToolsList() {
     setMcpManagerOutput('正在请求 tools/list...');

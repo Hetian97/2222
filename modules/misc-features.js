@@ -2874,13 +2874,39 @@
 // ============================================================
 
   let currentPage = 0;
-  const totalPages = 3;
+
+  function getHomeTotalPages() {
+    return document.querySelectorAll('#home-screen-pages .home-screen-page').length || 1;
+  }
+
+  function syncHomeScreenPageLayout() {
+    const pages = document.getElementById('home-screen-pages');
+    if (!pages) return;
+
+    const pageItems = Array.from(pages.children).filter(item =>
+      item.classList && item.classList.contains('home-screen-page')
+    );
+
+    const pageCount = pageItems.length || 1;
+    const pageWidth = 100 / pageCount;
+
+    pages.style.display = 'flex';
+    pages.style.width = (pageCount * 100) + '%';
+
+    for (const page of pageItems) {
+      page.style.flex = '0 0 ' + pageWidth + '%';
+      page.style.width = pageWidth + '%';
+      page.style.maxWidth = pageWidth + '%';
+    }
+  }
 
 
   function setupHomeScreenPagination() {
     const pagesContainer = document.getElementById('home-screen-pages-container');
     const pages = document.getElementById('home-screen-pages');
     const dots = document.querySelectorAll('.pagination-dot');
+
+    syncHomeScreenPageLayout();
 
     // ★ 先移除旧的监听器，防止叠加
     if (pagesContainer._onDragStart) {
@@ -2900,7 +2926,7 @@
     let isClick = true;
 
     const updatePagination = () => {
-      pages.style.transform = `translateX(-${currentPage * (100 / totalPages)}%)`;
+      pages.style.transform = `translateX(-${currentPage * (100 / getHomeTotalPages())}%)`;
       dots.forEach((dot, index) => {
         dot.classList.toggle('active', index === currentPage);
       });
@@ -2935,7 +2961,7 @@
         const maxSwipeDistance = pagesContainer.offsetWidth * 0.8;
 
         // 限制向左滑动（下一页）
-        if (diffX < 0 && currentPage >= totalPages - 1) {
+        if (diffX < 0 && currentPage >= getHomeTotalPages() - 1) {
           diffX = Math.max(diffX, -maxSwipeDistance * 0.3); // 最后一页时限制滑动
         } else if (diffX < 0) {
           diffX = Math.max(diffX, -maxSwipeDistance); // 限制最大向左滑动距离
@@ -2948,7 +2974,7 @@
           diffX = Math.min(diffX, maxSwipeDistance); // 限制最大向右滑动距离
         }
 
-        pages.style.transform = `translateX(calc(-${currentPage * (100 / totalPages)}% + ${diffX}px))`;
+        pages.style.transform = `translateX(calc(-${currentPage * (100 / getHomeTotalPages())}% + ${diffX}px))`;
       }
     };
 
@@ -2973,7 +2999,7 @@
         if (diffX > 0 && currentPage > 0) {
           // 向右滑动，返回上一页
           currentPage--;
-        } else if (diffX < 0 && currentPage < totalPages - 1) {
+        } else if (diffX < 0 && currentPage < getHomeTotalPages() - 1) {
           // 向左滑动，前往下一页
           currentPage++;
         }

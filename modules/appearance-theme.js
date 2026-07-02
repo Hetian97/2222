@@ -147,6 +147,23 @@
 
 
 
+  function ensureDesktopAppIconsFromDom() {
+    if (!state.globalSettings) state.globalSettings = {};
+    if (!state.globalSettings.appIcons) state.globalSettings.appIcons = {};
+
+    const iconElements = document.querySelectorAll('[id^="icon-img-"]');
+
+    iconElements.forEach(img => {
+      const iconId = img.id.replace('icon-img-', '');
+      if (!iconId) return;
+
+      if (!state.globalSettings.appIcons[iconId]) {
+        state.globalSettings.appIcons[iconId] = img.dataset.defaultSrc || img.src || '';
+      }
+    });
+  }
+
+
   function applyAppIcons() {
     // 先保存所有应用图标的默认 src（如果还没保存的话）
     const iconElements = document.querySelectorAll('[id^="icon-img-"]');
@@ -155,6 +172,8 @@
         img.dataset.defaultSrc = img.src;
       }
     });
+
+    ensureDesktopAppIconsFromDom();
 
     if (!state.globalSettings.appIcons) return;
 
@@ -172,6 +191,8 @@
     if (!grid) return;
     grid.innerHTML = '';
 
+    ensureDesktopAppIconsFromDom();
+
     const appLabels = {
       'qq': 'QQ',
       'world-book': '世界书',
@@ -184,7 +205,8 @@
 
       'preset': '预设',
 
-      'tutorial': '教程',
+      'tutorial': '记忆宫殿',
+      'mcp-service': 'MCP服务',
       'werewolf': '狼人杀',
 
       'x': 'X',
