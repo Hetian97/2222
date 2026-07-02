@@ -14,7 +14,8 @@ const {
 
 const {
   getChromaStatus,
-  upsertMemoriesToChroma
+  upsertMemoriesToChroma,
+  queryChromaByEmbedding
 } = require('./chroma-client');
 
 const PORT = 8765;
@@ -1757,6 +1758,8 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/memory/search' && req.method === 'POST') {
     try {
       const body = await readRequestBody(req);
+      const q = String(body.query || '').trim();
+      const safeLimit = clampNumber(body.limit || 20, 1, 200, 20);
 
       const memories = listMemories({
         chatId: body.chatId || '',
@@ -1772,15 +1775,125 @@ const server = http.createServer(async (req, res) => {
         model: body.embeddingModel || process.env.EMBEDDING_MODEL || 'BAAI/bge-m3'
       };
 
-      const results = await simpleSearch(memories, body.query || '', body.limit || 20, {
+      let chromaError = null;
+      let chromaAttempted = false;
+
+      if (q && embeddingConfig.endpoint && embeddingConfig.apiKey) {
+        chromaAttempted = true;
+
+        try {
+          const queryEmbedding = await createQueryEmbedding({
+            endpoint: embeddingConfig.endpoint,
+            apiKey: embeddingConfig.apiKey,
+            model: embeddingConfig.model,
+            input: q
+          });
+
+          if (queryEmbedding) {
+            console.log('[memory-server] chroma query embedding dim =', queryEmbedding.length);
+
+            const chromaNResults = clampNumber(
+              body.chromaNResults || Math.max(safeLimit * 10, 50),
+              safeLimit,
+              1000,
+              Math.max(safeLimit * 10, 50)
+            );
+
+            const chromaResult = await queryChromaByEmbedding(queryEmbedding, {
+              nResults: chromaNResults
+            });
+
+            const candidateById = new Map(
+              memories.map(memory => [String(memory.id), memory])
+            );
+
+            const ids = chromaResult?.ids?.[0] || [];
+            const distances = chromaResult?.distances?.[0] || [];
+            const chromaMemories = [];
+            const seen = new Set();
+
+            for (let i = 0; i < ids.length; i++) {
+              const id = String(ids[i]);
+
+              if (seen.has(id)) continue;
+              seen.add(id);
+
+              const memory = candidateById.get(id);
+              if (!memory) continue;
+
+              const memoryEmbedding = safeParseEmbedding(memory.embedding);
+              const {
+                embedding,
+                ...memoryWithoutEmbedding
+              } = memory;
+
+              const distance = Number(distances[i] || 0);
+              const vectorScore = Number.isFinite(distance)
+                ? 1 / (1 + Math.max(0, distance))
+                : 0;
+
+              const textScore = keywordScore(q, memory);
+              const importanceScore = (Number(memory.importance) || 0) / 10;
+              const emotionScore = (Number(memory.emotionalWeight) || 0) / 10;
+              const totalScore = vectorScore * 0.82 + textScore * 0.08 + importanceScore * 0.07 + emotionScore * 0.03;
+
+              chromaMemories.push({
+                ...memoryWithoutEmbedding,
+                embedding: memoryEmbedding ? `[hidden:${memoryEmbedding.length}d]` : null,
+                _hasEmbedding: Boolean(memoryEmbedding),
+                _embeddingDim: memoryEmbedding ? memoryEmbedding.length : 0,
+                _searchScore: Number(totalScore.toFixed(6)),
+                _vectorScore: Number(vectorScore.toFixed(6)),
+                _keywordScore: Number(textScore.toFixed(6)),
+                _chromaDistance: Number.isFinite(distance) ? Number(distance.toFixed(6)) : null,
+                _searchMode: 'chroma-vector'
+              });
+
+              if (chromaMemories.length >= safeLimit) break;
+            }
+
+            if (chromaMemories.length > 0) {
+              sendJson(res, 200, {
+                ok: true,
+                query: q,
+                count: chromaMemories.length,
+                searchMode: 'chroma-vector',
+                chroma: {
+                  attempted: true,
+                  returned: ids.length,
+                  matchedCandidates: chromaMemories.length
+                },
+                memories: chromaMemories
+              });
+              return;
+            }
+
+            chromaError = 'chroma returned no matching memories after local filters';
+          } else {
+            chromaError = 'query embedding was empty';
+          }
+        } catch (error) {
+          chromaError = error.message || String(error);
+          console.warn('[memory-server] chroma search failed, fallback to sqlite simpleSearch:', chromaError);
+        }
+      }
+
+      const results = await simpleSearch(memories, q, safeLimit, {
         embedding: embeddingConfig
       });
 
       sendJson(res, 200, {
         ok: true,
-        query: body.query || '',
+        query: q,
         count: results.length,
-        searchMode: embeddingConfig.endpoint && embeddingConfig.apiKey ? 'semantic-hybrid' : 'keyword-fallback',
+        searchMode: chromaAttempted ? 'sqlite-fallback-after-chroma' : (embeddingConfig.endpoint && embeddingConfig.apiKey ? 'semantic-hybrid' : 'keyword-fallback'),
+        chroma: chromaAttempted ? {
+          attempted: true,
+          fallback: true,
+          error: chromaError
+        } : {
+          attempted: false
+        },
         memories: results
       });
     } catch (error) {

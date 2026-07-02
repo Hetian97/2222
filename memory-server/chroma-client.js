@@ -124,6 +124,21 @@ async function upsertMemoriesToChroma(memories, options = {}) {
   };
 }
 
+async function queryChromaByEmbedding(queryEmbedding, options = {}) {
+  if (!Array.isArray(queryEmbedding) || queryEmbedding.length === 0) {
+    throw new Error('queryEmbedding must be a non-empty array');
+  }
+
+  const collection = await getChromaCollection();
+  const nResults = Number(options.nResults || 20);
+
+  return collection.query({
+    queryEmbeddings: [queryEmbedding],
+    nResults,
+    include: ['documents', 'metadatas', 'distances']
+  });
+}
+
 async function getChromaStatus() {
   const heartbeat = await chromaHeartbeat();
   const collection = await getChromaCollection();
@@ -148,6 +163,7 @@ module.exports = {
   chromaHeartbeat,
   getChromaClient,
   getChromaCollection,
+  queryChromaByEmbedding,
   getChromaStatus,
   upsertMemoriesToChroma
 };
