@@ -110,63 +110,259 @@
   }
 
   function buildEnabledMcpServicesPrompt() {
-    let configs = [];
-
     try {
-      const raw = localStorage.getItem('mcpServiceConfigs') || '[]';
-      const parsed = JSON.parse(raw);
-      configs = Array.isArray(parsed) ? parsed : [];
-    } catch {
-      configs = [];
+      const raw = localStorage.getItem('mcpServiceConfigs');
+      if (!raw) return '';
+
+      const services = JSON.parse(raw);
+      if (!Array.isArray(services)) return '';
+
+      const enabledServices = services.filter(service => {
+        const mode = service && service.mode ? String(service.mode) : 'tools';
+        return service &&
+          service.enabled !== false &&
+          (mode === 'tools' || mode === 'all') &&
+          Array.isArray(service.tools) &&
+          service.tools.length > 0;
+      });
+
+      if (!enabledServices.length) return '';
+
+      const lines = [
+        '【外部 MCP 工具目录与调用协议】',
+        '',
+        '当前系统已启用以下外部 MCP 工具服务。你可以根据用户请求自行判断是否需要使用外部 MCP 工具。',
+        '',
+        '重要规则：',
+        '1. 如果用户的问题可以直接回答，不要调用工具，正常回复即可。',
+        '2. 如果用户要求最新信息、网页搜索、读取公开网页、读取 GitHub README、读取指定文章内容，且下方有合适工具，你应该先发起工具调用请求。',
+        '3. 你不能自己执行工具，也不能假装已经搜索、读取或调用成功。',
+        '4. 当你需要调用工具时，必须只输出一个 external_mcp_tool_call 代码块，不要添加任何解释、寒暄或多余文本。',
+        '5. 一次最多请求调用一个工具。',
+        '6. serviceName 必须严格使用下面列出的服务名称。',
+        '7. toolName 必须严格使用下面列出的工具名称。',
+        '8. arguments 必须是该工具需要的 JSON 参数对象。',
+        '',
+        '工具调用请求格式如下：',
+        '```external_mcp_tool_call',
+        '{',
+        '  "type": "external_mcp_tool_call",',
+        '  "serviceName": "服务名称",',
+        '  "toolName": "工具名称",',
+        '  "arguments": {}',
+        '}',
+        '```',
+        '',
+        '系统在收到 external_mcp_tool_call 后会负责执行工具，并把工具结果交还给你。拿到工具结果前，不要编造结果。',
+        '',
+        '可用服务与工具：'
+      ];
+
+      enabledServices.forEach((service, serviceIndex) => {
+        const serviceName = service.name || service.url || ('MCP Service ' + (serviceIndex + 1));
+        lines.push('');
+        lines.push('服务：' + serviceName);
+        if (service.serverName || service.serverVersion) {
+          lines.push('server：' + (service.serverName || 'unknown') + (service.serverVersion ? ' / ' + service.serverVersion : ''));
+        }
+        service.tools.forEach(tool => {
+          const toolName = tool && tool.name ? tool.name : '';
+          if (!toolName) return;
+          const description = tool && tool.description ? String(tool.description).replace(/\s+/g, ' ').trim() : '';
+          lines.push('- ' + toolName + (description ? '：' + description : ''));
+        });
+      });
+
+      return lines.join('\n');
+    } catch (error) {
+      console.warn('构建 MCP 工具目录失败:', error);
+      return '';
+    }
+  }
+  function normalizeExternalMcpToolRequest(candidate) {
+    if (!candidate || typeof candidate !== "object") return null;
+
+    if (candidate.type === "external_mcp_tool_call") {
+      const serviceName = candidate.serviceName || candidate.service || "";
+      const toolName = candidate.toolName || candidate.tool || "";
+      const args = candidate.arguments && typeof candidate.arguments === "object" ? candidate.arguments : {};
+      if (!serviceName || !toolName) return null;
+      return {
+        type: "external_mcp_tool_call",
+        serviceName,
+        toolName,
+        arguments: args
+      };
     }
 
-    const enabledToolServices = configs.filter(service => {
-      if (!service || service.enabled === false) return false;
-
-      const mode = service.mode || 'tools';
-      if (mode !== 'tools' && mode !== 'all') return false;
-
-      return Array.isArray(service.tools) && service.tools.length > 0;
-    });
-
-    if (!enabledToolServices.length) return '';
-
-    const lines = [];
-
-    lines.push('【外部 MCP 工具目录】');
-    lines.push('当前已启用以下外部 MCP 工具服务。');
-    lines.push('重要：当前阶段系统只把工具目录提供给你参考，尚未启用自动 tools/call 执行。');
-    lines.push('不要声称你已经调用、搜索、读取或执行了这些工具。');
-    lines.push('如果用户需要使用外部工具，你可以说明建议调用哪个服务、哪个工具、需要哪些参数。');
-    lines.push('');
-
-    for (const service of enabledToolServices.slice(0, 5)) {
-      const serviceName = service.name || service.serverName || service.url || 'MCP服务';
-      const mode = service.mode || 'tools';
-      const serverText = service.serverName ? '，server: ' + service.serverName : '';
-      const countText = typeof service.toolsCount !== 'undefined' ? '，工具数: ' + Number(service.toolsCount || 0) : '';
-
-      lines.push('- 服务：' + serviceName + '（模式: ' + mode + serverText + countText + '）');
-
-      for (const tool of service.tools.slice(0, 12)) {
-        const toolName = tool.name || '';
-        const desc = String(tool.description || '').replace(/\s+/g, ' ').slice(0, 180);
-
-        if (!toolName) continue;
-
-        lines.push('  - ' + toolName + (desc ? '：' + desc : ''));
-      }
-
-      if (service.tools.length > 12) {
-        lines.push('  - ……还有 ' + (service.tools.length - 12) + ' 个工具未列出');
-      }
+    if (typeof candidate.query === "string" && candidate.query.trim()) {
+      return {
+        type: "external_mcp_tool_call",
+        serviceName: "ModelScope Web Search",
+        toolName: "search",
+        arguments: {
+          query: candidate.query.trim(),
+          limit: typeof candidate.limit === "number" ? candidate.limit : 3,
+          engines: Array.isArray(candidate.engines) ? candidate.engines : ["bing"]
+        }
+      };
     }
 
-    return lines.join('\n');
+    return null;
   }
 
+  function findExternalMcpToolRequest(messagesArray, rawText) {
+    if (Array.isArray(messagesArray)) {
+      for (const item of messagesArray) {
+        const normalized = normalizeExternalMcpToolRequest(item);
+        if (normalized) return normalized;
+      }
+    }
 
-  function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecision) {
+    if (typeof rawText === "string" && rawText.trim()) {
+      const codeBlockMatch = rawText.match(/```external_mcp_tool_call\s*([\s\S]*?)```/i);
+      const jsonText = codeBlockMatch ? codeBlockMatch[1].trim() : "";
+      if (jsonText) {
+        try {
+          const parsed = JSON.parse(jsonText);
+          const normalized = normalizeExternalMcpToolRequest(parsed);
+          if (normalized) return normalized;
+        } catch (error) {
+          console.warn("解析 external_mcp_tool_call 代码块失败:", error);
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function getExternalMcpServiceConfigsForChat() {
+    try {
+      const raw = localStorage.getItem("mcpServiceConfigs");
+      if (!raw) return [];
+      const services = JSON.parse(raw);
+      return Array.isArray(services) ? services : [];
+    } catch (error) {
+      console.warn("读取 MCP 服务配置失败:", error);
+      return [];
+    }
+  }
+
+  function getExternalMcpAuthPayloadFromService(service) {
+    const authType = service && service.authType ? String(service.authType) : "none";
+    const payload = {
+      authorization: "",
+      headers: {}
+    };
+
+    if (authType === "bearer") {
+      const token = service && service.bearerToken ? String(service.bearerToken).trim() : "";
+      if (token) {
+        payload.authorization = token.toLowerCase().startsWith("bearer ") ? token : "Bearer " + token;
+      }
+    }
+
+    if (authType === "header") {
+      const headerName = service && service.headerName ? String(service.headerName).trim() : "";
+      const headerValue = service && service.headerValue ? String(service.headerValue).trim() : "";
+      if (headerName && headerValue) {
+        payload.headers[headerName] = headerValue;
+      }
+    }
+
+    return payload;
+  }
+
+  function findExternalMcpServiceForRequest(request) {
+    const services = getExternalMcpServiceConfigsForChat().filter(service => {
+      const mode = service && service.mode ? String(service.mode) : "tools";
+      return service &&
+        service.enabled !== false &&
+        (mode === "tools" || mode === "all") &&
+        service.url;
+    });
+
+    if (!services.length) return null;
+
+    const requestedName = request && request.serviceName ? String(request.serviceName).trim() : "";
+
+    if (requestedName) {
+      const exact = services.find(service =>
+        service.name === requestedName ||
+        service.url === requestedName ||
+        service.serverName === requestedName
+      );
+      if (exact) return exact;
+    }
+
+    if (services.length === 1) return services[0];
+
+    return null;
+  }
+
+  async function executeExternalMcpToolRequest(request) {
+    const service = findExternalMcpServiceForRequest(request);
+    if (!service) {
+      throw new Error("找不到匹配的已启用 MCP 服务：" + (request && request.serviceName ? request.serviceName : ""));
+    }
+
+    const authPayload = getExternalMcpAuthPayloadFromService(service);
+    const toolName = request && request.toolName ? String(request.toolName).trim() : "";
+    if (!toolName) {
+      throw new Error("MCP 工具调用缺少 toolName。");
+    }
+
+    const response = await fetch("http://127.0.0.1:8765/external-mcp/tools-call", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: service.url,
+        ...authPayload,
+        toolName,
+        arguments: request.arguments && typeof request.arguments === "object" ? request.arguments : {},
+        timeoutMs: 30000
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || ("HTTP " + response.status));
+    }
+
+    return {
+      serviceName: service.name || service.url,
+      toolName,
+      arguments: request.arguments && typeof request.arguments === "object" ? request.arguments : {},
+      data
+    };
+  }
+
+  function formatExternalMcpToolResultForChat(request, result) {
+    const resultText = JSON.stringify(result && result.data ? result.data : result, null, 2);
+    const trimmedResultText = resultText.length > 8000 ? resultText.slice(0, 8000) + "\n...（结果过长，已截断）" : resultText;
+
+    return [
+      "外部 MCP 工具调用完成。",
+      "",
+      "调用信息：",
+      "```json",
+      JSON.stringify({
+        type: "external_mcp_tool_call",
+        serviceName: result.serviceName || request.serviceName,
+        toolName: result.toolName || request.toolName,
+        arguments: result.arguments || request.arguments || {}
+      }, null, 2),
+      "```",
+      "",
+      "工具返回结果：",
+      "```json",
+      trimmedResultText,
+      "```"
+    ].join("\n");
+  }
+
+function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecision) {
     const apiTemperature = state.globalSettings.apiTemperature || 0.8;
     const apiTopP = state.globalSettings.apiTopP !== undefined ? state.globalSettings.apiTopP : 1.0;
     const apiPresencePenalty = state.globalSettings.apiPresencePenalty !== undefined ? state.globalSettings.apiPresencePenalty : 0.0;
@@ -4041,6 +4237,22 @@ ${getActiveThoughtsPrompt()}
         }
       }
 
+      const externalMcpToolRequest = findExternalMcpToolRequest(consolidatedMessages, aiResponseContent);
+      if (externalMcpToolRequest) {
+        console.log("检测到外部 MCP 工具调用请求，开始执行:", externalMcpToolRequest);
+        try {
+          const externalMcpToolResult = await executeExternalMcpToolRequest(externalMcpToolRequest);
+          consolidatedMessages = [{
+            type: "text",
+            content: formatExternalMcpToolResultForChat(externalMcpToolRequest, externalMcpToolResult)
+          }];
+        } catch (error) {
+          consolidatedMessages = [{
+            type: "text",
+            content: "外部 MCP 工具调用失败：\n" + (error && error.message ? error.message : String(error)) + "\n\n调用请求：\n```json\n" + JSON.stringify(externalMcpToolRequest, null, 2) + "\n```"
+          }];
+        }
+      }
       isViewingThisChat = document.getElementById('chat-interface-screen').classList.contains('active') && state.activeChatId === chatId;
       let callHasBeenHandled = false;
       let messageTimestamp = Date.now();
