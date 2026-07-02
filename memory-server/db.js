@@ -196,15 +196,29 @@ function clearAllMemories() {
 }
 
 function getMemoryStats() {
+  const embeddingWhere = `
+    embedding IS NOT NULL
+    AND embedding != ''
+    AND embedding != 'null'
+    AND embedding != '[]'
+  `;
+
   const total = db.prepare(`
     SELECT COUNT(*) AS count FROM memories
   `).get().count;
 
   const byCategory = db.prepare(`
-    SELECT category, COUNT(*) AS count
+    SELECT COALESCE(NULLIF(category, ''), 'unknown') AS category, COUNT(*) AS count
     FROM memories
-    GROUP BY category
+    GROUP BY COALESCE(NULLIF(category, ''), 'unknown')
     ORDER BY category
+  `).all();
+
+  const bySource = db.prepare(`
+    SELECT COALESCE(NULLIF(source, ''), 'unknown') AS source, COUNT(*) AS count
+    FROM memories
+    GROUP BY COALESCE(NULLIF(source, ''), 'unknown')
+    ORDER BY count DESC
   `).all();
 
   const byEmbeddingModel = db.prepare(`
@@ -212,10 +226,7 @@ function getMemoryStats() {
       COALESCE(NULLIF(embeddingModel, ''), 'unknown') AS model,
       COUNT(*) AS count
     FROM memories
-    WHERE embedding IS NOT NULL
-      AND embedding != ''
-      AND embedding != 'null'
-      AND embedding != '[]'
+    WHERE ${embeddingWhere}
     GROUP BY COALESCE(NULLIF(embeddingModel, ''), 'unknown')
     ORDER BY count DESC
   `).all();
@@ -225,10 +236,7 @@ function getMemoryStats() {
       COALESCE(embeddingDim, 0) AS dim,
       COUNT(*) AS count
     FROM memories
-    WHERE embedding IS NOT NULL
-      AND embedding != ''
-      AND embedding != 'null'
-      AND embedding != '[]'
+    WHERE ${embeddingWhere}
     GROUP BY COALESCE(embeddingDim, 0)
     ORDER BY count DESC
   `).all();
@@ -236,10 +244,7 @@ function getMemoryStats() {
   const withEmbedding = db.prepare(`
     SELECT COUNT(*) AS count
     FROM memories
-    WHERE embedding IS NOT NULL
-      AND embedding != ''
-      AND embedding != 'null'
-      AND embedding != '[]'
+    WHERE ${embeddingWhere}
   `).get().count;
 
   const withoutEmbedding = total - withEmbedding;
@@ -256,25 +261,71 @@ function getMemoryStats() {
     WHERE category = 'C'
   `).get().count;
 
-  const latest = db.prepare(`
-    SELECT * FROM memories
+  const latestRow = db.prepare(`
+    SELECT
+      id,
+      chatId,
+      content,
+      category,
+      importance,
+      emotionalWeight,
+      tags,
+      memoryTime,
+      createdAt,
+      updatedAt,
+      lastRecalled,
+      recallCount,
+      embeddingModel,
+      embeddingDim,
+      embeddingUpdatedAt,
+      linkedMemories,
+      source,
+      context,
+      CASE WHEN ${embeddingWhere} THEN 1 ELSE 0 END AS hasEmbedding
+    FROM memories
     ORDER BY CAST(createdAt AS INTEGER) DESC
     LIMIT 1
   `).get();
 
+  const latest = latestRow ? {
+    id: latestRow.id,
+    chatId: latestRow.chatId || null,
+    content: latestRow.content || '',
+    category: latestRow.category || 'E',
+    importance: latestRow.importance ?? 5,
+    emotionalWeight: latestRow.emotionalWeight ?? 5,
+    tags: safeJsonParse(latestRow.tags, []),
+    memoryTime: latestRow.memoryTime,
+    createdAt: latestRow.createdAt,
+    updatedAt: latestRow.updatedAt,
+    lastRecalled: latestRow.lastRecalled ?? 0,
+    recallCount: latestRow.recallCount || 0,
+    embeddingModel: latestRow.embeddingModel || '',
+    embeddingDim: Number(latestRow.embeddingDim || 0),
+    embeddingUpdatedAt: latestRow.embeddingUpdatedAt || '',
+    linkedMemories: safeJsonParse(latestRow.linkedMemories, []),
+    source: latestRow.source || 'external',
+    context: latestRow.context || '',
+    hasEmbedding: latestRow.hasEmbedding === 1,
+    _hasEmbedding: latestRow.hasEmbedding === 1,
+    _embeddingDim: latestRow.hasEmbedding === 1 ? Number(latestRow.embeddingDim || 0) : 0
+  } : null;
+
   return {
     total,
     byCategory,
+    bySource,
     byEmbeddingModel,
     byEmbeddingDim,
     withEmbedding,
     withoutEmbedding,
+    vectorCount: withEmbedding,
+    bm25Count: withoutEmbedding,
     important,
     core,
-    latest: normalizeMemory(latest)
+    latest
   };
 }
-
 function listUnembeddedMemories(limit = 100) {
   const safeLimit = Math.min(500, Math.max(1, Number(limit) || 100));
 

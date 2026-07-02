@@ -1690,9 +1690,25 @@
           <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;">
             <button class="settings-button" onclick="refreshMcpManagerStatus()">测试连接</button>
             <button class="settings-button" onclick="testMcpToolsList()">测试 tools/list</button>
+                        <button class="settings-button" onclick="refreshMcpManagerStats()">刷新 stats</button>
             <button class="settings-button" onclick="openVectorMemoryFromMcpManager()">打开向量记忆</button>
           </div>
         </div>
+        <div style="background:#fff;border-radius:18px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,0.06);margin-bottom:14px;">
+          <div style="font-size:18px;font-weight:700;margin-bottom:8px;">记忆库状态</div>
+          <div id="mcp-manager-stats" style="
+            white-space:pre-wrap;
+            word-break:break-word;
+            background:rgba(0,0,0,0.04);
+            border-radius:12px;
+            padding:12px;
+            min-height:96px;
+            font-size:12px;
+            line-height:1.6;
+            color:#333;
+          ">点击“刷新 stats”查看 SQLite 记忆库状态。</div>
+        </div>
+
 
         <div style="background:#fff;border-radius:18px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,0.06);margin-bottom:14px;">
           <div style="font-size:18px;font-weight:700;margin-bottom:8px;">服务信息</div>
@@ -8889,6 +8905,7 @@
   const MCP_MANAGER_BASE_URL = 'http://127.0.0.1:8765';
   const MCP_MANAGER_MCP_URL = MCP_MANAGER_BASE_URL + '/mcp';
   const MCP_MANAGER_HEALTH_URL = MCP_MANAGER_BASE_URL + '/health';
+  const MCP_MANAGER_STATS_URL = MCP_MANAGER_BASE_URL + '/memory/stats';
 
   function setMcpManagerOutput(text) {
     const output = document.getElementById('mcp-manager-output');
@@ -8931,6 +8948,95 @@
         'D:\\app\\2222EPhone-merge-new\\memory-server\\server.js\n\n' +
         '错误信息：' + error.message
       );
+    }
+  }
+
+
+  function setMcpManagerStats(text) {
+    const stats = document.getElementById('mcp-manager-stats');
+    if (stats) stats.textContent = text;
+  }
+
+  function formatMcpManagerStats(data) {
+    const stats = data?.stats || {};
+    const lines = [];
+
+    lines.push('总数：' + (stats.total ?? 0));
+    lines.push('Vector：' + (stats.vectorCount ?? stats.withEmbedding ?? 0));
+    lines.push('BM25：' + (stats.bm25Count ?? stats.withoutEmbedding ?? 0));
+    lines.push('');
+
+    if (Array.isArray(stats.byEmbeddingModel) && stats.byEmbeddingModel.length) {
+      lines.push('Embedding Model：');
+      for (const item of stats.byEmbeddingModel) {
+        lines.push('- ' + item.model + '：' + item.count);
+      }
+      lines.push('');
+    }
+
+    if (Array.isArray(stats.byEmbeddingDim) && stats.byEmbeddingDim.length) {
+      lines.push('Embedding Dim：');
+      for (const item of stats.byEmbeddingDim) {
+        lines.push('- ' + item.dim + '：' + item.count);
+      }
+      lines.push('');
+    }
+
+    if (Array.isArray(stats.bySource) && stats.bySource.length) {
+      lines.push('来源：');
+      for (const item of stats.bySource) {
+        lines.push('- ' + item.source + '：' + item.count);
+      }
+      lines.push('');
+    }
+
+    if (Array.isArray(stats.byCategory) && stats.byCategory.length) {
+      lines.push('分类：');
+      for (const item of stats.byCategory) {
+        lines.push('- ' + item.category + '：' + item.count);
+      }
+      lines.push('');
+    }
+
+    lines.push('重要记忆 importance>=8：' + (stats.important ?? 0));
+    lines.push('核心记忆 C：' + (stats.core ?? 0));
+
+    if (stats.latest) {
+      lines.push('');
+      lines.push('最新记忆：');
+      lines.push('- id：' + (stats.latest.id || ''));
+      lines.push('- source：' + (stats.latest.source || ''));
+      lines.push('- category：' + (stats.latest.category || ''));
+      lines.push('- hasEmbedding：' + (stats.latest.hasEmbedding === true ? 'true' : 'false'));
+      lines.push('- embeddingDim：' + (stats.latest._embeddingDim || stats.latest.embeddingDim || 0));
+      lines.push('- content：' + String(stats.latest.content || '').slice(0, 120));
+    }
+
+    return lines.join('\n');
+  }
+
+  async function refreshMcpManagerStats() {
+    setMcpManagerStats('正在读取 /memory/stats...');
+    setMcpManagerOutput('正在请求 /memory/stats...');
+
+    try {
+      const response = await fetch(MCP_MANAGER_STATS_URL);
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || ('HTTP ' + response.status));
+      }
+
+      setMcpManagerStatus('在线', '#34c759');
+      setMcpManagerStats(formatMcpManagerStats(data));
+      setMcpManagerOutput(
+        '/memory/stats 成功。\n\n' +
+        JSON.stringify(data, null, 2)
+      );
+    } catch (error) {
+      setMcpManagerStatus('异常', '#ff3b30');
+      setMcpManagerStats('读取 stats 失败：\n' + error.message);
+      setMcpManagerOutput('/memory/stats 请求失败：\n' + error.message);
     }
   }
 
