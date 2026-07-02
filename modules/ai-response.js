@@ -109,6 +109,63 @@
     return context;
   }
 
+  function buildEnabledMcpServicesPrompt() {
+    let configs = [];
+
+    try {
+      const raw = localStorage.getItem('mcpServiceConfigs') || '[]';
+      const parsed = JSON.parse(raw);
+      configs = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      configs = [];
+    }
+
+    const enabledToolServices = configs.filter(service => {
+      if (!service || service.enabled === false) return false;
+
+      const mode = service.mode || 'tools';
+      if (mode !== 'tools' && mode !== 'all') return false;
+
+      return Array.isArray(service.tools) && service.tools.length > 0;
+    });
+
+    if (!enabledToolServices.length) return '';
+
+    const lines = [];
+
+    lines.push('【外部 MCP 工具目录】');
+    lines.push('当前已启用以下外部 MCP 工具服务。');
+    lines.push('重要：当前阶段系统只把工具目录提供给你参考，尚未启用自动 tools/call 执行。');
+    lines.push('不要声称你已经调用、搜索、读取或执行了这些工具。');
+    lines.push('如果用户需要使用外部工具，你可以说明建议调用哪个服务、哪个工具、需要哪些参数。');
+    lines.push('');
+
+    for (const service of enabledToolServices.slice(0, 5)) {
+      const serviceName = service.name || service.serverName || service.url || 'MCP服务';
+      const mode = service.mode || 'tools';
+      const serverText = service.serverName ? '，server: ' + service.serverName : '';
+      const countText = typeof service.toolsCount !== 'undefined' ? '，工具数: ' + Number(service.toolsCount || 0) : '';
+
+      lines.push('- 服务：' + serviceName + '（模式: ' + mode + serverText + countText + '）');
+
+      for (const tool of service.tools.slice(0, 12)) {
+        const toolName = tool.name || '';
+        const desc = String(tool.description || '').replace(/\s+/g, ' ').slice(0, 180);
+
+        if (!toolName) continue;
+
+        lines.push('  - ' + toolName + (desc ? '：' + desc : ''));
+      }
+
+      if (service.tools.length > 12) {
+        lines.push('  - ……还有 ' + (service.tools.length - 12) + ' 个工具未列出');
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+
   function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecision) {
     const apiTemperature = state.globalSettings.apiTemperature || 0.8;
     const apiTopP = state.globalSettings.apiTopP !== undefined ? state.globalSettings.apiTopP : 1.0;
@@ -3705,6 +3762,12 @@ ${getActiveThoughtsPrompt()}
             }
           }
         }
+      }
+
+      const mcpToolDirectoryPromptForMainChat = buildEnabledMcpServicesPrompt();
+
+      if (mcpToolDirectoryPromptForMainChat) {
+        systemPrompt += '\n\n' + mcpToolDirectoryPromptForMainChat;
       }
 
       let isGemini = proxyUrl === GEMINI_API_URL;
