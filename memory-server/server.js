@@ -15,7 +15,9 @@ const {
 const {
   getChromaStatus,
   upsertMemoriesToChroma,
-  queryChromaByEmbedding
+  queryChromaByEmbedding,
+  deleteMemoryFromChroma,
+  resetChromaCollection
 } = require('./chroma-client');
 
 const PORT = 8765;
@@ -567,6 +569,75 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
   });
 }
 
+async function tryUpsertMemoryToChroma(memory) {
+  try {
+    const hasEmbedding =
+      Array.isArray(memory?.embedding) && memory.embedding.length > 0;
+
+    if (!hasEmbedding) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: 'memory has no embedding'
+      };
+    }
+
+    const result = await upsertMemoriesToChroma([memory], { batchSize: 1 });
+
+    console.log('[memory-server] chroma auto-upsert ok:', memory.id);
+
+    return result;
+  } catch (error) {
+    console.warn(
+      '[memory-server] chroma auto-upsert failed:',
+      memory?.id || '',
+      error.message || String(error)
+    );
+
+    return {
+      ok: false,
+      error: error.message || String(error)
+    };
+  }
+}
+
+async function tryDeleteMemoryFromChroma(id) {
+  try {
+    const result = await deleteMemoryFromChroma(id);
+    console.log('[memory-server] chroma delete ok:', id);
+    return result;
+  } catch (error) {
+    console.warn(
+      '[memory-server] chroma delete failed:',
+      id || '',
+      error.message || String(error)
+    );
+
+    return {
+      ok: false,
+      error: error.message || String(error)
+    };
+  }
+}
+
+async function tryResetChromaCollection() {
+  try {
+    const result = await resetChromaCollection();
+    console.log('[memory-server] chroma reset ok:', result);
+    return result;
+  } catch (error) {
+    console.warn(
+      '[memory-server] chroma reset failed:',
+      error.message || String(error)
+    );
+
+    return {
+      ok: false,
+      error: error.message || String(error)
+    };
+  }
+}
+
 function getPath(req) {
   try {
     return new URL(req.url, `http://${req.headers.host}`).pathname;
@@ -1054,6 +1125,8 @@ async function handleMcpRequest(body) {
           updatedAt: now()
         });
 
+        await tryUpsertMemoryToChroma(savedMemory);
+
         return mcpResult(id, {
           content: [
             {
@@ -1274,6 +1347,8 @@ async function handleMcpRequest(body) {
             updatedAt: now()
           });
 
+          await tryUpsertMemoryToChroma(savedMemory);
+
           savedMemories.push(savedMemory);
         }
 
@@ -1456,6 +1531,8 @@ async function handleMcpRequest(body) {
             ...memory,
             updatedAt: now()
           });
+
+          await tryUpsertMemoryToChroma(savedMemory);
 
           savedMemories.push(savedMemory);
         }
@@ -1667,6 +1744,8 @@ const server = http.createServer(async (req, res) => {
         updatedAt: now()
       });
 
+      await tryUpsertMemoryToChroma(savedMemory);
+
       const hasEmbedding =
         Array.isArray(savedMemory?.embedding) && savedMemory.embedding.length > 0;
 
@@ -1718,7 +1797,7 @@ const server = http.createServer(async (req, res) => {
           });
 
           if (Array.isArray(embedding) && embedding.length > 0) {
-            addMemory({
+            const savedMemory = addMemory({
               ...memory,
               embedding,
               embeddingModel: embeddingConfig.model,
@@ -1726,6 +1805,8 @@ const server = http.createServer(async (req, res) => {
               embeddingUpdatedAt: String(Date.now()),
               updatedAt: Date.now()
             });
+
+            await tryUpsertMemoryToChroma(savedMemory);
 
             success++;
           } else {
@@ -1944,6 +2025,10 @@ const server = http.createServer(async (req, res) => {
 
       const deleted = deleteMemory(id);
 
+      if (deleted) {
+        await tryDeleteMemoryFromChroma(id);
+      }
+
       sendJson(res, 200, {
         ok: true,
         deleted: deleted ? 1 : 0
@@ -1962,6 +2047,8 @@ const server = http.createServer(async (req, res) => {
     await backupSqliteDb();
 
     const deleted = clearAllMemories();
+
+    await tryResetChromaCollection();
 
     sendJson(res, 200, {
       ok: true,

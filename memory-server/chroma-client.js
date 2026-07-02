@@ -139,6 +139,59 @@ async function queryChromaByEmbedding(queryEmbedding, options = {}) {
   });
 }
 
+async function deleteMemoryFromChroma(id) {
+  const safeId = String(id || '').trim();
+
+  if (!safeId) {
+    return {
+      ok: false,
+      skipped: true,
+      reason: 'id is required'
+    };
+  }
+
+  const collection = await getChromaCollection();
+
+  await collection.delete({
+    ids: [safeId]
+  });
+
+  return {
+    ok: true,
+    collection: CHROMA_COLLECTION,
+    deleted: 1,
+    id: safeId
+  };
+}
+
+async function resetChromaCollection() {
+  const client = await getChromaClient();
+
+  try {
+    await client.deleteCollection({
+      name: CHROMA_COLLECTION
+    });
+  } catch (error) {
+    console.warn(
+      '[memory-server] chroma deleteCollection skipped:',
+      error.message || String(error)
+    );
+  }
+
+  collectionPromise = null;
+
+  const collection = await getChromaCollection();
+  const count = typeof collection.count === 'function'
+    ? await collection.count()
+    : null;
+
+  return {
+    ok: true,
+    collection: CHROMA_COLLECTION,
+    count
+  };
+}
+
 async function getChromaStatus() {
   const heartbeat = await chromaHeartbeat();
   const collection = await getChromaCollection();
@@ -164,6 +217,8 @@ module.exports = {
   getChromaClient,
   getChromaCollection,
   queryChromaByEmbedding,
+  deleteMemoryFromChroma,
+  resetChromaCollection,
   getChromaStatus,
   upsertMemoriesToChroma
 };
