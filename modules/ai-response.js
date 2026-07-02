@@ -338,6 +338,113 @@
     };
   }
 
+  function formatExternalMcpToolResultForModel(request, result) {
+    const payload = {
+      request: {
+        type: "external_mcp_tool_call",
+        serviceName: request && request.serviceName ? request.serviceName : "",
+        toolName: request && request.toolName ? request.toolName : "",
+        arguments: request && request.arguments ? request.arguments : {}
+      },
+      result: result && result.data ? result.data : result
+    };
+
+    let text = JSON.stringify(payload, null, 2);
+    if (text.length > 12000) {
+      text = text.slice(0, 12000) + "\n...（工具结果过长，已截断）";
+    }
+
+    return [
+      "【外部 MCP 工具执行结果】",
+      "系统已经完成了外部 MCP 工具调用。",
+      "请根据下面的工具结果回答用户刚才的问题。",
+      "不要再次输出 external_mcp_tool_call。",
+      "不要编造工具结果中没有的信息。",
+      "",
+      "```json",
+      text,
+      "```"
+    ].join("\n");
+  }
+
+  async function generateExternalMcpFinalResponseFromToolResult(options) {
+    const model = options.model;
+    const apiKey = options.apiKey;
+    const proxyUrl = options.proxyUrl;
+    const isGemini = options.isGemini;
+    const systemPrompt = options.systemPrompt;
+    const messagesPayload = Array.isArray(options.messagesPayload) ? options.messagesPayload : [];
+    const toolRequest = options.toolRequest;
+    const toolResult = options.toolResult;
+    const signal = options.signal;
+
+    const followupSystemPrompt = systemPrompt + "\n\n" + [
+      "【外部 MCP 工具结果处理模式】",
+      "你现在已经收到了外部 MCP 工具的真实返回结果。",
+      "必须根据工具结果生成最终回复。",
+      "不要再次输出 external_mcp_tool_call。",
+      "不要声称无法访问外部工具，因为系统已经替你完成了调用。",
+      "保持当前角色设定和原有消息格式要求。"
+    ].join("\n");
+
+    const followupMessages = [
+      ...messagesPayload,
+      {
+        role: "assistant",
+        content: "```external_mcp_tool_call\n" + JSON.stringify(toolRequest, null, 2) + "\n```"
+      },
+      {
+        role: "user",
+        content: formatExternalMcpToolResultForModel(toolRequest, toolResult)
+      }
+    ];
+
+    let response;
+    if (isGemini) {
+      const geminiConfig = toGeminiRequestData(model, apiKey, followupSystemPrompt, followupMessages);
+      response = await fetch(geminiConfig.url, {
+        ...geminiConfig.data,
+        signal
+      });
+    } else {
+      const reqBody = {
+        model,
+        messages: [{
+          role: "system",
+          content: followupSystemPrompt
+        }, ...followupMessages],
+        temperature: state.globalSettings.apiTemperature || 0.8,
+        stream: false,
+        ...(state.globalSettings.apiTopPEnabled && state.globalSettings.apiTopP !== undefined ? { top_p: state.globalSettings.apiTopP } : {}),
+        ...(state.globalSettings.apiMaxTokensEnabled && state.globalSettings.apiMaxTokens !== undefined ? { max_tokens: state.globalSettings.apiMaxTokens } : {}),
+        ...(state.globalSettings.apiPresencePenaltyEnabled && state.globalSettings.apiPresencePenalty !== undefined ? { presence_penalty: state.globalSettings.apiPresencePenalty } : {}),
+        ...(state.globalSettings.apiFrequencyPenaltyEnabled && state.globalSettings.apiFrequencyPenalty !== undefined ? { frequency_penalty: state.globalSettings.apiFrequencyPenalty } : {})
+      };
+
+      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(reqBody),
+        signal
+      });
+    }
+
+    if (!response.ok) {
+      let errorMsg = "MCP 工具结果二次总结 API 返回错误: " + response.status + " " + response.statusText;
+      try {
+        const errorData = await response.json();
+        errorMsg += " - " + JSON.stringify(errorData);
+      } catch (error) {}
+      throw new Error(errorMsg);
+    }
+
+    const data = await response.json();
+    return getGeminiResponseText(data);
+  }
+
   function formatExternalMcpToolResultForChat(request, result) {
     const resultText = JSON.stringify(result && result.data ? result.data : result, null, 2);
     const trimmedResultText = resultText.length > 8000 ? resultText.slice(0, 8000) + "\n...（结果过长，已截断）" : resultText;
@@ -4242,10 +4349,35 @@ ${getActiveThoughtsPrompt()}
         console.log("检测到外部 MCP 工具调用请求，开始执行:", externalMcpToolRequest);
         try {
           const externalMcpToolResult = await executeExternalMcpToolRequest(externalMcpToolRequest);
-          consolidatedMessages = [{
-            type: "text",
-            content: formatExternalMcpToolResultForChat(externalMcpToolRequest, externalMcpToolResult)
-          }];
+          try {
+            const externalMcpFinalResponseContent = await generateExternalMcpFinalResponseFromToolResult({
+              model,
+              apiKey,
+              proxyUrl,
+              isGemini,
+              systemPrompt,
+              messagesPayload,
+              toolRequest: externalMcpToolRequest,
+              toolResult: externalMcpToolResult,
+              signal: currentApiController ? currentApiController.signal : undefined
+            });
+
+            aiResponseContent = externalMcpFinalResponseContent;
+            lastRawAiResponse = externalMcpFinalResponseContent;
+            consolidatedMessages = parseAiResponse(externalMcpFinalResponseContent);
+            if (!Array.isArray(consolidatedMessages) || consolidatedMessages.length === 0) {
+              consolidatedMessages = [{
+                type: "text",
+                content: externalMcpFinalResponseContent
+              }];
+            }
+          } catch (summaryError) {
+            console.warn("MCP 工具结果二次总结失败，回退显示原始工具结果:", summaryError);
+            consolidatedMessages = [{
+              type: "text",
+              content: formatExternalMcpToolResultForChat(externalMcpToolRequest, externalMcpToolResult) + "\n\n（二次总结失败：" + (summaryError && summaryError.message ? summaryError.message : String(summaryError)) + "）"
+            }];
+          }
         } catch (error) {
           consolidatedMessages = [{
             type: "text",
