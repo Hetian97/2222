@@ -1789,6 +1789,61 @@
               background:#fff;
             ">
 
+            <label style="font-size:13px;color:#555;">身份验证</label>
+            <select id="mcp-service-auth-type-select" onchange="updateMcpServiceAuthFieldsVisibility()" style="
+              width:100%;
+              box-sizing:border-box;
+              border:1px solid rgba(0,0,0,0.12);
+              border-radius:10px;
+              padding:10px;
+              font-size:13px;
+              background:#fff;
+            ">
+              <option value="none">无</option>
+              <option value="bearer">Bearer</option>
+              <option value="header">Header</option>
+            </select>
+
+            <div id="mcp-service-bearer-fields" style="display:none;flex-direction:column;gap:8px;">
+              <label style="font-size:13px;color:#555;">Bearer Token</label>
+              <input id="mcp-service-bearer-token-input" type="password" placeholder="不要公开分享；可填 xxx 或 Bearer xxx" style="
+                width:100%;
+                box-sizing:border-box;
+                border:1px solid rgba(0,0,0,0.12);
+                border-radius:10px;
+                padding:10px;
+                font-size:13px;
+                background:#fff;
+              ">
+            </div>
+
+            <div id="mcp-service-header-fields" style="display:none;grid-template-columns:1fr 1fr;gap:10px;">
+              <label style="font-size:13px;color:#555;">Header Name
+                <input id="mcp-service-header-name-input" type="text" placeholder="例如：X-API-Key" style="
+                  width:100%;
+                  box-sizing:border-box;
+                  margin-top:6px;
+                  border:1px solid rgba(0,0,0,0.12);
+                  border-radius:10px;
+                  padding:10px;
+                  font-size:13px;
+                  background:#fff;
+                ">
+              </label>
+              <label style="font-size:13px;color:#555;">Header Value
+                <input id="mcp-service-header-value-input" type="password" placeholder="不要公开分享" style="
+                  width:100%;
+                  box-sizing:border-box;
+                  margin-top:6px;
+                  border:1px solid rgba(0,0,0,0.12);
+                  border-radius:10px;
+                  padding:10px;
+                  font-size:13px;
+                  background:#fff;
+                ">
+              </label>
+            </div>
+
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;">
               <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#555;">
                 <input id="mcp-service-enabled-input" type="checkbox" checked>
@@ -9256,6 +9311,56 @@
     }
   }
 
+  function updateMcpServiceAuthFieldsVisibility() {
+    const authTypeSelect = document.getElementById('mcp-service-auth-type-select');
+    const bearerFields = document.getElementById('mcp-service-bearer-fields');
+    const headerFields = document.getElementById('mcp-service-header-fields');
+
+    const authType = authTypeSelect ? authTypeSelect.value : 'none';
+
+    if (bearerFields) {
+      bearerFields.style.display = authType === 'bearer' ? 'flex' : 'none';
+    }
+
+    if (headerFields) {
+      headerFields.style.display = authType === 'header' ? 'grid' : 'none';
+    }
+  }
+
+  function getMcpServiceAuthPayload() {
+    const authTypeSelect = document.getElementById('mcp-service-auth-type-select');
+    const bearerTokenInput = document.getElementById('mcp-service-bearer-token-input');
+    const headerNameInput = document.getElementById('mcp-service-header-name-input');
+    const headerValueInput = document.getElementById('mcp-service-header-value-input');
+
+    const authType = authTypeSelect ? authTypeSelect.value : 'none';
+    const payload = {
+      authorization: '',
+      headers: {}
+    };
+
+    if (authType === 'bearer') {
+      const token = bearerTokenInput ? bearerTokenInput.value.trim() : '';
+      if (token) {
+        payload.authorization = token.toLowerCase().startsWith('bearer ')
+          ? token
+          : 'Bearer ' + token;
+      }
+    }
+
+    if (authType === 'header') {
+      const headerName = headerNameInput ? headerNameInput.value.trim() : '';
+      const headerValue = headerValueInput ? headerValueInput.value.trim() : '';
+
+      if (headerName && headerValue) {
+        payload.headers[headerName] = headerValue;
+      }
+    }
+
+    return payload;
+  }
+
+
   function getMcpServiceConfigs() {
     try {
       const raw = localStorage.getItem(MCP_SERVICE_CONFIGS_STORAGE_KEY) || '[]';
@@ -9303,6 +9408,10 @@
     const urlInput = document.getElementById('mcp-service-url-input');
     const enabledInput = document.getElementById('mcp-service-enabled-input');
     const modeSelect = document.getElementById('mcp-service-mode-select');
+    const authTypeSelect = document.getElementById('mcp-service-auth-type-select');
+    const bearerTokenInput = document.getElementById('mcp-service-bearer-token-input');
+    const headerNameInput = document.getElementById('mcp-service-header-name-input');
+    const headerValueInput = document.getElementById('mcp-service-header-value-input');
 
     const url = urlInput ? urlInput.value.trim() : '';
     const name = nameInput && nameInput.value.trim() ? nameInput.value.trim() : deriveMcpServiceName(url);
@@ -9311,7 +9420,11 @@
       name,
       url,
       enabled: enabledInput ? enabledInput.checked : true,
-      mode: modeSelect ? modeSelect.value : 'tools'
+      mode: modeSelect ? modeSelect.value : 'tools',
+      authType: authTypeSelect ? authTypeSelect.value : 'none',
+      bearerToken: bearerTokenInput ? bearerTokenInput.value.trim() : '',
+      headerName: headerNameInput ? headerNameInput.value.trim() : '',
+      headerValue: headerValueInput ? headerValueInput.value.trim() : ''
     };
   }
 
@@ -9320,11 +9433,21 @@
     const urlInput = document.getElementById('mcp-service-url-input');
     const enabledInput = document.getElementById('mcp-service-enabled-input');
     const modeSelect = document.getElementById('mcp-service-mode-select');
+    const authTypeSelect = document.getElementById('mcp-service-auth-type-select');
+    const bearerTokenInput = document.getElementById('mcp-service-bearer-token-input');
+    const headerNameInput = document.getElementById('mcp-service-header-name-input');
+    const headerValueInput = document.getElementById('mcp-service-header-value-input');
 
     if (nameInput) nameInput.value = service?.name || '';
     if (urlInput) urlInput.value = service?.url || '';
     if (enabledInput) enabledInput.checked = service?.enabled !== false;
     if (modeSelect) modeSelect.value = service?.mode || 'tools';
+    if (authTypeSelect) authTypeSelect.value = service?.authType || 'none';
+    if (bearerTokenInput) bearerTokenInput.value = service?.bearerToken || '';
+    if (headerNameInput) headerNameInput.value = service?.headerName || '';
+    if (headerValueInput) headerValueInput.value = service?.headerValue || '';
+
+    updateMcpServiceAuthFieldsVisibility();
   }
 
   function clearMcpServiceForm() {
@@ -9333,7 +9456,11 @@
       name: '',
       url: '',
       enabled: true,
-      mode: 'tools'
+      mode: 'tools',
+      authType: 'none',
+      bearerToken: '',
+      headerName: '',
+      headerValue: ''
     });
     setMcpServiceStatus('新建服务', '#999');
     setMcpServiceOutput('已清空表单。填写名称和 URL 后可以保存为新的 MCP 服务。');
@@ -9362,6 +9489,10 @@
         url: form.url,
         enabled: form.enabled,
         mode: form.mode,
+        authType: form.authType,
+        bearerToken: form.bearerToken,
+        headerName: form.headerName,
+        headerValue: form.headerValue,
         createdAt: now,
         updatedAt: now
       });
@@ -9372,6 +9503,10 @@
         url: form.url,
         enabled: form.enabled,
         mode: form.mode,
+        authType: form.authType,
+        bearerToken: form.bearerToken,
+        headerName: form.headerName,
+        headerValue: form.headerValue,
         updatedAt: now
       };
     }
@@ -9469,10 +9604,18 @@
         ? ' · 工具数：' + Number(service.toolsCount || 0)
         : '';
       const serverText = service.serverName ? ' · server：' + service.serverName : '';
+      const authText = ' · 认证：' + (
+        service.authType === 'bearer'
+          ? 'Bearer'
+          : service.authType === 'header'
+            ? 'Header'
+            : '无'
+      );
 
       meta.textContent =
         (service.enabled === false ? '禁用' : '启用') +
         ' · 模式：' + (service.mode || 'tools') +
+        authText +
         toolsText +
         serverText +
         ' · ' + service.url;
@@ -9525,6 +9668,7 @@
     }
 
     restoreMcpServiceLastUrl();
+    updateMcpServiceAuthFieldsVisibility();
   }
 
   function getMcpServiceUrl() {
@@ -9618,6 +9762,7 @@
 
   async function testMcpServiceToolsList() {
     const url = getMcpServiceUrl();
+    const authPayload = getMcpServiceAuthPayload();
 
     if (!url) {
       setMcpServiceOutput('请先填写外部 MCP URL。');
@@ -9633,6 +9778,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url,
+          ...authPayload,
           timeoutMs: 30000
         })
       });
@@ -9654,6 +9800,7 @@
 
   async function testMcpServiceToolsCall() {
     const url = getMcpServiceUrl();
+    const authPayload = getMcpServiceAuthPayload();
     const toolNameInput = document.getElementById('mcp-service-tool-name-input');
     const toolName = toolNameInput ? toolNameInput.value.trim() : '';
 
@@ -9684,6 +9831,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url,
+          ...authPayload,
           toolName,
           arguments: args,
           timeoutMs: 30000

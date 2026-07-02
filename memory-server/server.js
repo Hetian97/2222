@@ -665,6 +665,15 @@ async function callExternalMcpTool(serviceUrl, toolName, toolArguments = {}, opt
     baseHeaders.Authorization = String(options.authorization);
   }
 
+  if (options.headers && typeof options.headers === 'object' && !Array.isArray(options.headers)) {
+    for (const [key, value] of Object.entries(options.headers)) {
+      const headerName = String(key || '').trim();
+      if (!headerName) continue;
+      if (typeof value === 'undefined' || value === null) continue;
+      baseHeaders[headerName] = String(value);
+    }
+  }
+
   const timeoutMs = Number(options.timeoutMs || 30000);
 
   async function postMcp(payload, extraHeaders = {}) {
@@ -814,6 +823,15 @@ async function callExternalMcpToolsList(serviceUrl, options = {}) {
 
   if (options.authorization) {
     baseHeaders.Authorization = String(options.authorization);
+  }
+
+  if (options.headers && typeof options.headers === 'object' && !Array.isArray(options.headers)) {
+    for (const [key, value] of Object.entries(options.headers)) {
+      const headerName = String(key || '').trim();
+      if (!headerName) continue;
+      if (typeof value === 'undefined' || value === null) continue;
+      baseHeaders[headerName] = String(value);
+    }
   }
 
   const timeoutMs = Number(options.timeoutMs || 15000);
@@ -1998,6 +2016,7 @@ const server = http.createServer(async (req, res) => {
         body.arguments || body.args || {},
         {
           authorization: body.authorization || '',
+          headers: body.headers || body.extraHeaders || {},
           timeoutMs: body.timeoutMs || 30000
         }
       );
@@ -2017,6 +2036,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readRequestBody(req);
       const result = await callExternalMcpToolsList(body.url || body.serviceUrl || body.mcpUrl || '', {
         authorization: body.authorization || '',
+        headers: body.headers || body.extraHeaders || {},
         timeoutMs: body.timeoutMs || 15000
       });
 
