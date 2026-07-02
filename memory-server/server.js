@@ -638,6 +638,162 @@ async function tryResetChromaCollection() {
   }
 }
 
+async function callExternalMcpTool(serviceUrl, toolName, toolArguments = {}, options = {}) {
+  const urlText = String(serviceUrl || '').trim();
+  const safeToolName = String(toolName || '').trim();
+
+  if (!urlText) {
+    throw new Error('External MCP service URL is required.');
+  }
+
+  if (!safeToolName) {
+    throw new Error('External MCP toolName is required.');
+  }
+
+  const url = new URL(urlText);
+
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('External MCP service URL must start with http:// or https://');
+  }
+
+  const baseHeaders = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json, text/event-stream'
+  };
+
+  if (options.authorization) {
+    baseHeaders.Authorization = String(options.authorization);
+  }
+
+  const timeoutMs = Number(options.timeoutMs || 30000);
+
+  async function postMcp(payload, extraHeaders = {}) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(urlText, {
+        method: 'POST',
+        headers: {
+          ...baseHeaders,
+          ...extraHeaders
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+
+      const text = await response.text();
+
+      let data = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = null;
+      }
+
+      return {
+        response,
+        text,
+        data,
+        sessionId:
+          response.headers.get('mcp-session-id') ||
+          response.headers.get('Mcp-Session-Id') ||
+          response.headers.get('MCP-Session-Id') ||
+          ''
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async function initializeSession() {
+    const init = await postMcp({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method: 'initialize',
+      params: {
+        protocolVersion: options.protocolVersion || '2024-11-05',
+        capabilities: {},
+        clientInfo: {
+          name: '2222EPhone external MCP tool caller',
+          version: '0.1.0'
+        }
+      }
+    });
+
+    if (!init.response.ok) {
+      throw new Error('initialize HTTP ' + init.response.status + ': ' + init.text.slice(0, 500));
+    }
+
+    if (!init.data) {
+      throw new Error('initialize response is not JSON: ' + init.text.slice(0, 500));
+    }
+
+    if (init.data.error) {
+      throw new Error('initialize error: ' + JSON.stringify(init.data.error));
+    }
+
+    const sessionId = init.sessionId;
+
+    if (sessionId) {
+      try {
+        await postMcp({
+          jsonrpc: '2.0',
+          method: 'notifications/initialized'
+        }, {
+          'mcp-session-id': sessionId
+        });
+      } catch (error) {
+        console.warn('[external-mcp] notifications/initialized skipped:', error.message || String(error));
+      }
+    }
+
+    return {
+      sessionId,
+      initialize: init.data
+    };
+  }
+
+  const session = await initializeSession();
+
+  const call = await postMcp({
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method: 'tools/call',
+    params: {
+      name: safeToolName,
+      arguments: toolArguments && typeof toolArguments === 'object'
+        ? toolArguments
+        : {}
+    }
+  }, session.sessionId ? {
+    'mcp-session-id': session.sessionId
+  } : {});
+
+  if (!call.response.ok) {
+    throw new Error('tools/call HTTP ' + call.response.status + ': ' + call.text.slice(0, 1000));
+  }
+
+  if (!call.data) {
+    throw new Error('tools/call response is not JSON: ' + call.text.slice(0, 1000));
+  }
+
+  if (call.data.error) {
+    throw new Error('tools/call error: ' + JSON.stringify(call.data.error));
+  }
+
+  return {
+    ok: true,
+    url: urlText,
+    sessionId: session.sessionId,
+    toolName: safeToolName,
+    arguments: toolArguments,
+    result: call.data.result,
+    raw: call.data,
+    initialize: session.initialize
+  };
+}
+
 async function callExternalMcpToolsList(serviceUrl, options = {}) {
   const urlText = String(serviceUrl || '').trim();
 
@@ -1830,6 +1986,29 @@ const server = http.createServer(async (req, res) => {
       filters,
       memories: publicMemories
     });
+    return;
+  }
+
+  if (pathname === '/external-mcp/tools-call' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      const result = await callExternalMcpTool(
+        body.url || body.serviceUrl || body.mcpUrl || '',
+        body.toolName || body.name || '',
+        body.arguments || body.args || {},
+        {
+          authorization: body.authorization || '',
+          timeoutMs: body.timeoutMs || 30000
+        }
+      );
+
+      sendJson(res, 200, result);
+    } catch (error) {
+      sendJson(res, 400, {
+        ok: false,
+        error: error.message || String(error)
+      });
+    }
     return;
   }
 
