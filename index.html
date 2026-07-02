@@ -1760,13 +1760,24 @@
         <div style="background:#fff;border-radius:18px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,0.06);margin-bottom:14px;">
           <div style="font-size:18px;font-weight:700;margin-bottom:8px;">外部 MCP 服务</div>
           <div style="font-size:13px;color:#666;line-height:1.7;margin-bottom:10px;">
-            用于连接外部 MCP 标准接口。先用 tools/list 发现工具，再用 tools/call 测试调用。
+            用于连接外部 MCP 标准接口。先保存服务，再用 tools/list 发现工具，用 tools/call 测试调用。
           </div>
           <div style="font-size:13px;color:#666;line-height:1.7;">
             状态：<span id="mcp-service-status" style="font-weight:700;color:#999;">未检测</span>
           </div>
 
           <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
+            <label style="font-size:13px;color:#555;">服务名称</label>
+            <input id="mcp-service-name-input" type="text" placeholder="例如：ModelScope Web Search" style="
+              width:100%;
+              box-sizing:border-box;
+              border:1px solid rgba(0,0,0,0.12);
+              border-radius:10px;
+              padding:10px;
+              font-size:13px;
+              background:#fff;
+            ">
+
             <label style="font-size:13px;color:#555;">MCP URL</label>
             <input id="mcp-service-url-input" type="text" placeholder="例如：https://xxx/mcp" style="
               width:100%;
@@ -1778,7 +1789,32 @@
               background:#fff;
             ">
 
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:end;">
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#555;">
+                <input id="mcp-service-enabled-input" type="checkbox" checked>
+                启用此服务
+              </label>
+              <label style="font-size:13px;color:#555;">模式
+                <select id="mcp-service-mode-select" style="
+                  width:100%;
+                  box-sizing:border-box;
+                  margin-top:6px;
+                  border:1px solid rgba(0,0,0,0.12);
+                  border-radius:10px;
+                  padding:9px;
+                  font-size:13px;
+                  background:#fff;
+                ">
+                  <option value="tools">工具</option>
+                  <option value="memory">记忆</option>
+                  <option value="all">全部</option>
+                </select>
+              </label>
+            </div>
+
             <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">
+              <button class="settings-button" onclick="saveMcpServiceConfig()">保存/更新服务</button>
+              <button class="settings-button" onclick="clearMcpServiceForm()">新建服务</button>
               <button class="settings-button" onclick="testMcpServiceToolsList()">测试 tools/list</button>
             </div>
 
@@ -1815,6 +1851,11 @@
               <button class="settings-button" onclick="testMcpServiceToolsCall()">测试 tools/call</button>
             </div>
           </div>
+        </div>
+
+        <div style="background:#fff;border-radius:18px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,0.06);margin-bottom:14px;">
+          <div style="font-size:18px;font-weight:700;margin-bottom:8px;">服务列表</div>
+          <div id="mcp-service-list" style="font-size:13px;color:#333;line-height:1.6;">还没有保存 MCP 服务。</div>
         </div>
 
         <div style="background:#fff;border-radius:18px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,0.06);margin-bottom:14px;">
@@ -9015,6 +9056,8 @@
   const MCP_MANAGER_CHROMA_STATUS_URL = MCP_MANAGER_BASE_URL + '/memory/chroma/status';
   const MCP_SERVICE_EXTERNAL_TOOLS_LIST_URL = MCP_MANAGER_BASE_URL + '/external-mcp/tools-list';
   const MCP_SERVICE_EXTERNAL_TOOLS_CALL_URL = MCP_MANAGER_BASE_URL + '/external-mcp/tools-call';
+  const MCP_SERVICE_CONFIGS_STORAGE_KEY = 'mcpServiceConfigs';
+  const MCP_SERVICE_SELECTED_STORAGE_KEY = 'mcpServiceSelectedId';
 
   function setMcpManagerOutput(text) {
     const output = document.getElementById('mcp-manager-output');
@@ -9213,6 +9256,277 @@
     }
   }
 
+  function getMcpServiceConfigs() {
+    try {
+      const raw = localStorage.getItem(MCP_SERVICE_CONFIGS_STORAGE_KEY) || '[]';
+      const list = JSON.parse(raw);
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveMcpServiceConfigs(configs) {
+    try {
+      localStorage.setItem(MCP_SERVICE_CONFIGS_STORAGE_KEY, JSON.stringify(configs));
+    } catch {}
+  }
+
+  function getMcpServiceSelectedId() {
+    try {
+      return localStorage.getItem(MCP_SERVICE_SELECTED_STORAGE_KEY) || '';
+    } catch {
+      return '';
+    }
+  }
+
+  function setMcpServiceSelectedId(id) {
+    try {
+      if (id) {
+        localStorage.setItem(MCP_SERVICE_SELECTED_STORAGE_KEY, id);
+      } else {
+        localStorage.removeItem(MCP_SERVICE_SELECTED_STORAGE_KEY);
+      }
+    } catch {}
+  }
+
+  function deriveMcpServiceName(url) {
+    try {
+      return new URL(url).hostname || 'MCP服务';
+    } catch {
+      return 'MCP服务';
+    }
+  }
+
+  function getMcpServiceFormData() {
+    const nameInput = document.getElementById('mcp-service-name-input');
+    const urlInput = document.getElementById('mcp-service-url-input');
+    const enabledInput = document.getElementById('mcp-service-enabled-input');
+    const modeSelect = document.getElementById('mcp-service-mode-select');
+
+    const url = urlInput ? urlInput.value.trim() : '';
+    const name = nameInput && nameInput.value.trim() ? nameInput.value.trim() : deriveMcpServiceName(url);
+
+    return {
+      name,
+      url,
+      enabled: enabledInput ? enabledInput.checked : true,
+      mode: modeSelect ? modeSelect.value : 'tools'
+    };
+  }
+
+  function fillMcpServiceForm(service) {
+    const nameInput = document.getElementById('mcp-service-name-input');
+    const urlInput = document.getElementById('mcp-service-url-input');
+    const enabledInput = document.getElementById('mcp-service-enabled-input');
+    const modeSelect = document.getElementById('mcp-service-mode-select');
+
+    if (nameInput) nameInput.value = service?.name || '';
+    if (urlInput) urlInput.value = service?.url || '';
+    if (enabledInput) enabledInput.checked = service?.enabled !== false;
+    if (modeSelect) modeSelect.value = service?.mode || 'tools';
+  }
+
+  function clearMcpServiceForm() {
+    setMcpServiceSelectedId('');
+    fillMcpServiceForm({
+      name: '',
+      url: '',
+      enabled: true,
+      mode: 'tools'
+    });
+    setMcpServiceStatus('新建服务', '#999');
+    setMcpServiceOutput('已清空表单。填写名称和 URL 后可以保存为新的 MCP 服务。');
+    renderMcpServiceList();
+  }
+
+  function saveMcpServiceConfig() {
+    const form = getMcpServiceFormData();
+
+    if (!form.url) {
+      setMcpServiceOutput('请先填写 MCP URL。');
+      return;
+    }
+
+    let configs = getMcpServiceConfigs();
+    let selectedId = getMcpServiceSelectedId();
+    let index = configs.findIndex(item => item.id === selectedId);
+
+    const now = new Date().toISOString();
+
+    if (index < 0) {
+      selectedId = 'mcp_' + Date.now();
+      configs.push({
+        id: selectedId,
+        name: form.name,
+        url: form.url,
+        enabled: form.enabled,
+        mode: form.mode,
+        createdAt: now,
+        updatedAt: now
+      });
+    } else {
+      configs[index] = {
+        ...configs[index],
+        name: form.name,
+        url: form.url,
+        enabled: form.enabled,
+        mode: form.mode,
+        updatedAt: now
+      };
+    }
+
+    saveMcpServiceConfigs(configs);
+    setMcpServiceSelectedId(selectedId);
+    renderMcpServiceList();
+    setMcpServiceStatus('已保存', '#34c759');
+    setMcpServiceOutput('已保存 MCP 服务：' + form.name);
+  }
+
+  function selectMcpServiceConfig(id) {
+    const service = getMcpServiceConfigs().find(item => item.id === id);
+    if (!service) {
+      setMcpServiceOutput('找不到这个 MCP 服务。');
+      return;
+    }
+
+    setMcpServiceSelectedId(id);
+    fillMcpServiceForm(service);
+    setMcpServiceStatus(service.enabled === false ? '已选择 · 禁用' : '已选择 · 启用', service.enabled === false ? '#ff9500' : '#34c759');
+    setMcpServiceOutput('已选择 MCP 服务：' + service.name + '\n' + service.url);
+    renderMcpServiceList();
+  }
+
+  function toggleMcpServiceEnabled(id) {
+    const configs = getMcpServiceConfigs();
+    const index = configs.findIndex(item => item.id === id);
+
+    if (index < 0) return;
+
+    configs[index].enabled = configs[index].enabled === false ? true : false;
+    configs[index].updatedAt = new Date().toISOString();
+
+    saveMcpServiceConfigs(configs);
+
+    if (getMcpServiceSelectedId() === id) {
+      fillMcpServiceForm(configs[index]);
+    }
+
+    renderMcpServiceList();
+  }
+
+  function deleteMcpServiceConfig(id) {
+    const configs = getMcpServiceConfigs();
+    const service = configs.find(item => item.id === id);
+
+    if (!service) return;
+
+    if (!confirm('删除 MCP 服务：' + service.name + '？')) {
+      return;
+    }
+
+    const next = configs.filter(item => item.id !== id);
+    saveMcpServiceConfigs(next);
+
+    if (getMcpServiceSelectedId() === id) {
+      clearMcpServiceForm();
+    } else {
+      renderMcpServiceList();
+    }
+  }
+
+  function renderMcpServiceList() {
+    const container = document.getElementById('mcp-service-list');
+    if (!container) return;
+
+    const configs = getMcpServiceConfigs();
+    const selectedId = getMcpServiceSelectedId();
+
+    container.innerHTML = '';
+
+    if (!configs.length) {
+      container.textContent = '还没有保存 MCP 服务。填写上方表单后点击“保存/更新服务”。';
+      return;
+    }
+
+    for (const service of configs) {
+      const item = document.createElement('div');
+      item.style.border = '1px solid rgba(0,0,0,0.08)';
+      item.style.borderRadius = '12px';
+      item.style.padding = '10px';
+      item.style.marginBottom = '10px';
+      item.style.background = service.id === selectedId ? 'rgba(0,122,255,0.08)' : 'rgba(0,0,0,0.02)';
+
+      const title = document.createElement('div');
+      title.style.fontWeight = '700';
+      title.textContent = (service.id === selectedId ? '✓ ' : '') + service.name;
+
+      const meta = document.createElement('div');
+      meta.style.fontSize = '12px';
+      meta.style.color = '#666';
+      meta.style.marginTop = '4px';
+      const toolsText = typeof service.toolsCount !== 'undefined'
+        ? ' · 工具数：' + Number(service.toolsCount || 0)
+        : '';
+      const serverText = service.serverName ? ' · server：' + service.serverName : '';
+
+      meta.textContent =
+        (service.enabled === false ? '禁用' : '启用') +
+        ' · 模式：' + (service.mode || 'tools') +
+        toolsText +
+        serverText +
+        ' · ' + service.url;
+
+      const actions = document.createElement('div');
+      actions.style.display = 'flex';
+      actions.style.flexWrap = 'wrap';
+      actions.style.gap = '8px';
+      actions.style.marginTop = '8px';
+
+      const selectBtn = document.createElement('button');
+      selectBtn.className = 'settings-button';
+      selectBtn.textContent = '选择';
+      selectBtn.onclick = () => selectMcpServiceConfig(service.id);
+
+      const toggleBtn = document.createElement('button');
+      toggleBtn.className = 'settings-button';
+      toggleBtn.textContent = service.enabled === false ? '启用' : '禁用';
+      toggleBtn.onclick = () => toggleMcpServiceEnabled(service.id);
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'settings-button';
+      deleteBtn.textContent = '删除';
+      deleteBtn.onclick = () => deleteMcpServiceConfig(service.id);
+
+      actions.appendChild(selectBtn);
+      actions.appendChild(toggleBtn);
+      actions.appendChild(deleteBtn);
+
+      item.appendChild(title);
+      item.appendChild(meta);
+      item.appendChild(actions);
+
+      container.appendChild(item);
+    }
+  }
+
+  function initMcpServiceApp() {
+    renderMcpServiceList();
+
+    const configs = getMcpServiceConfigs();
+    const selectedId = getMcpServiceSelectedId();
+    const selected = configs.find(item => item.id === selectedId) || configs[0];
+
+    if (selected) {
+      setMcpServiceSelectedId(selected.id);
+      fillMcpServiceForm(selected);
+      renderMcpServiceList();
+      return;
+    }
+
+    restoreMcpServiceLastUrl();
+  }
+
   function getMcpServiceUrl() {
     const input = document.getElementById('mcp-service-url-input');
     const url = input ? input.value.trim() : '';
@@ -9273,6 +9587,35 @@
     return lines.join('\n');
   }
 
+  function updateSelectedMcpServiceToolsCache(data) {
+    const selectedId = getMcpServiceSelectedId();
+    if (!selectedId) return;
+
+    const configs = getMcpServiceConfigs();
+    const index = configs.findIndex(item => item.id === selectedId);
+    if (index < 0) return;
+
+    const tools = Array.isArray(data?.tools) ? data.tools : [];
+    const serverInfo = data?.initialize?.result?.serverInfo || {};
+
+    configs[index] = {
+      ...configs[index],
+      toolsCount: typeof data?.count !== 'undefined' ? Number(data.count || 0) : tools.length,
+      tools: tools.map(tool => ({
+        name: tool.name || '',
+        description: tool.description || ''
+      })),
+      serverName: serverInfo.name || '',
+      serverVersion: serverInfo.version || '',
+      lastToolsListAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    saveMcpServiceConfigs(configs);
+    renderMcpServiceList();
+  }
+
+
   async function testMcpServiceToolsList() {
     const url = getMcpServiceUrl();
 
@@ -9300,6 +9643,7 @@
         throw new Error(data.error || ('HTTP ' + response.status));
       }
 
+      updateSelectedMcpServiceToolsCache(data);
       setMcpServiceStatus('在线 · tools/list ✓', '#34c759');
       setMcpServiceOutput(formatMcpServiceTools(data));
     } catch (error) {
@@ -9364,7 +9708,7 @@
     }
   }
 
-  setTimeout(restoreMcpServiceLastUrl, 0);
+  setTimeout(initMcpServiceApp, 0);
 
   async function testMcpToolsList() {
     setMcpManagerOutput('正在请求 tools/list...');
