@@ -1873,7 +1873,7 @@
               <button class="settings-button" onclick="testMcpServiceToolsList()">测试 tools/list</button>
             </div>
 
-            <label style="font-size:13px;color:#555;margin-top:8px;">toolName</label>
+            <label style="font-size:13px;color:#555;margin-top:8px;">toolName（可手动输入）</label>
             <input id="mcp-service-tool-name-input" type="text" value="search" list="mcp-service-tool-name-list" oninput="fillMcpServiceArgumentsTemplateFromToolName()" onchange="fillMcpServiceArgumentsTemplateFromToolName()" style="
               width:100%;
               box-sizing:border-box;
@@ -1884,6 +1884,19 @@
               background:#fff;
             ">
             <datalist id="mcp-service-tool-name-list"></datalist>
+
+            <label style="font-size:13px;color:#555;">工具下拉选择（tools/list 成功后可用）</label>
+            <select id="mcp-service-tool-select" onchange="selectMcpServiceToolFromDropdown()" style="
+              width:100%;
+              box-sizing:border-box;
+              border:1px solid rgba(0,0,0,0.12);
+              border-radius:10px;
+              padding:10px;
+              font-size:13px;
+              background:#fff;
+            ">
+              <option value="">（先测试 tools/list 获取工具）</option>
+            </select>
 
             <label style="font-size:13px;color:#555;">arguments JSON</label>
             <textarea id="mcp-service-tool-args-input" style="
@@ -9811,16 +9824,57 @@
 
   function refreshMcpServiceToolNameDatalist() {
     const datalist = document.getElementById("mcp-service-tool-name-list");
-    if (!datalist) return;
+    const select = document.getElementById("mcp-service-tool-select");
+    const input = document.getElementById("mcp-service-tool-name-input");
 
     const service = getSelectedMcpServiceConfig();
     const tools = service && Array.isArray(service.tools) ? service.tools : [];
+    const currentValue = input && input.value ? input.value.trim() : "";
 
-    datalist.innerHTML = tools.map(tool => {
-      const name = tool && tool.name ? String(tool.name) : "";
-      if (!name) return "";
-      return `<option value="${name.replace(/"/g, "&quot;")}"></option>`;
-    }).join("");
+    if (datalist) {
+      datalist.innerHTML = tools.map(tool => {
+        const name = tool && tool.name ? String(tool.name) : "";
+        if (!name) return "";
+        return `<option value="${name.replace(/"/g, "&quot;")}"></option>`;
+      }).join("");
+    }
+
+    if (select) {
+      select.innerHTML = "";
+
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = tools.length ? "请选择工具..." : "（先测试 tools/list 获取工具）";
+      select.appendChild(placeholder);
+
+      tools.forEach(tool => {
+        const name = tool && tool.name ? String(tool.name) : "";
+        if (!name) return;
+
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        select.appendChild(option);
+      });
+
+      if (currentValue && tools.some(tool => tool && tool.name === currentValue)) {
+        select.value = currentValue;
+      } else {
+        select.value = "";
+      }
+    }
+  }
+
+  function selectMcpServiceToolFromDropdown() {
+    const select = document.getElementById("mcp-service-tool-select");
+    const input = document.getElementById("mcp-service-tool-name-input");
+    if (!select || !input) return false;
+
+    const value = select.value ? select.value.trim() : "";
+    if (!value) return false;
+
+    input.value = value;
+    return fillMcpServiceArgumentsTemplateFromToolName();
   }
 
   function fillMcpServiceArgumentsTemplateFromToolName() {
@@ -9837,6 +9891,9 @@
 
     if (!tool) return false;
 
+    const select = document.getElementById("mcp-service-tool-select");
+    if (select) select.value = toolName;
+
     textarea.value = JSON.stringify(buildMcpServiceArgumentsTemplate(tool), null, 2);
     return true;
   }
@@ -9852,6 +9909,8 @@
     if (!firstTool) return;
 
     input.value = firstTool.name;
+    const select = document.getElementById("mcp-service-tool-select");
+    if (select) select.value = firstTool.name;
     fillMcpServiceArgumentsTemplateFromToolName();
   }
 
