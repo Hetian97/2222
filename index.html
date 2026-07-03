@@ -66,7 +66,7 @@
   <script src="modules/chat-interface.js?v=0.0.37" defer></script>
   <script src="modules/chat-input.js?v=0.0.37" defer></script>
   <!-- 第四层：AI 核心 -->
-  <script src="modules/ai-response.js?v=0.0.74" defer></script>
+  <script src="modules/ai-response.js?v=0.0.81" defer></script>
   <script src="modules/ai-group.js?v=0.0.36" defer></script>
   <!-- 第五层：功能模块 -->
   <script src="modules/music-player.js?v=0.0.36" defer></script>
@@ -1867,6 +1867,49 @@
               </label>
             </div>
 
+
+            <label style="font-size:13px;color:#555;">执行范围</label>
+            <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:#555;">
+              <label style="display:flex;align-items:center;gap:6px;">
+                <input id="mcp-service-allowed-caller-mode-all" name="mcp-service-allowed-caller-mode" type="radio" value="all" onchange="updateMcpServiceAllowedCallerVisibility()" checked>
+                全部角色
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;">
+                <input id="mcp-service-allowed-caller-mode-selected" name="mcp-service-allowed-caller-mode" type="radio" value="selected" onchange="updateMcpServiceAllowedCallerVisibility()">
+                指定角色
+              </label>
+            </div>
+
+            <div id="mcp-service-allowed-callers-list" style="
+              display:none;
+              grid-template-columns:1fr 1fr;
+              gap:8px;
+              padding:10px;
+              border:1px solid rgba(0,0,0,0.08);
+              border-radius:10px;
+              background:rgba(0,0,0,0.02);
+              max-height:150px;
+              overflow:auto;
+            "></div>
+            <div style="font-size:12px;color:#888;line-height:1.6;margin-top:-4px;">
+              指定角色来自当前单人聊天列表；群聊中的外部 MCP 工具仍默认关闭。
+            </div>
+
+            <label style="font-size:13px;color:#555;">触发关键词（留空 = 由模型自行判断）</label>
+            <textarea id="mcp-service-trigger-keywords-input" placeholder="例如：搜索, 上网, 今天, 最近, 新闻, Notion, 日记。支持逗号、换行、分号分隔。" style="
+              width:100%;
+              box-sizing:border-box;
+              border:1px solid rgba(0,0,0,0.12);
+              border-radius:10px;
+              padding:10px;
+              font-size:13px;
+              min-height:58px;
+              resize:vertical;
+              background:#fff;
+            "></textarea>
+            <div style="font-size:12px;color:#888;line-height:1.6;margin-top:-4px;">
+              填了关键词后，只有用户当前消息命中关键词时，这个 MCP 服务才会进入工具目录；留空则沿用模型自行判断。
+            </div>
             <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;">
               <button class="settings-button" onclick="saveMcpServiceConfig()">保存/更新服务</button>
               <button class="settings-button" onclick="clearMcpServiceForm()">新建服务</button>
@@ -9417,6 +9460,143 @@
     }
   }
 
+  function getMcpServiceAllowedCallerOptions() {
+    const appState = window.state || (typeof state !== "undefined" ? state : null);
+    const chats = appState && appState.chats && typeof appState.chats === "object"
+      ? appState.chats
+      : {};
+
+    return Object.entries(chats)
+      .filter(([id, chat]) => chat && !chat.isGroup)
+      .map(([id, chat]) => ({
+        id,
+        name: chat && chat.name ? String(chat.name) : id,
+        originalName: chat && chat.originalName ? String(chat.originalName) : ""
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
+  }
+
+  function normalizeMcpServiceCallerKey(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+
+  function getMcpServiceAllowedCallerMode() {
+    const selected = document.querySelector('input[name="mcp-service-allowed-caller-mode"]:checked');
+    return selected && selected.value === "selected" ? "selected" : "all";
+  }
+
+  function setMcpServiceAllowedCallerMode(mode) {
+    const allInput = document.getElementById("mcp-service-allowed-caller-mode-all");
+    const selectedInput = document.getElementById("mcp-service-allowed-caller-mode-selected");
+    const useSelected = mode === "selected";
+
+    if (allInput) allInput.checked = !useSelected;
+    if (selectedInput) selectedInput.checked = useSelected;
+
+    updateMcpServiceAllowedCallerVisibility();
+  }
+
+  function updateMcpServiceAllowedCallerVisibility() {
+    const list = document.getElementById("mcp-service-allowed-callers-list");
+    if (!list) return;
+
+    const isSelectedMode = getMcpServiceAllowedCallerMode() === "selected";
+    list.style.display = isSelectedMode ? "grid" : "none";
+
+    if (!isSelectedMode || window.__mcpServiceAllowedCallerRendering) return;
+
+    const hasCheckboxes = !!list.querySelector(".mcp-service-allowed-caller-checkbox");
+    const hasRoleOptions = getMcpServiceAllowedCallerOptions().length > 0;
+
+    if (!hasCheckboxes && hasRoleOptions) {
+      const service = getMcpServiceConfigs().find(item => item.id === getMcpServiceSelectedId()) || null;
+      const legacyValues = service && service.allowedCallersText
+        ? String(service.allowedCallersText).split(/[，,;；\n\r]+/).map(item => item.trim()).filter(Boolean)
+        : [];
+      const selectedValues = service && Array.isArray(service.allowedCallerIds)
+        ? service.allowedCallerIds
+        : legacyValues;
+
+      window.__mcpServiceAllowedCallerRendering = true;
+      try {
+        renderMcpServiceAllowedCallerCheckboxes(selectedValues);
+      } finally {
+        window.__mcpServiceAllowedCallerRendering = false;
+      }
+      list.style.display = "grid";
+    }
+  }
+
+  function renderMcpServiceAllowedCallerCheckboxes(selectedValues) {
+    const list = document.getElementById("mcp-service-allowed-callers-list");
+    if (!list) return;
+
+    const selectedSet = new Set((Array.isArray(selectedValues) ? selectedValues : [])
+      .map(normalizeMcpServiceCallerKey)
+      .filter(Boolean));
+
+    const options = getMcpServiceAllowedCallerOptions();
+    list.innerHTML = "";
+
+    if (!options.length) {
+      const empty = document.createElement("div");
+      empty.style.fontSize = "12px";
+      empty.style.color = "#888";
+      empty.textContent = "暂无可选单人角色。";
+      list.appendChild(empty);
+      updateMcpServiceAllowedCallerVisibility();
+      return;
+    }
+
+    for (const option of options) {
+      const label = document.createElement("label");
+      label.style.display = "flex";
+      label.style.alignItems = "center";
+      label.style.gap = "6px";
+      label.style.fontSize = "13px";
+      label.style.color = "#555";
+
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.className = "mcp-service-allowed-caller-checkbox";
+      input.value = option.id;
+      input.checked = selectedSet.has(normalizeMcpServiceCallerKey(option.id)) ||
+        selectedSet.has(normalizeMcpServiceCallerKey(option.name)) ||
+        selectedSet.has(normalizeMcpServiceCallerKey(option.originalName));
+
+      const text = document.createElement("span");
+      text.textContent = option.originalName && option.originalName !== option.name
+        ? option.name + "（" + option.originalName + "）"
+        : option.name;
+
+      label.appendChild(input);
+      label.appendChild(text);
+      list.appendChild(label);
+    }
+
+    updateMcpServiceAllowedCallerVisibility();
+  }
+
+  function getSelectedMcpServiceAllowedCallerIds() {
+    return Array.from(document.querySelectorAll(".mcp-service-allowed-caller-checkbox:checked"))
+      .map(input => input.value)
+      .filter(Boolean);
+  }
+
+  function formatMcpServiceAllowedCallerLabel(service) {
+    const mode = service && service.allowedCallerMode ? String(service.allowedCallerMode) : "all";
+    if (mode !== "selected") return "全部";
+
+    const ids = Array.isArray(service && service.allowedCallerIds) ? service.allowedCallerIds : [];
+    const options = getMcpServiceAllowedCallerOptions();
+    const nameMap = new Map(options.map(option => [option.id, option.name]));
+    const names = ids.map(id => nameMap.get(id) || id).filter(Boolean);
+
+    if (names.length) return names.join(", ");
+    if (service && service.allowedCallersText) return String(service.allowedCallersText).trim();
+    return "未选择";
+  }
+
   function getMcpServiceFormData() {
     const nameInput = document.getElementById('mcp-service-name-input');
     const urlInput = document.getElementById('mcp-service-url-input');
@@ -9428,6 +9608,8 @@
     const headerValueInput = document.getElementById('mcp-service-header-value-input');
     const toolNameInput = document.getElementById('mcp-service-tool-name-input');
     const toolArgsInput = document.getElementById('mcp-service-tool-args-input');
+    const triggerKeywordsInput = document.getElementById('mcp-service-trigger-keywords-input');
+    const allowedCallersInput = document.getElementById('mcp-service-allowed-callers-input');
 
     const url = urlInput ? urlInput.value.trim() : '';
     const name = nameInput && nameInput.value.trim() ? nameInput.value.trim() : deriveMcpServiceName(url);
@@ -9442,7 +9624,11 @@
       headerName: headerNameInput ? headerNameInput.value.trim() : '',
       headerValue: headerValueInput ? headerValueInput.value.trim() : '',
       toolName: toolNameInput ? toolNameInput.value.trim() : '',
-      toolArgumentsText: toolArgsInput ? toolArgsInput.value.trim() : ''
+      toolArgumentsText: toolArgsInput ? toolArgsInput.value.trim() : '',
+      allowedCallerMode: getMcpServiceAllowedCallerMode(),
+      allowedCallerIds: getSelectedMcpServiceAllowedCallerIds(),
+      allowedCallersText: getMcpServiceAllowedCallerMode() === 'selected' ? getSelectedMcpServiceAllowedCallerIds().join(',') : '',
+      triggerKeywordsText: triggerKeywordsInput ? triggerKeywordsInput.value.trim() : ''
     };
   }
 
@@ -9457,6 +9643,7 @@
     const headerValueInput = document.getElementById('mcp-service-header-value-input');
     const toolNameInput = document.getElementById('mcp-service-tool-name-input');
     const toolArgsInput = document.getElementById('mcp-service-tool-args-input');
+    const triggerKeywordsInput = document.getElementById('mcp-service-trigger-keywords-input');
 
     if (nameInput) nameInput.value = service?.name || '';
     if (urlInput) urlInput.value = service?.url || '';
@@ -9468,6 +9655,18 @@
     if (headerValueInput) headerValueInput.value = service?.headerValue || '';
     if (toolNameInput && typeof service?.toolName === 'string') toolNameInput.value = service.toolName;
     if (toolArgsInput && typeof service?.toolArgumentsText === 'string') toolArgsInput.value = service.toolArgumentsText;
+
+    const legacyCallerValues = service?.allowedCallersText
+      ? String(service.allowedCallersText).split(/[，,;；\n\r]+/).map(item => item.trim()).filter(Boolean)
+      : Array.isArray(service?.allowedCallers)
+        ? service.allowedCallers
+        : [];
+    const selectedCallerValues = Array.isArray(service?.allowedCallerIds) ? service.allowedCallerIds : legacyCallerValues;
+    const callerMode = service?.allowedCallerMode || (selectedCallerValues.length ? 'selected' : 'all');
+    renderMcpServiceAllowedCallerCheckboxes(selectedCallerValues);
+    setMcpServiceAllowedCallerMode(callerMode);
+
+    if (triggerKeywordsInput) triggerKeywordsInput.value = service?.triggerKeywordsText || '';
 
     updateMcpServiceAuthFieldsVisibility();
   }
@@ -9519,6 +9718,10 @@
         headerValue: form.headerValue,
         toolName: form.toolName,
         toolArgumentsText: form.toolArgumentsText,
+        allowedCallerMode: form.allowedCallerMode,
+        allowedCallerIds: form.allowedCallerIds,
+        allowedCallersText: form.allowedCallersText,
+        triggerKeywordsText: form.triggerKeywordsText,
         createdAt: now,
         updatedAt: now
       });
@@ -9535,6 +9738,10 @@
         headerValue: form.headerValue,
         toolName: form.toolName,
         toolArgumentsText: form.toolArgumentsText,
+        allowedCallerMode: form.allowedCallerMode,
+        allowedCallerIds: form.allowedCallerIds,
+        allowedCallersText: form.allowedCallersText,
+        triggerKeywordsText: form.triggerKeywordsText,
         updatedAt: now
       };
     }
@@ -9650,6 +9857,10 @@
         ? ' · 工具数：' + Number(service.toolsCount || 0)
         : '';
       const serverText = service.serverName ? ' · server：' + service.serverName : '';
+      const allowedCallersText = ' · 允许：' + formatMcpServiceAllowedCallerLabel(service);
+      const triggerKeywordsText = service.triggerKeywordsText && String(service.triggerKeywordsText).trim()
+        ? ' · 触发词：' + String(service.triggerKeywordsText).trim().replace(/\s+/g, ' ')
+        : '';
       const authText = ' · 认证：' + (
         service.authType === 'bearer'
           ? 'Bearer'
@@ -9662,6 +9873,8 @@
         (service.enabled === false ? '禁用' : '启用') +
         ' · 模式：' + (service.mode || 'tools') +
         authText +
+        allowedCallersText +
+        triggerKeywordsText +
         toolsText +
         serverText +
         ' · ' + service.url;

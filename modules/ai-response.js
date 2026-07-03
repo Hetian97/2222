@@ -109,7 +109,7 @@
     return context;
   }
 
-  function buildEnabledMcpServicesPrompt() {
+  function buildEnabledMcpServicesPrompt(chat, messagesPayload) {
     try {
       const raw = localStorage.getItem('mcpServiceConfigs');
       if (!raw) return '';
@@ -117,14 +117,27 @@
       const services = JSON.parse(raw);
       if (!Array.isArray(services)) return '';
 
+      const actor = buildExternalMcpActorContext(chat, "chat");
+      const latestUserText = getLatestUserTextForExternalMcpMemory(messagesPayload);
+
       const enabledServices = services.filter(service => {
         const mode = service && service.mode ? String(service.mode) : 'tools';
         return service &&
           service.enabled !== false &&
           (mode === 'tools' || mode === 'all') &&
           Array.isArray(service.tools) &&
-          service.tools.length > 0;
+          service.tools.length > 0 &&
+          isExternalMcpServiceAllowedForActor(service, actor) &&
+          isExternalMcpServiceTriggeredByMessage(service, latestUserText);
       });
+
+      console.log("[MCP Directory] 工具目录服务:", enabledServices.map(service => ({
+        name: service.name || service.url,
+        mode: service.mode || "tools",
+        allowed: describeExternalMcpAllowedCallers(service),
+        triggerKeywords: parseExternalMcpTriggerKeywords(service),
+        latestUserText
+      })));
 
       if (!enabledServices.length) return '';
 
@@ -386,7 +399,97 @@
     return classifyExternalMcpToolSafety(toolName, description) === "read";
   }
 
+  function parseExternalMcpAllowedCallers(service) {
+    const rawParts = [];
+
+    if (Array.isArray(service && service.allowedCallerIds)) {
+      rawParts.push(...service.allowedCallerIds);
+    }
+
+    if (service && typeof service.allowedCallersText === "string") {
+      rawParts.push(service.allowedCallersText);
+    }
+
+    if (Array.isArray(service && service.allowedCallers)) {
+      rawParts.push(...service.allowedCallers);
+    }
+
+    const raw = rawParts.join(",");
+    const mode = service && service.allowedCallerMode
+      ? String(service.allowedCallerMode)
+      : raw.trim()
+        ? "selected"
+        : "all";
+
+    if (mode !== "selected") return [];
+
+    return String(raw || "")
+      .split(/[，,;；\n\r]+/)
+      .map(item => item.trim())
+      .filter(Boolean);
+  }
+
+  function normalizeExternalMcpCallerName(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+
+  function getExternalMcpActorIdentityList(actor) {
+    if (!actor || typeof actor !== "object") return [];
+
+    return [
+      actor.characterName,
+      actor.originalName,
+      actor.chatName,
+      actor.chatId,
+      actor.characterId
+    ]
+      .map(normalizeExternalMcpCallerName)
+      .filter(Boolean);
+  }
+
+  function isExternalMcpServiceAllowedForActor(service, actor) {
+    const allowed = parseExternalMcpAllowedCallers(service);
+    if (!allowed.length) return true;
+
+    const allowedSet = new Set(allowed.map(normalizeExternalMcpCallerName).filter(Boolean));
+    if (allowedSet.has("*") || allowedSet.has("all") || allowedSet.has("全部")) return true;
+
+    const actorNames = getExternalMcpActorIdentityList(actor);
+    if (!actorNames.length) return false;
+
+    return actorNames.some(name => allowedSet.has(name));
+  }
+
+  function parseExternalMcpTriggerKeywords(service) {
+    const raw = service && typeof service.triggerKeywordsText === "string"
+      ? service.triggerKeywordsText
+      : Array.isArray(service && service.triggerKeywords)
+        ? service.triggerKeywords.join(",")
+        : "";
+
+    return String(raw || "")
+      .split(/[，,;；\n\r]+/)
+      .map(item => item.trim().toLowerCase())
+      .filter(Boolean);
+  }
+
+  function isExternalMcpServiceTriggeredByMessage(service, latestUserText) {
+    const keywords = parseExternalMcpTriggerKeywords(service);
+    if (!keywords.length) return true;
+
+    const text = String(latestUserText || "").toLowerCase();
+    if (!text.trim()) return false;
+
+    return keywords.some(keyword => text.includes(keyword));
+  }
+
+  function describeExternalMcpAllowedCallers(service) {
+    const allowed = parseExternalMcpAllowedCallers(service);
+    return allowed.length ? allowed.join(", ") : "全部";
+  }
+
   function findExternalMcpServiceForRequest(request) {
+    const actor = request && request.actor ? request.actor : null;
     const services = getExternalMcpServiceConfigsForChat().filter(service => {
       const mode = service && service.mode ? String(service.mode) : "tools";
       return service &&
@@ -399,18 +502,26 @@
 
     const requestedName = request && request.serviceName ? String(request.serviceName).trim() : "";
 
+    let selected = null;
+
     if (requestedName) {
-      const exact = services.find(service =>
+      selected = services.find(service =>
         service.name === requestedName ||
         service.url === requestedName ||
         service.serverName === requestedName
-      );
-      if (exact) return exact;
+      ) || null;
+    } else if (services.length === 1) {
+      selected = services[0];
     }
 
-    if (services.length === 1) return services[0];
+    if (!selected) return null;
 
-    return null;
+    if (!isExternalMcpServiceAllowedForActor(selected, actor)) {
+      const actorNames = getExternalMcpActorIdentityList(actor).join(", ") || "unknown";
+      throw new Error("当前调用者无权使用 MCP 服务：" + (selected.name || selected.url) + "。当前调用者：" + actorNames + "；允许调用者：" + describeExternalMcpAllowedCallers(selected));
+    }
+
+    return selected;
   }
 
   function getExternalMcpActorCacheScope(actor) {
@@ -506,7 +617,7 @@
     };
   }
 
-  function getExternalMcpMemoryServicesForChat() {
+  function getExternalMcpMemoryServicesForChat(actor, latestUserText) {
     return getExternalMcpServiceConfigsForChat().filter(service => {
       const mode = service && service.mode ? String(service.mode) : "tools";
       const toolName = service && service.toolName ? String(service.toolName).trim() : "";
@@ -514,7 +625,9 @@
         service.enabled !== false &&
         (mode === "memory" || mode === "all") &&
         service.url &&
-        toolName;
+        toolName &&
+        isExternalMcpServiceAllowedForActor(service, actor) &&
+        isExternalMcpServiceTriggeredByMessage(service, latestUserText);
     });
   }
 
@@ -652,7 +765,9 @@
   }
 
   async function buildExternalMcpMemoryContextForChat(chat, messagesPayload) {
-    const services = getExternalMcpMemoryServicesForChat();
+    const memoryActorForFilter = buildExternalMcpActorContext(chat, "memory");
+    const memoryLatestUserText = getLatestUserTextForExternalMcpMemory(messagesPayload);
+    const services = getExternalMcpMemoryServicesForChat(memoryActorForFilter, memoryLatestUserText);
     console.log("[MCP Memory] 自动检索服务数量:", services.length, services.map(service => ({
       name: service.name || service.url,
       mode: service.mode,
@@ -684,7 +799,7 @@
       try {
         const args = parseExternalMcpMemoryArguments(service, chat, messagesPayload);
         const authPayload = getExternalMcpAuthPayloadFromService(service);
-        const memoryActor = buildExternalMcpActorContext(chat, "memory");
+        const memoryActor = memoryActorForFilter;
 
         const memoryCacheKey = buildExternalMcpToolCacheKey(service, toolName, args, memoryActor);
         const memoryCachedData = getExternalMcpToolCachedResult(memoryCacheKey);
@@ -4503,6 +4618,20 @@ ${getActiveThoughtsPrompt()}
       }
 
       const shouldEnableExternalMcpForThisChat = !chat.isGroup;
+      const externalMcpNoFakeToolClaimsPrompt = shouldEnableExternalMcpForThisChat ? [
+        "【外部 MCP 工具真实性规则】",
+        "你不能假装已经调用、访问、读取、写入、搜索、控制、购买、下单、发送、删除、更新或执行任何外部 MCP 工具。",
+        "除系统明确给出的 external_mcp_tool_call 代码块格式外，你绝对不能输出任何其他工具调用格式。",
+        "禁止输出 type 为 tool_code、tool_call、function_call、function、action、mcp_call、browser、web_search 或任何未定义工具指令的 JSON。",
+        "如果当前没有外部 MCP 工具目录，说明本轮没有可调用的外部工具；此时必须自然语言回复，不能输出任何工具调用 JSON。",
+        "只有当上文明确出现【外部 MCP 记忆上下文】，或本轮系统真实执行 external_mcp_tool_call 并返回工具结果后，你才可以声称自己依据了外部工具结果。",
+        "如果当前没有可用的外部 MCP 工具目录，或没有实际工具返回结果，即使用户要求你查找、读取、写入、控制、下单或执行外部操作，也必须如实说明当前没有实际工具结果，不能编造执行结果。",
+        "如果用户只是普通聊天，不需要外部工具，就正常回复；但不要声称自己已经使用过外部工具。"
+      ].join("\n") : "";
+
+      if (externalMcpNoFakeToolClaimsPrompt) {
+        systemPrompt += "\n\n" + externalMcpNoFakeToolClaimsPrompt;
+      }
       const externalMcpMemoryContextForMainChat = shouldEnableExternalMcpForThisChat ? await buildExternalMcpMemoryContextForChat(chat, messagesPayload) : "";
 
       if (externalMcpMemoryContextForMainChat) {
@@ -4510,7 +4639,7 @@ ${getActiveThoughtsPrompt()}
         systemPrompt += '\n\n' + externalMcpMemoryContextForMainChat;
       }
 
-      const mcpToolDirectoryPromptForMainChat = shouldEnableExternalMcpForThisChat ? buildEnabledMcpServicesPrompt() : "";
+      const mcpToolDirectoryPromptForMainChat = shouldEnableExternalMcpForThisChat ? buildEnabledMcpServicesPrompt(chat, messagesPayload) : "";
 
       if (mcpToolDirectoryPromptForMainChat) {
         systemPrompt += '\n\n' + mcpToolDirectoryPromptForMainChat;
@@ -4685,7 +4814,34 @@ ${getActiveThoughtsPrompt()}
       lastRawAiResponse = aiResponseContent;
       lastResponseTimestamps = [];
       chat.history = chat.history.filter(msg => !msg.isTemporary);
-      const messagesArray = parseAiResponse(aiResponseContent);
+      let messagesArray = parseAiResponse(aiResponseContent);
+
+      const hasExternalMcpToolDirectoryForThisTurn = !!(
+        typeof mcpToolDirectoryPromptForMainChat === "string" &&
+        mcpToolDirectoryPromptForMainChat.trim()
+      );
+
+      const pseudoToolTypesWithoutDirectory = new Set([
+        "external_mcp_tool_call",
+        "tool_code",
+        "tool_call",
+        "function_call",
+        "function",
+        "action",
+        "mcp_call",
+        "browser",
+        "web_search"
+      ]);
+
+      if (!hasExternalMcpToolDirectoryForThisTurn && Array.isArray(messagesArray) && messagesArray.some(item => item && pseudoToolTypesWithoutDirectory.has(String(item.type || "")))) {
+        console.warn("[MCP Guard] 已拦截无工具目录时的伪工具 JSON:", messagesArray);
+        messagesArray = [{
+          type: "text",
+          content: "我现在没有可用的外部 MCP 工具，也没有实际工具返回结果，所以不能执行这个外部操作或声称已经完成。"
+        }];
+        aiResponseContent = JSON.stringify(messagesArray);
+        lastRawAiResponse = aiResponseContent;
+      }
 
       let consolidatedMessages = [];
       if (chat.settings.isOfflineMode) {
