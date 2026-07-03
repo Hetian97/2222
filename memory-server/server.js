@@ -2010,6 +2010,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/external-mcp/tools-call' && req.method === 'POST') {
     try {
       const body = await readRequestBody(req);
+      const actor = body.actor && typeof body.actor === 'object' ? body.actor : null;
       const result = await callExternalMcpTool(
         body.url || body.serviceUrl || body.mcpUrl || '',
         body.toolName || body.name || '',
@@ -2020,6 +2021,10 @@ const server = http.createServer(async (req, res) => {
           timeoutMs: body.timeoutMs || 30000
         }
       );
+
+      if (actor && result && typeof result === 'object') {
+        result.actor = actor;
+      }
 
       sendJson(res, 200, result);
     } catch (error) {

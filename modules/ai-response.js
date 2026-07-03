@@ -337,12 +337,13 @@
     }).join(",") + "}";
   }
 
-  function buildExternalMcpToolCacheKey(service, toolName, args) {
+  function buildExternalMcpToolCacheKey(service, toolName, args, actor) {
     return stableStringifyExternalMcpCacheValue({
       url: service && service.url ? String(service.url) : "",
       name: service && service.name ? String(service.name) : "",
       toolName: toolName || "",
-      arguments: args && typeof args === "object" ? args : {}
+      arguments: args && typeof args === "object" ? args : {},
+      actor: getExternalMcpActorCacheScope(actor)
     });
   }
 
@@ -412,7 +413,38 @@
     return null;
   }
 
-  async function executeExternalMcpToolRequest(request) {
+  function getExternalMcpActorCacheScope(actor) {
+    if (!actor || typeof actor !== "object") return {};
+
+    return {
+      source: actor.source || "",
+      chatId: actor.chatId || "",
+      chatName: actor.chatName || "",
+      characterId: actor.characterId || "",
+      characterName: actor.characterName || "",
+      originalName: actor.originalName || "",
+      isGroup: !!actor.isGroup,
+      isOfflineMode: !!actor.isOfflineMode
+    };
+  }
+
+  function buildExternalMcpActorContext(chat, source) {
+    const character = chat && chat.character && typeof chat.character === "object" ? chat.character : null;
+
+    return {
+      source: source || "chat",
+      chatId: chat && (chat.id || chat.chatId || chat.conversationId) ? String(chat.id || chat.chatId || chat.conversationId) : "",
+      chatName: chat && (chat.name || chat.title || chat.chatName) ? String(chat.name || chat.title || chat.chatName) : "",
+      characterId: chat && (chat.characterId || (character && character.id)) ? String(chat.characterId || character.id) : "",
+      characterName: chat && (chat.characterName || (character && character.name) || chat.name || chat.title) ? String(chat.characterName || (character && character.name) || chat.name || chat.title) : "",
+      originalName: chat && (chat.originalName || (character && character.originalName)) ? String(chat.originalName || character.originalName) : "",
+      isGroup: !!(chat && chat.isGroup),
+      isOfflineMode: !!(chat && (chat.isOfflineMode || chat.offlineMode || chat.isOffline)),
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  async function executeExternalMcpToolRequest(request, actorContext) {
     const service = findExternalMcpServiceForRequest(request);
     if (!service) {
       throw new Error("找不到匹配的已启用 MCP 服务：" + (request && request.serviceName ? request.serviceName : ""));
@@ -425,8 +457,9 @@
     }
 
     const args = request.arguments && typeof request.arguments === "object" ? request.arguments : {};
+    const actor = actorContext || (request && request.actor) || null;
     const shouldUseCache = shouldCacheExternalMcpTool(service, toolName);
-    const cacheKey = shouldUseCache ? buildExternalMcpToolCacheKey(service, toolName, args) : "";
+    const cacheKey = shouldUseCache ? buildExternalMcpToolCacheKey(service, toolName, args, actor) : "";
     const cachedData = shouldUseCache ? getExternalMcpToolCachedResult(cacheKey) : null;
 
     if (cachedData) {
@@ -434,6 +467,7 @@
         serviceName: service.name || service.url,
         toolName,
         arguments: args,
+        actor,
         data: cachedData,
         cached: true
       };
@@ -447,6 +481,7 @@
         ...authPayload,
         toolName,
         arguments: args,
+        actor,
         timeoutMs: 30000
       })
     });
@@ -465,6 +500,7 @@
       serviceName: service.name || service.url,
       toolName,
       arguments: args,
+      actor,
       data,
       cached: false
     };
@@ -648,14 +684,16 @@
       try {
         const args = parseExternalMcpMemoryArguments(service, chat, messagesPayload);
         const authPayload = getExternalMcpAuthPayloadFromService(service);
+        const memoryActor = buildExternalMcpActorContext(chat, "memory");
 
-        const memoryCacheKey = buildExternalMcpToolCacheKey(service, toolName, args);
+        const memoryCacheKey = buildExternalMcpToolCacheKey(service, toolName, args, memoryActor);
         const memoryCachedData = getExternalMcpToolCachedResult(memoryCacheKey);
 
         console.log("[MCP Memory] 自动检索开始:", {
           serviceName,
           toolName,
           args,
+          actor: memoryActor,
           cached: !!memoryCachedData
         });
 
@@ -676,6 +714,7 @@
               ...authPayload,
               toolName,
               arguments: args && typeof args === "object" ? args : {},
+              actor: memoryActor,
               timeoutMs: 15000
             })
           });
@@ -4765,6 +4804,13 @@ ${getActiveThoughtsPrompt()}
             "安全分类：" + safety,
             "策略：" + safetyText,
             "",
+            "调用来源：" + ((request && request.actor && request.actor.source) || "unknown"),
+            "来源角色：" + ((request && request.actor && request.actor.characterName) || "(未知角色)"),
+            "聊天名称：" + ((request && request.actor && request.actor.chatName) || "(未知聊天)"),
+            "chatId：" + ((request && request.actor && request.actor.chatId) || ""),
+            "群聊：" + ((request && request.actor && request.actor.isGroup) ? "是" : "否"),
+            "线下模式：" + ((request && request.actor && request.actor.isOfflineMode) ? "是" : "否"),
+            "",
             "参数：",
             argsPreview.length > 2000
               ? argsPreview.slice(0, 2000) + "\n...（参数过长，已截断显示）"
@@ -4794,12 +4840,15 @@ ${getActiveThoughtsPrompt()}
         }];
 
         const runExternalMcpToolRequest = async (request, stepLabel) => {
-          if (!confirmExternalMcpToolRequest(request, stepLabel)) {
+          const actor = buildExternalMcpActorContext(chat, "chat");
+          const requestWithActor = Object.assign({}, request || {}, { actor });
+
+          if (!confirmExternalMcpToolRequest(requestWithActor, stepLabel)) {
             return { approved: false, result: null };
           }
 
-          console.log("用户已确认外部 MCP 工具调用，开始执行:", stepLabel, request);
-          const result = await executeExternalMcpToolRequest(request);
+          console.log("用户已确认外部 MCP 工具调用，开始执行:", stepLabel, requestWithActor);
+          const result = await executeExternalMcpToolRequest(requestWithActor, actor);
           return { approved: true, result };
         };
 
