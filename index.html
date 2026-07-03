@@ -66,7 +66,7 @@
   <script src="modules/chat-interface.js?v=0.0.37" defer></script>
   <script src="modules/chat-input.js?v=0.0.37" defer></script>
   <!-- 第四层：AI 核心 -->
-  <script src="modules/ai-response.js?v=0.0.65" defer></script>
+  <script src="modules/ai-response.js?v=0.0.66" defer></script>
   <script src="modules/ai-group.js?v=0.0.36" defer></script>
   <!-- 第五层：功能模块 -->
   <script src="modules/music-player.js?v=0.0.36" defer></script>
@@ -1874,7 +1874,7 @@
             </div>
 
             <label style="font-size:13px;color:#555;margin-top:8px;">toolName</label>
-            <input id="mcp-service-tool-name-input" type="text" value="search" style="
+            <input id="mcp-service-tool-name-input" type="text" value="search" list="mcp-service-tool-name-list" oninput="fillMcpServiceArgumentsTemplateFromToolName()" onchange="fillMcpServiceArgumentsTemplateFromToolName()" style="
               width:100%;
               box-sizing:border-box;
               border:1px solid rgba(0,0,0,0.12);
@@ -1883,6 +1883,7 @@
               font-size:13px;
               background:#fff;
             ">
+            <datalist id="mcp-service-tool-name-list"></datalist>
 
             <label style="font-size:13px;color:#555;">arguments JSON</label>
             <textarea id="mcp-service-tool-args-input" style="
@@ -9527,6 +9528,8 @@
 
     setMcpServiceSelectedId(id);
     fillMcpServiceForm(service);
+    refreshMcpServiceToolNameDatalist();
+    applyFirstMcpServiceToolTemplateFromCache();
     setMcpServiceStatus(service.enabled === false ? '已选择 · 禁用' : '已选择 · 启用', service.enabled === false ? '#ff9500' : '#34c759');
     setMcpServiceOutput('已选择 MCP 服务：' + service.name + '\n' + service.url);
     renderMcpServiceList();
@@ -9692,6 +9695,136 @@
     } catch {}
   }
 
+  function compactMcpServiceSchemaNodeForCache(node, depth = 0) {
+    if (!node || typeof node !== "object" || depth > 3) return {};
+
+    const compact = {};
+    const simpleKeys = ["type", "format", "default", "minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems"];
+
+    for (const key of simpleKeys) {
+      if (typeof node[key] !== "undefined") compact[key] = node[key];
+    }
+
+    if (typeof node.description === "string") {
+      compact.description = node.description.replace(/\s+/g, " ").trim().slice(0, 300);
+    }
+
+    if (Array.isArray(node.enum)) {
+      compact.enum = node.enum.slice(0, 30);
+    }
+
+    if (Array.isArray(node.required)) {
+      compact.required = node.required.slice(0, 80);
+    }
+
+    if (node.items && depth < 3) {
+      compact.items = compactMcpServiceSchemaNodeForCache(node.items, depth + 1);
+    }
+
+    if (node.properties && typeof node.properties === "object" && depth < 3) {
+      compact.properties = {};
+      for (const [key, value] of Object.entries(node.properties).slice(0, 120)) {
+        compact.properties[key] = compactMcpServiceSchemaNodeForCache(value, depth + 1);
+      }
+    }
+
+    return compact;
+  }
+
+  function compactMcpServiceInputSchemaForCache(schema) {
+    if (!schema || typeof schema !== "object") return null;
+    return compactMcpServiceSchemaNodeForCache(schema, 0);
+  }
+
+  function buildMcpServiceArgumentValueFromSchema(schema, depth = 0) {
+    if (!schema || typeof schema !== "object" || depth > 3) return null;
+
+    if (typeof schema.default !== "undefined") return schema.default;
+    if (Array.isArray(schema.enum) && schema.enum.length > 0) return schema.enum[0];
+
+    const rawType = Array.isArray(schema.type) ? schema.type[0] : schema.type;
+
+    if (rawType === "string") return "";
+    if (rawType === "number" || rawType === "integer") return 0;
+    if (rawType === "boolean") return false;
+    if (rawType === "array") return [];
+
+    if (rawType === "object" || schema.properties) {
+      const result = {};
+      const props = schema.properties && typeof schema.properties === "object" ? schema.properties : {};
+      for (const [key, value] of Object.entries(props)) {
+        result[key] = buildMcpServiceArgumentValueFromSchema(value, depth + 1);
+      }
+      return result;
+    }
+
+    return null;
+  }
+
+  function buildMcpServiceArgumentsTemplate(tool) {
+    const schema = tool && tool.inputSchema ? tool.inputSchema : null;
+    const props = schema && schema.properties && typeof schema.properties === "object" ? schema.properties : {};
+    const template = {};
+
+    for (const [key, value] of Object.entries(props)) {
+      template[key] = buildMcpServiceArgumentValueFromSchema(value, 0);
+    }
+
+    return template;
+  }
+
+  function getSelectedMcpServiceConfig() {
+    const selectedId = getMcpServiceSelectedId();
+    if (!selectedId) return null;
+    return getMcpServiceConfigs().find(item => item.id === selectedId) || null;
+  }
+
+  function refreshMcpServiceToolNameDatalist() {
+    const datalist = document.getElementById("mcp-service-tool-name-list");
+    if (!datalist) return;
+
+    const service = getSelectedMcpServiceConfig();
+    const tools = service && Array.isArray(service.tools) ? service.tools : [];
+
+    datalist.innerHTML = tools.map(tool => {
+      const name = tool && tool.name ? String(tool.name) : "";
+      if (!name) return "";
+      return `<option value="${name.replace(/"/g, "&quot;")}"></option>`;
+    }).join("");
+  }
+
+  function fillMcpServiceArgumentsTemplateFromToolName() {
+    const input = document.getElementById("mcp-service-tool-name-input");
+    const textarea = document.getElementById("mcp-service-tool-args-input");
+    if (!input || !textarea) return false;
+
+    const toolName = input.value.trim();
+    if (!toolName) return false;
+
+    const service = getSelectedMcpServiceConfig();
+    const tools = service && Array.isArray(service.tools) ? service.tools : [];
+    const tool = tools.find(item => item && item.name === toolName);
+
+    if (!tool) return false;
+
+    textarea.value = JSON.stringify(buildMcpServiceArgumentsTemplate(tool), null, 2);
+    return true;
+  }
+
+  function applyFirstMcpServiceToolTemplateFromCache() {
+    const input = document.getElementById("mcp-service-tool-name-input");
+    if (!input) return;
+
+    const service = getSelectedMcpServiceConfig();
+    const tools = service && Array.isArray(service.tools) ? service.tools : [];
+    const firstTool = tools.find(tool => tool && tool.name);
+
+    if (!firstTool) return;
+
+    input.value = firstTool.name;
+    fillMcpServiceArgumentsTemplateFromToolName();
+  }
+
   function parseMcpServiceArguments() {
     const textarea = document.getElementById('mcp-service-tool-args-input');
     const text = textarea ? textarea.value.trim() : '{}';
@@ -9747,7 +9880,8 @@
       toolsCount: typeof data?.count !== 'undefined' ? Number(data.count || 0) : tools.length,
       tools: tools.map(tool => ({
         name: tool.name || '',
-        description: tool.description || ''
+        description: tool.description || '',
+        inputSchema: compactMcpServiceInputSchemaForCache(tool.inputSchema || null)
       })),
       serverName: serverInfo.name || '',
       serverVersion: serverInfo.version || '',
@@ -9790,6 +9924,8 @@
       }
 
       updateSelectedMcpServiceToolsCache(data);
+      refreshMcpServiceToolNameDatalist();
+      applyFirstMcpServiceToolTemplateFromCache();
       setMcpServiceStatus('在线 · tools/list ✓', '#34c759');
       setMcpServiceOutput(formatMcpServiceTools(data));
     } catch (error) {
