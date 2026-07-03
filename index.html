@@ -9413,6 +9413,8 @@
     const bearerTokenInput = document.getElementById('mcp-service-bearer-token-input');
     const headerNameInput = document.getElementById('mcp-service-header-name-input');
     const headerValueInput = document.getElementById('mcp-service-header-value-input');
+    const toolNameInput = document.getElementById('mcp-service-tool-name-input');
+    const toolArgsInput = document.getElementById('mcp-service-tool-args-input');
 
     const url = urlInput ? urlInput.value.trim() : '';
     const name = nameInput && nameInput.value.trim() ? nameInput.value.trim() : deriveMcpServiceName(url);
@@ -9425,7 +9427,9 @@
       authType: authTypeSelect ? authTypeSelect.value : 'none',
       bearerToken: bearerTokenInput ? bearerTokenInput.value.trim() : '',
       headerName: headerNameInput ? headerNameInput.value.trim() : '',
-      headerValue: headerValueInput ? headerValueInput.value.trim() : ''
+      headerValue: headerValueInput ? headerValueInput.value.trim() : '',
+      toolName: toolNameInput ? toolNameInput.value.trim() : '',
+      toolArgumentsText: toolArgsInput ? toolArgsInput.value.trim() : ''
     };
   }
 
@@ -9438,6 +9442,8 @@
     const bearerTokenInput = document.getElementById('mcp-service-bearer-token-input');
     const headerNameInput = document.getElementById('mcp-service-header-name-input');
     const headerValueInput = document.getElementById('mcp-service-header-value-input');
+    const toolNameInput = document.getElementById('mcp-service-tool-name-input');
+    const toolArgsInput = document.getElementById('mcp-service-tool-args-input');
 
     if (nameInput) nameInput.value = service?.name || '';
     if (urlInput) urlInput.value = service?.url || '';
@@ -9447,6 +9453,8 @@
     if (bearerTokenInput) bearerTokenInput.value = service?.bearerToken || '';
     if (headerNameInput) headerNameInput.value = service?.headerName || '';
     if (headerValueInput) headerValueInput.value = service?.headerValue || '';
+    if (toolNameInput && typeof service?.toolName === 'string') toolNameInput.value = service.toolName;
+    if (toolArgsInput && typeof service?.toolArgumentsText === 'string') toolArgsInput.value = service.toolArgumentsText;
 
     updateMcpServiceAuthFieldsVisibility();
   }
@@ -9461,7 +9469,9 @@
       authType: 'none',
       bearerToken: '',
       headerName: '',
-      headerValue: ''
+      headerValue: '',
+      toolName: 'search',
+      toolArgumentsText: '{\n  "query": "OpenAI 最新消息",\n  "limit": 3,\n  "engines": ["bing"]\n}'
     });
     setMcpServiceStatus('新建服务', '#999');
     setMcpServiceOutput('已清空表单。填写名称和 URL 后可以保存为新的 MCP 服务。');
@@ -9494,6 +9504,8 @@
         bearerToken: form.bearerToken,
         headerName: form.headerName,
         headerValue: form.headerValue,
+        toolName: form.toolName,
+        toolArgumentsText: form.toolArgumentsText,
         createdAt: now,
         updatedAt: now
       });
@@ -9508,6 +9520,8 @@
         bearerToken: form.bearerToken,
         headerName: form.headerName,
         headerValue: form.headerValue,
+        toolName: form.toolName,
+        toolArgumentsText: form.toolArgumentsText,
         updatedAt: now
       };
     }
@@ -9529,7 +9543,23 @@
     setMcpServiceSelectedId(id);
     fillMcpServiceForm(service);
     refreshMcpServiceToolNameDatalist();
-    applyFirstMcpServiceToolTemplateFromCache();
+
+    const selectedToolName = service && service.toolName ? String(service.toolName) : '';
+    const selectedToolArgs = service && typeof service.toolArgumentsText === 'string' ? service.toolArgumentsText : '';
+    const toolNameInput = document.getElementById('mcp-service-tool-name-input');
+    const toolArgsInput = document.getElementById('mcp-service-tool-args-input');
+
+    if (selectedToolName && toolNameInput) {
+      toolNameInput.value = selectedToolName;
+      if (selectedToolArgs && toolArgsInput) {
+        toolArgsInput.value = selectedToolArgs;
+      } else {
+        fillMcpServiceArgumentsTemplateFromToolName();
+      }
+    } else {
+      applyFirstMcpServiceToolTemplateFromCache();
+    }
+
     setMcpServiceStatus(service.enabled === false ? '已选择 · 禁用' : '已选择 · 启用', service.enabled === false ? '#ff9500' : '#34c759');
     setMcpServiceOutput('已选择 MCP 服务：' + service.name + '\n' + service.url);
     renderMcpServiceList();
@@ -9924,8 +9954,24 @@
       }
 
       updateSelectedMcpServiceToolsCache(data);
+
+      const selectedServiceAfterToolsList = getSelectedMcpServiceConfig();
       refreshMcpServiceToolNameDatalist();
-      applyFirstMcpServiceToolTemplateFromCache();
+
+      if (selectedServiceAfterToolsList && selectedServiceAfterToolsList.toolName) {
+        const toolNameInput = document.getElementById('mcp-service-tool-name-input');
+        const toolArgsInput = document.getElementById('mcp-service-tool-args-input');
+
+        if (toolNameInput) toolNameInput.value = selectedServiceAfterToolsList.toolName;
+        if (toolArgsInput && typeof selectedServiceAfterToolsList.toolArgumentsText === 'string' && selectedServiceAfterToolsList.toolArgumentsText.trim()) {
+          toolArgsInput.value = selectedServiceAfterToolsList.toolArgumentsText;
+        } else {
+          fillMcpServiceArgumentsTemplateFromToolName();
+        }
+      } else {
+        applyFirstMcpServiceToolTemplateFromCache();
+      }
+
       setMcpServiceStatus('在线 · tools/list ✓', '#34c759');
       setMcpServiceOutput(formatMcpServiceTools(data));
     } catch (error) {
