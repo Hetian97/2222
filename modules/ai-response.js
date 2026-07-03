@@ -145,6 +145,7 @@
         '9. 如果工具列出了 required/properties，你必须严格按照这些参数名生成 arguments。',
         '10. 不要发明未列出的参数名；例如工具需要 block_id/items 时，不要改写成 parent_page_id/content。',
         '11. 如果上文已经出现【外部 MCP 记忆上下文】，说明系统已经自动完成了记忆模式检索；不要为了同一个问题再次输出 external_mcp_tool_call 调用该记忆服务，应该直接根据记忆上下文回答。',
+        '12. 工具安全策略：读取类工具可用于查询；写入类、控制类、交易类工具只能在用户明确要求时使用，且系统会要求用户确认。不要主动使用点单、支付、蓝牙设备、智能家居、删除、写入等高风险工具。',
         '',
         '【Notion 私有日记路由规则】',
         'A. 当用户要求读取、查看、写入、追加、创建、更新 Notion 页面、Notion 数据库、交换日记、夏以昼的日记、夏芷鹤的日记等私有内容时，必须优先使用 Notion 交换日记服务，不要使用 Web Search。',
@@ -185,7 +186,9 @@
           if (!toolName) return;
 
           const description = tool && tool.description ? String(tool.description).replace(/\s+/g, ' ').trim() : '';
-          lines.push('- ' + toolName + (description ? '：' + description : ''));
+          const safety = classifyExternalMcpToolSafety(toolName, description);
+          const safetyText = describeExternalMcpToolSafety(toolName, description);
+          lines.push('- ' + toolName + ' [安全分类：' + safety + '] ' + (description ? '：' + description : '') + '（' + safetyText + '）');
 
           const schema = tool && tool.inputSchema && typeof tool.inputSchema === 'object' ? tool.inputSchema : null;
           const properties = schema && schema.properties && typeof schema.properties === 'object' ? schema.properties : {};
@@ -395,15 +398,33 @@
     });
   }
 
-  function isExternalMcpMemoryReadOnlyTool(toolName) {
-    const name = toolName ? String(toolName).toLowerCase() : "";
-    if (!name) return false;
+  function classifyExternalMcpToolSafety(toolName, description) {
+    const text = [toolName || "", description || ""].join(" ").toLowerCase();
 
-    const blocked = /(create|append|update|delete|remove|write|insert|clear|ingest|post|send|comment|upload|replace|patch)/i;
-    if (blocked.test(name)) return false;
+    if (!text.trim()) return "unknown";
 
-    const allowed = /(search|find|query|retrieve|read|inspect|list|fetch|get|open)/i;
-    return allowed.test(name);
+    const controlPattern = /(order|pay|payment|checkout|purchase|buy|cart|mcdonald|restaurant|delivery|bluetooth|ble|wearable|band|watch|smart[_-]?home|device|control|command|light|lamp|door|lock|unlock|thermostat|ac|air[_-]?conditioner|点单|下单|支付|购买|付款|麦当劳|外卖|蓝牙|手环|手表|智能家居|智能家具|开灯|关灯|开门|关门|门锁|空调|设备控制)/i;
+    if (controlPattern.test(text)) return "control";
+
+    const writePattern = /(create|append|update|delete|remove|write|insert|clear|ingest|post|send|comment|upload|replace|patch|archive|restore|move|rename|创建|追加|更新|删除|移除|写入|插入|清空|发送|评论|上传|替换|移动|重命名)/i;
+    if (writePattern.test(text)) return "write";
+
+    const readPattern = /(search|find|query|retrieve|read|inspect|list|fetch|get|open|crawl|搜索|查找|查询|读取|检索|查看|列表|打开|抓取)/i;
+    if (readPattern.test(text)) return "read";
+
+    return "unknown";
+  }
+
+  function describeExternalMcpToolSafety(toolName, description) {
+    const safety = classifyExternalMcpToolSafety(toolName, description);
+    if (safety === "read") return "读取类：可用于记忆模式，可缓存，主动调用仍会确认。";
+    if (safety === "write") return "写入类：禁止记忆模式自动调用，不缓存，主动调用必须确认。";
+    if (safety === "control") return "控制/交易类：禁止自动调用，不缓存，主动调用必须确认。";
+    return "未知类：默认禁止记忆模式自动调用，不缓存，主动调用必须确认。";
+  }
+
+  function isExternalMcpMemoryReadOnlyTool(toolName, description) {
+    return classifyExternalMcpToolSafety(toolName, description) === "read";
   }
 
   function getLatestUserTextForExternalMcpMemory(messagesPayload) {
@@ -525,10 +546,17 @@
       const serviceName = service.name || service.url || "MCP Memory Service";
       const toolName = service.toolName ? String(service.toolName).trim() : "";
 
-      if (!isExternalMcpMemoryReadOnlyTool(toolName)) {
+      const selectedMemoryTool = service && Array.isArray(service.tools) ? service.tools.find(tool => tool && tool.name === toolName) : null;
+      const selectedMemoryToolDescription = selectedMemoryTool && selectedMemoryTool.description ? String(selectedMemoryTool.description) : "";
+      const selectedMemoryToolSafety = classifyExternalMcpToolSafety(toolName, selectedMemoryToolDescription);
+
+      if (!isExternalMcpMemoryReadOnlyTool(toolName, selectedMemoryToolDescription)) {
         blocks.push([
           "## " + serviceName,
-          "已跳过：记忆模式只允许自动调用读取/搜索类工具，当前 toolName 不安全或不是读类工具：" + toolName
+          "已跳过：记忆模式只允许自动调用读取/搜索类工具。",
+          "当前 toolName：" + toolName,
+          "工具分类：" + selectedMemoryToolSafety,
+          "策略：" + describeExternalMcpToolSafety(toolName, selectedMemoryToolDescription)
         ].join("\n"));
         continue;
       }
@@ -4625,12 +4653,16 @@ ${getActiveThoughtsPrompt()}
           console.log("检测到外部 MCP 工具调用请求，等待用户确认:", stepLabel, request);
 
           const argsPreview = JSON.stringify(request.arguments || {}, null, 2);
+          const safety = classifyExternalMcpToolSafety(request.toolName || "", "");
+          const safetyText = describeExternalMcpToolSafety(request.toolName || "", "");
           const confirmMessage = [
             "检测到角色请求调用外部 MCP 工具。",
             "",
             "步骤：" + stepLabel,
             "服务：" + (request.serviceName || ""),
             "工具：" + (request.toolName || ""),
+            "安全分类：" + safety,
+            "策略：" + safetyText,
             "",
             "参数：",
             argsPreview.length > 2000
