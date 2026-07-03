@@ -146,6 +146,7 @@
         '10. 不要发明未列出的参数名；例如工具需要 block_id/items 时，不要改写成 parent_page_id/content。',
         '11. 如果上文已经出现【外部 MCP 记忆上下文】，说明系统已经自动完成了记忆模式检索；不要为了同一个问题再次输出 external_mcp_tool_call 调用该记忆服务，应该直接根据记忆上下文回答。',
         '12. 工具安全策略：读取类工具可用于查询；写入类、控制类、交易类工具只能在用户明确要求时使用，且系统会要求用户确认。不要主动使用点单、支付、蓝牙设备、智能家居、删除、写入等高风险工具。',
+        '13. 对 search / bing_search / query 等搜索类工具，arguments.query 应尽量使用用户当前问题的核心原句，不要随意改写、扩写或换同义词；这样系统可以复用 5 分钟缓存。只有当用户问题太长或包含明显无关内容时，才做最小化清理。',
         '',
         '【Notion 私有日记路由规则】',
         'A. 当用户要求读取、查看、写入、追加、创建、更新 Notion 页面、Notion 数据库、交换日记、夏以昼的日记、夏芷鹤的日记等私有内容时，必须优先使用 Notion 交换日记服务，不要使用 Web Search。',
@@ -321,6 +322,69 @@
     return payload;
   }
 
+  const EXTERNAL_MCP_TOOL_CACHE_TTL_MS = 5 * 60 * 1000;
+  const externalMcpToolResultCache = new Map();
+
+  function stableStringifyExternalMcpCacheValue(value) {
+    if (value === null || typeof value !== "object") return JSON.stringify(value);
+
+    if (Array.isArray(value)) {
+      return "[" + value.map(item => stableStringifyExternalMcpCacheValue(item)).join(",") + "]";
+    }
+
+    return "{" + Object.keys(value).sort().map(key => {
+      return JSON.stringify(key) + ":" + stableStringifyExternalMcpCacheValue(value[key]);
+    }).join(",") + "}";
+  }
+
+  function buildExternalMcpToolCacheKey(service, toolName, args) {
+    return stableStringifyExternalMcpCacheValue({
+      url: service && service.url ? String(service.url) : "",
+      name: service && service.name ? String(service.name) : "",
+      toolName: toolName || "",
+      arguments: args && typeof args === "object" ? args : {}
+    });
+  }
+
+  function getExternalMcpToolCachedResult(cacheKey) {
+    if (!cacheKey || !externalMcpToolResultCache.has(cacheKey)) return null;
+
+    const entry = externalMcpToolResultCache.get(cacheKey);
+    if (!entry || !entry.expiresAt || Date.now() > entry.expiresAt) {
+      externalMcpToolResultCache.delete(cacheKey);
+      return null;
+    }
+
+    console.log("[MCP Cache] 命中:", entry.label || cacheKey);
+    return entry.value;
+  }
+
+  function setExternalMcpToolCachedResult(cacheKey, value, label) {
+    if (!cacheKey) return;
+
+    externalMcpToolResultCache.set(cacheKey, {
+      value,
+      label: label || "",
+      createdAt: Date.now(),
+      expiresAt: Date.now() + EXTERNAL_MCP_TOOL_CACHE_TTL_MS
+    });
+
+    if (externalMcpToolResultCache.size > 80) {
+      const firstKey = externalMcpToolResultCache.keys().next().value;
+      if (firstKey) externalMcpToolResultCache.delete(firstKey);
+    }
+
+    console.log("[MCP Cache] 写入:", label || cacheKey);
+  }
+
+  function shouldCacheExternalMcpTool(service, toolName) {
+    const tool = service && Array.isArray(service.tools)
+      ? service.tools.find(item => item && item.name === toolName)
+      : null;
+    const description = tool && tool.description ? String(tool.description) : "";
+    return classifyExternalMcpToolSafety(toolName, description) === "read";
+  }
+
   function findExternalMcpServiceForRequest(request) {
     const services = getExternalMcpServiceConfigsForChat().filter(service => {
       const mode = service && service.mode ? String(service.mode) : "tools";
@@ -360,6 +424,21 @@
       throw new Error("MCP 工具调用缺少 toolName。");
     }
 
+    const args = request.arguments && typeof request.arguments === "object" ? request.arguments : {};
+    const shouldUseCache = shouldCacheExternalMcpTool(service, toolName);
+    const cacheKey = shouldUseCache ? buildExternalMcpToolCacheKey(service, toolName, args) : "";
+    const cachedData = shouldUseCache ? getExternalMcpToolCachedResult(cacheKey) : null;
+
+    if (cachedData) {
+      return {
+        serviceName: service.name || service.url,
+        toolName,
+        arguments: args,
+        data: cachedData,
+        cached: true
+      };
+    }
+
     const response = await fetch("http://127.0.0.1:8765/external-mcp/tools-call", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -367,7 +446,7 @@
         url: service.url,
         ...authPayload,
         toolName,
-        arguments: request.arguments && typeof request.arguments === "object" ? request.arguments : {},
+        arguments: args,
         timeoutMs: 30000
       })
     });
@@ -378,11 +457,16 @@
       throw new Error(data.error || ("HTTP " + response.status));
     }
 
+    if (shouldUseCache) {
+      setExternalMcpToolCachedResult(cacheKey, data, (service.name || service.url) + " / " + toolName);
+    }
+
     return {
       serviceName: service.name || service.url,
       toolName,
-      arguments: request.arguments && typeof request.arguments === "object" ? request.arguments : {},
-      data
+      arguments: args,
+      data,
+      cached: false
     };
   }
 
@@ -565,33 +649,50 @@
         const args = parseExternalMcpMemoryArguments(service, chat, messagesPayload);
         const authPayload = getExternalMcpAuthPayloadFromService(service);
 
+        const memoryCacheKey = buildExternalMcpToolCacheKey(service, toolName, args);
+        const memoryCachedData = getExternalMcpToolCachedResult(memoryCacheKey);
+
         console.log("[MCP Memory] 自动检索开始:", {
           serviceName,
           toolName,
-          args
+          args,
+          cached: !!memoryCachedData
         });
 
-        const response = await fetch("http://127.0.0.1:8765/external-mcp/tools-call", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            url: service.url,
-            ...authPayload,
-            toolName,
-            arguments: args && typeof args === "object" ? args : {},
-            timeoutMs: 15000
-          })
-        });
+        let data;
+        let response;
 
-        const data = await response.json().catch(() => ({}));
+        if (memoryCachedData) {
+          data = memoryCachedData;
+          response = { ok: true };
+        } else {
+          response = await fetch("http://127.0.0.1:8765/external-mcp/tools-call", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              url: service.url,
+              ...authPayload,
+              toolName,
+              arguments: args && typeof args === "object" ? args : {},
+              timeoutMs: 15000
+            })
+          });
+
+          data = await response.json().catch(() => ({}));
+          if (data && data.ok) {
+            setExternalMcpToolCachedResult(memoryCacheKey, data, serviceName + " / " + toolName);
+          }
+        }
+
         console.log("[MCP Memory] 自动检索完成:", {
           serviceName,
           toolName,
           httpOk: response.ok,
           ok: data && data.ok,
-          error: data && data.error
+          error: data && data.error,
+          cached: !!memoryCachedData
         });
 
         blocks.push([
