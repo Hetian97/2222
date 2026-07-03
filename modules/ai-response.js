@@ -4117,7 +4117,8 @@ ${getActiveThoughtsPrompt()}
         }
       }
 
-      const mcpToolDirectoryPromptForMainChat = buildEnabledMcpServicesPrompt();
+      const shouldEnableExternalMcpForThisChat = !chat.isGroup;
+      const mcpToolDirectoryPromptForMainChat = shouldEnableExternalMcpForThisChat ? buildEnabledMcpServicesPrompt() : "";
 
       if (mcpToolDirectoryPromptForMainChat) {
         systemPrompt += '\n\n' + mcpToolDirectoryPromptForMainChat;
@@ -4394,7 +4395,7 @@ ${getActiveThoughtsPrompt()}
         }
       }
 
-      const externalMcpToolRequest = findExternalMcpToolRequest(consolidatedMessages, aiResponseContent);
+      const externalMcpToolRequest = shouldEnableExternalMcpForThisChat ? findExternalMcpToolRequest(consolidatedMessages, aiResponseContent) : null;
       if (externalMcpToolRequest) {
         const confirmExternalMcpToolRequest = (request, stepLabel) => {
           console.log("检测到外部 MCP 工具调用请求，等待用户确认:", stepLabel, request);
