@@ -154,6 +154,8 @@
         'D. 写入某个日记数据库时，第一步使用 notion_create_data_source_item_from_values，arguments 必须包含 data_source_id 和 values，其中 values 使用 Name 作为标题、Date 作为日期。',
         'E. 如果用户还提供了正文，创建数据库条目成功后，必须根据工具返回结果中的新 page id，再进行第二步 notion_append_markdown；第二步的 block_id 必须使用新 page id，不要使用 database_id 或 data_source_id。',
         'F. 读取日记列表时，使用 notion_query_data_source 或 notion_query_data_source_by_values；读取某一篇日记正文时，再使用 notion_read_page 读取该条目的 page_id。',
+        'G. 当用户要求读取“最近一篇”“最新一篇”“最近几篇”“最新日记”时，查询日记 data source 必须按 Date 倒序排序；优先使用 notion_query_data_source_by_values，arguments 中包含 sorts: [{ property: "Date", direction: "descending" }]，并把 page_size 设为用户要求的数量；如果用户只说最近一篇，page_size 设为 1。',
+        'H. 如果用户要求读取最近一篇的正文，第一步先按 Date descending 查询得到 page_id，第二步再用 notion_read_page 读取该 page_id；不要只凭标题或默认返回顺序判断最新。',
         '',
         '工具调用请求格式如下：',
         '```external_mcp_tool_call',
