@@ -144,6 +144,7 @@
         '8. arguments 必须是该工具需要的 JSON 参数对象。',
         '9. 如果工具列出了 required/properties，你必须严格按照这些参数名生成 arguments。',
         '10. 不要发明未列出的参数名；例如工具需要 block_id/items 时，不要改写成 parent_page_id/content。',
+        '11. 如果上文已经出现【外部 MCP 记忆上下文】，说明系统已经自动完成了记忆模式检索；不要为了同一个问题再次输出 external_mcp_tool_call 调用该记忆服务，应该直接根据记忆上下文回答。',
         '',
         '【Notion 私有日记路由规则】',
         'A. 当用户要求读取、查看、写入、追加、创建、更新 Notion 页面、Notion 数据库、交换日记、夏以昼的日记、夏芷鹤的日记等私有内容时，必须优先使用 Notion 交换日记服务，不要使用 Web Search。',
@@ -380,6 +381,222 @@
       arguments: request.arguments && typeof request.arguments === "object" ? request.arguments : {},
       data
     };
+  }
+
+  function getExternalMcpMemoryServicesForChat() {
+    return getExternalMcpServiceConfigsForChat().filter(service => {
+      const mode = service && service.mode ? String(service.mode) : "tools";
+      const toolName = service && service.toolName ? String(service.toolName).trim() : "";
+      return service &&
+        service.enabled !== false &&
+        (mode === "memory" || mode === "all") &&
+        service.url &&
+        toolName;
+    });
+  }
+
+  function isExternalMcpMemoryReadOnlyTool(toolName) {
+    const name = toolName ? String(toolName).toLowerCase() : "";
+    if (!name) return false;
+
+    const blocked = /(create|append|update|delete|remove|write|insert|clear|ingest|post|send|comment|upload|replace|patch)/i;
+    if (blocked.test(name)) return false;
+
+    const allowed = /(search|find|query|retrieve|read|inspect|list|fetch|get|open)/i;
+    return allowed.test(name);
+  }
+
+  function getLatestUserTextForExternalMcpMemory(messagesPayload) {
+    if (!Array.isArray(messagesPayload)) return "";
+
+    for (let i = messagesPayload.length - 1; i >= 0; i--) {
+      const msg = messagesPayload[i];
+      if (!msg || msg.role !== "user") continue;
+
+      if (typeof msg.content === "string") return msg.content;
+
+      if (Array.isArray(msg.content)) {
+        const text = msg.content
+          .filter(part => part && part.type === "text")
+          .map(part => part.text || "")
+          .join(" ")
+          .trim();
+        if (text) return text;
+      }
+    }
+
+    return "";
+  }
+
+  function buildRecentMessagesTextForExternalMcpMemory(messagesPayload) {
+    if (!Array.isArray(messagesPayload)) return "";
+
+    return messagesPayload.slice(-8).map(msg => {
+      if (!msg) return "";
+      let content = "";
+      if (typeof msg.content === "string") {
+        content = msg.content;
+      } else if (Array.isArray(msg.content)) {
+        content = msg.content
+          .filter(part => part && part.type === "text")
+          .map(part => part.text || "")
+          .join(" ");
+      } else {
+        content = JSON.stringify(msg.content || "");
+      }
+      return (msg.role || "unknown") + ": " + String(content).slice(0, 800);
+    }).filter(Boolean).join("\n");
+  }
+
+  function cleanExternalMcpMemorySearchText(text) {
+    return String(text || "")
+      .replace(/^\s*\(Timestamp:\s*\d+\)\s*/i, "")
+      .replace(/^\s*\[系统\]\s*/i, "")
+      .replace(/^\s*\[旁白\]\s*/i, "")
+      .trim();
+  }
+
+  function renderExternalMcpMemoryTemplateValue(value, context) {
+    if (typeof value === "string") {
+      return value
+        .replace(/\{\{latestUserMessage\}\}/g, context.latestUserMessage)
+        .replace(/\{\{latestUserMessageClean\}\}/g, context.latestUserMessageClean)
+        .replace(/\{\{recentMessages\}\}/g, context.recentMessages)
+        .replace(/\{\{chatName\}\}/g, context.chatName)
+        .replace(/\{\{chatId\}\}/g, context.chatId)
+        .replace(/\{\{characterName\}\}/g, context.characterName)
+        .replace(/\{\{nowISO\}\}/g, context.nowISO)
+        .replace(/\{\{today\}\}/g, context.today);
+    }
+
+    if (Array.isArray(value)) {
+      return value.map(item => renderExternalMcpMemoryTemplateValue(item, context));
+    }
+
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+        key,
+        renderExternalMcpMemoryTemplateValue(item, context)
+      ]));
+    }
+
+    return value;
+  }
+
+  function parseExternalMcpMemoryArguments(service, chat, messagesPayload) {
+    const rawText = service && service.toolArgumentsText ? String(service.toolArgumentsText).trim() : "{}";
+    const parsed = rawText ? JSON.parse(rawText) : {};
+    const now = new Date();
+
+    const context = {
+      latestUserMessage: getLatestUserTextForExternalMcpMemory(messagesPayload),
+      latestUserMessageClean: cleanExternalMcpMemorySearchText(getLatestUserTextForExternalMcpMemory(messagesPayload)),
+      recentMessages: buildRecentMessagesTextForExternalMcpMemory(messagesPayload),
+      chatName: chat && chat.name ? String(chat.name) : "",
+      chatId: chat && chat.id ? String(chat.id) : "",
+      characterName: chat && (chat.originalName || chat.name) ? String(chat.originalName || chat.name) : "",
+      nowISO: now.toISOString(),
+      today: now.toISOString().slice(0, 10)
+    };
+
+    return renderExternalMcpMemoryTemplateValue(parsed, context);
+  }
+
+  function formatExternalMcpMemoryPayloadForPrompt(payload) {
+    let text = JSON.stringify(payload, null, 2);
+    if (text.length > 6000) {
+      text = text.slice(0, 6000) + "\n...（外部 MCP 记忆结果过长，已截断）";
+    }
+    return text;
+  }
+
+  async function buildExternalMcpMemoryContextForChat(chat, messagesPayload) {
+    const services = getExternalMcpMemoryServicesForChat();
+    console.log("[MCP Memory] 自动检索服务数量:", services.length, services.map(service => ({
+      name: service.name || service.url,
+      mode: service.mode,
+      toolName: service.toolName
+    })));
+    if (!services.length) return "";
+
+    const blocks = [];
+
+    for (const service of services.slice(0, 3)) {
+      const serviceName = service.name || service.url || "MCP Memory Service";
+      const toolName = service.toolName ? String(service.toolName).trim() : "";
+
+      if (!isExternalMcpMemoryReadOnlyTool(toolName)) {
+        blocks.push([
+          "## " + serviceName,
+          "已跳过：记忆模式只允许自动调用读取/搜索类工具，当前 toolName 不安全或不是读类工具：" + toolName
+        ].join("\n"));
+        continue;
+      }
+
+      try {
+        const args = parseExternalMcpMemoryArguments(service, chat, messagesPayload);
+        const authPayload = getExternalMcpAuthPayloadFromService(service);
+
+        console.log("[MCP Memory] 自动检索开始:", {
+          serviceName,
+          toolName,
+          args
+        });
+
+        const response = await fetch("http://127.0.0.1:8765/external-mcp/tools-call", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            url: service.url,
+            ...authPayload,
+            toolName,
+            arguments: args && typeof args === "object" ? args : {},
+            timeoutMs: 15000
+          })
+        });
+
+        const data = await response.json().catch(() => ({}));
+        console.log("[MCP Memory] 自动检索完成:", {
+          serviceName,
+          toolName,
+          httpOk: response.ok,
+          ok: data && data.ok,
+          error: data && data.error
+        });
+
+        blocks.push([
+          "## " + serviceName,
+          "toolName: " + toolName,
+          "arguments:",
+          "```json",
+          formatExternalMcpMemoryPayloadForPrompt(args),
+          "```",
+          "result:",
+          "```json",
+          formatExternalMcpMemoryPayloadForPrompt(data),
+          "```"
+        ].join("\n"));
+      } catch (error) {
+        blocks.push([
+          "## " + serviceName,
+          "自动检索失败：" + (error && error.message ? error.message : String(error))
+        ].join("\n"));
+      }
+    }
+
+    if (!blocks.length) return "";
+
+    return [
+      "【外部 MCP 记忆上下文】",
+      "以下内容来自已启用为“记忆”或“全部”的 MCP 服务，是本轮回复前自动检索到的背景资料。",
+      "这些内容只能作为参考；不要把它说成用户刚刚亲口说过的话。",
+      "重要：记忆模式的 MCP 已经由系统自动调用完成。你必须直接根据这些结果回答，不要再输出 external_mcp_tool_call 去重复调用这些记忆服务。",
+      "如果检索结果不相关，请直接说明结果不相关，并基于已知信息回答或建议换关键词；不要再次调用同一个记忆 MCP。",
+      "",
+      blocks.join("\n\n")
+    ].join("\n");
   }
 
   function formatExternalMcpToolResultForModel(request, result) {
@@ -4118,6 +4335,13 @@ ${getActiveThoughtsPrompt()}
       }
 
       const shouldEnableExternalMcpForThisChat = !chat.isGroup;
+      const externalMcpMemoryContextForMainChat = shouldEnableExternalMcpForThisChat ? await buildExternalMcpMemoryContextForChat(chat, messagesPayload) : "";
+
+      if (externalMcpMemoryContextForMainChat) {
+        console.log("[MCP Memory] 注入 systemPrompt:", externalMcpMemoryContextForMainChat.length);
+        systemPrompt += '\n\n' + externalMcpMemoryContextForMainChat;
+      }
+
       const mcpToolDirectoryPromptForMainChat = shouldEnableExternalMcpForThisChat ? buildEnabledMcpServicesPrompt() : "";
 
       if (mcpToolDirectoryPromptForMainChat) {
