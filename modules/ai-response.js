@@ -142,6 +142,18 @@
         '6. serviceName 必须严格使用下面列出的服务名称。',
         '7. toolName 必须严格使用下面列出的工具名称。',
         '8. arguments 必须是该工具需要的 JSON 参数对象。',
+        '9. 如果工具列出了 required/properties，你必须严格按照这些参数名生成 arguments。',
+        '10. 不要发明未列出的参数名；例如工具需要 block_id/items 时，不要改写成 parent_page_id/content。',
+        '',
+        '【Notion 私有日记路由规则】',
+        'A. 当用户要求读取、查看、写入、追加、创建、更新 Notion 页面、Notion 数据库、交换日记、夏以昼的日记、夏芷鹤的日记等私有内容时，必须优先使用 Notion 交换日记服务，不要使用 Web Search。',
+        'B. Web Search 只能用于公开网页、新闻、搜索引擎、GitHub README、公开文章等外部公开信息；它不能访问用户的私有 Notion。',
+        'C. 已知 Notion 私有日记数据库地址簿：',
+        '   - 夏以昼的日记：database_id=331bafbb-8ea4-80db-9ad2-e743b4dbe369；data_source_id=331bafbb-8ea4-8044-ac92-000bceaf44d3；字段为 Name(title), Date(date)。',
+        '   - 夏芷鹤的日记：database_id=331bafbb-8ea4-8011-9040-fe0a26d3519f；data_source_id=331bafbb-8ea4-804d-83a1-000b38f191d1；字段为 Name(title), Date(date)。',
+        'D. 写入某个日记数据库时，第一步使用 notion_create_data_source_item_from_values，arguments 必须包含 data_source_id 和 values，其中 values 使用 Name 作为标题、Date 作为日期。',
+        'E. 如果用户还提供了正文，创建数据库条目成功后，必须根据工具返回结果中的新 page id，再进行第二步 notion_append_markdown；第二步的 block_id 必须使用新 page id，不要使用 database_id 或 data_source_id。',
+        'F. 读取日记列表时，使用 notion_query_data_source 或 notion_query_data_source_by_values；读取某一篇日记正文时，再使用 notion_read_page 读取该条目的 page_id。',
         '',
         '工具调用请求格式如下：',
         '```external_mcp_tool_call',
@@ -168,8 +180,38 @@
         service.tools.forEach(tool => {
           const toolName = tool && tool.name ? tool.name : '';
           if (!toolName) return;
+
           const description = tool && tool.description ? String(tool.description).replace(/\s+/g, ' ').trim() : '';
           lines.push('- ' + toolName + (description ? '：' + description : ''));
+
+          const schema = tool && tool.inputSchema && typeof tool.inputSchema === 'object' ? tool.inputSchema : null;
+          const properties = schema && schema.properties && typeof schema.properties === 'object' ? schema.properties : {};
+          const required = schema && Array.isArray(schema.required) ? schema.required : [];
+
+          if (required.length) {
+            lines.push('  required: ' + required.join(', '));
+          }
+
+          const propertyEntries = Object.entries(properties).slice(0, 24);
+          if (propertyEntries.length) {
+            lines.push('  arguments properties:');
+          }
+
+          propertyEntries.forEach(([key, value]) => {
+            const prop = value && typeof value === 'object' ? value : {};
+            const rawType = Array.isArray(prop.type) ? prop.type.join('|') : (prop.type || 'unknown');
+            const requiredText = required.includes(key) ? 'required' : 'optional';
+            const enumText = Array.isArray(prop.enum) && prop.enum.length ? ' enum=' + prop.enum.slice(0, 10).join('|') : '';
+            const defaultText = typeof prop.default !== 'undefined' ? ' default=' + JSON.stringify(prop.default) : '';
+            const itemType = prop.items && prop.items.type ? ' items=' + (Array.isArray(prop.items.type) ? prop.items.type.join('|') : prop.items.type) : '';
+            const descriptionText = prop.description ? ' - ' + String(prop.description).replace(/\s+/g, ' ').trim().slice(0, 180) : '';
+
+            lines.push('    - ' + key + ': ' + rawType + ' (' + requiredText + ')' + enumText + defaultText + itemType + descriptionText);
+          });
+
+          if (schema && schema.additionalProperties === false) {
+            lines.push('  additionalProperties: false（不要使用未列出的参数名）');
+          }
         });
       });
 
@@ -377,13 +419,19 @@
     const toolRequest = options.toolRequest;
     const toolResult = options.toolResult;
     const signal = options.signal;
+    const allowNextToolCall = options.allowNextToolCall === true;
 
     const followupSystemPrompt = systemPrompt + "\n\n" + [
       "【外部 MCP 工具结果处理模式】",
       "你现在已经收到了外部 MCP 工具的真实返回结果。",
-      "必须根据工具结果生成最终回复。",
-      "不要再次输出 external_mcp_tool_call。",
+      allowNextToolCall
+        ? "如果工具结果已经足够，请生成最终回复；如果仍需要另一个外部 MCP 工具才能完成用户请求，可以再输出一个 external_mcp_tool_call。"
+        : "必须根据工具结果生成最终回复。",
+      allowNextToolCall
+        ? "需要第二次工具调用时，只输出一个 external_mcp_tool_call 代码块，不要添加其他文本。"
+        : "不要再次输出 external_mcp_tool_call。",
       "不要声称无法访问外部工具，因为系统已经替你完成了调用。",
+      "不要编造工具结果中没有的信息。",
       "保持当前角色设定和原有消息格式要求。"
     ].join("\n");
 
@@ -4346,11 +4394,62 @@ ${getActiveThoughtsPrompt()}
 
       const externalMcpToolRequest = findExternalMcpToolRequest(consolidatedMessages, aiResponseContent);
       if (externalMcpToolRequest) {
-        console.log("检测到外部 MCP 工具调用请求，开始执行:", externalMcpToolRequest);
+        const confirmExternalMcpToolRequest = (request, stepLabel) => {
+          console.log("检测到外部 MCP 工具调用请求，等待用户确认:", stepLabel, request);
+
+          const argsPreview = JSON.stringify(request.arguments || {}, null, 2);
+          const confirmMessage = [
+            "检测到角色请求调用外部 MCP 工具。",
+            "",
+            "步骤：" + stepLabel,
+            "服务：" + (request.serviceName || ""),
+            "工具：" + (request.toolName || ""),
+            "",
+            "参数：",
+            argsPreview.length > 2000
+              ? argsPreview.slice(0, 2000) + "\n...（参数过长，已截断显示）"
+              : argsPreview,
+            "",
+            "是否允许本次调用？"
+          ].join("\n");
+
+          return window.confirm(confirmMessage);
+        };
+
+        const applyExternalMcpFinalResponseContent = (content) => {
+          aiResponseContent = content;
+          lastRawAiResponse = content;
+          consolidatedMessages = parseAiResponse(content);
+          if (!Array.isArray(consolidatedMessages) || consolidatedMessages.length === 0) {
+            consolidatedMessages = [{
+              type: "text",
+              content
+            }];
+          }
+        };
+
+        const buildCancelledMessage = (request, stepLabel) => [{
+          type: "text",
+          content: "已取消" + stepLabel + "外部 MCP 工具调用。\n\n调用请求：\n```json\n" + JSON.stringify(request, null, 2) + "\n```"
+        }];
+
+        const runExternalMcpToolRequest = async (request, stepLabel) => {
+          if (!confirmExternalMcpToolRequest(request, stepLabel)) {
+            return { approved: false, result: null };
+          }
+
+          console.log("用户已确认外部 MCP 工具调用，开始执行:", stepLabel, request);
+          const result = await executeExternalMcpToolRequest(request);
+          return { approved: true, result };
+        };
+
         try {
-          const externalMcpToolResult = await executeExternalMcpToolRequest(externalMcpToolRequest);
-          try {
-            const externalMcpFinalResponseContent = await generateExternalMcpFinalResponseFromToolResult({
+          const firstRun = await runExternalMcpToolRequest(externalMcpToolRequest, "第1步");
+
+          if (!firstRun.approved) {
+            consolidatedMessages = buildCancelledMessage(externalMcpToolRequest, "第1步");
+          } else {
+            const firstResponseContent = await generateExternalMcpFinalResponseFromToolResult({
               model,
               apiKey,
               proxyUrl,
@@ -4358,27 +4457,53 @@ ${getActiveThoughtsPrompt()}
               systemPrompt,
               messagesPayload,
               toolRequest: externalMcpToolRequest,
-              toolResult: externalMcpToolResult,
+              toolResult: firstRun.result,
+              allowNextToolCall: true,
               signal: currentApiController ? currentApiController.signal : undefined
             });
 
-            aiResponseContent = externalMcpFinalResponseContent;
-            lastRawAiResponse = externalMcpFinalResponseContent;
-            consolidatedMessages = parseAiResponse(externalMcpFinalResponseContent);
-            if (!Array.isArray(consolidatedMessages) || consolidatedMessages.length === 0) {
-              consolidatedMessages = [{
-                type: "text",
-                content: externalMcpFinalResponseContent
-              }];
+            const firstResponseMessages = parseAiResponse(firstResponseContent);
+            const secondMcpToolRequest = findExternalMcpToolRequest(firstResponseMessages, firstResponseContent);
+
+            if (!secondMcpToolRequest) {
+              applyExternalMcpFinalResponseContent(firstResponseContent);
+            } else {
+              const secondRun = await runExternalMcpToolRequest(secondMcpToolRequest, "第2步");
+
+              if (!secondRun.approved) {
+                consolidatedMessages = buildCancelledMessage(secondMcpToolRequest, "第2步");
+              } else {
+                const firstToolContextMessages = [
+                  ...messagesPayload,
+                  {
+                    role: "assistant",
+                    content: "```external_mcp_tool_call\n" + JSON.stringify(externalMcpToolRequest, null, 2) + "\n```"
+                  },
+                  {
+                    role: "user",
+                    content: formatExternalMcpToolResultForModel(externalMcpToolRequest, firstRun.result)
+                  }
+                ];
+
+                const finalResponseContent = await generateExternalMcpFinalResponseFromToolResult({
+                  model,
+                  apiKey,
+                  proxyUrl,
+                  isGemini,
+                  systemPrompt,
+                  messagesPayload: firstToolContextMessages,
+                  toolRequest: secondMcpToolRequest,
+                  toolResult: secondRun.result,
+                  allowNextToolCall: false,
+                  signal: currentApiController ? currentApiController.signal : undefined
+                });
+
+                applyExternalMcpFinalResponseContent(finalResponseContent);
+              }
             }
-          } catch (summaryError) {
-            console.warn("MCP 工具结果二次总结失败，回退显示原始工具结果:", summaryError);
-            consolidatedMessages = [{
-              type: "text",
-              content: formatExternalMcpToolResultForChat(externalMcpToolRequest, externalMcpToolResult) + "\n\n（二次总结失败：" + (summaryError && summaryError.message ? summaryError.message : String(summaryError)) + "）"
-            }];
           }
         } catch (error) {
+          console.warn("外部 MCP 连续工具调用失败:", error);
           consolidatedMessages = [{
             type: "text",
             content: "外部 MCP 工具调用失败：\n" + (error && error.message ? error.message : String(error)) + "\n\n调用请求：\n```json\n" + JSON.stringify(externalMcpToolRequest, null, 2) + "\n```"
