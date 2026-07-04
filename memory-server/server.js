@@ -1047,6 +1047,433 @@ function mcpResult(id, result) {
   };
 }
 
+
+const HOTLIST_DEFAULT_BASE_URL = 'https://ephone-hotlist-api.hetianwang1997.workers.dev';
+
+const HOTLIST_PLATFORM_ALIASES = {
+  weibo: 'weibo',
+  '微博': 'weibo',
+  zhihu: 'zhihu',
+  '知乎': 'zhihu',
+  baidu: 'baidu',
+  '百度': 'baidu',
+  bilibili: 'bilibili',
+  'b站': 'bilibili',
+  '哔哩哔哩': 'bilibili',
+  douyin: 'douyin',
+  '抖音': 'douyin',
+  toutiao: 'toutiao',
+  '头条': 'toutiao',
+  '今日头条': 'toutiao',
+  tieba: 'tieba',
+  '贴吧': 'tieba',
+  hupu: 'hupu',
+  '虎扑': 'hupu',
+  douban: 'douban-group',
+  '豆瓣': 'douban-group',
+  '豆瓣小组': 'douban-group',
+  ithome: 'ithome',
+  'it之家': 'ithome',
+  'IT之家': 'ithome',
+  '36kr': '36kr',
+  '36氪': '36kr',
+  juejin: 'juejin',
+  '掘金': 'juejin',
+  csdn: 'csdn',
+  github: 'hellogithub',
+  hellogithub: 'hellogithub',
+  v2ex: 'v2ex'
+};
+
+const HOTLIST_PLATFORM_LABELS = {
+  weibo: '微博热搜',
+  zhihu: '知乎热榜',
+  baidu: '百度热搜',
+  bilibili: 'B站热榜',
+  douyin: '抖音热点',
+  toutiao: '今日头条热榜',
+  tieba: '贴吧热议',
+  hupu: '虎扑步行街',
+  'douban-group': '豆瓣小组精选',
+  ithome: 'IT之家热榜',
+  '36kr': '36氪热榜',
+  juejin: '掘金热榜',
+  csdn: 'CSDN排行',
+  hellogithub: 'HelloGitHub Trending',
+  v2ex: 'V2EX主题榜'
+};
+
+function normalizeHotlistPlatform(platform) {
+  const raw = String(platform || 'weibo').trim();
+  if (!raw) return 'weibo';
+
+  const lower = raw.toLowerCase();
+  return HOTLIST_PLATFORM_ALIASES[raw] || HOTLIST_PLATFORM_ALIASES[lower] || lower;
+}
+
+function normalizeHotlistLimit(limit) {
+  const n = Number(limit || 10);
+  if (!Number.isFinite(n)) return 10;
+  return Math.max(1, Math.min(50, Math.floor(n)));
+}
+
+function normalizeHotlistItem(item, index) {
+  const source = item && typeof item === 'object' ? item : {};
+
+  return {
+    rank: Number(source.rank || source.index || source.no || index + 1),
+    title: String(source.title || source.name || source.word || source.keyword || '').trim(),
+    description: String(source.desc || source.description || source.summary || source.excerpt || '').trim(),
+    hot: source.hot || source.heat || source.hotValue || source.views || source.score || '',
+    url: source.url || source.link || source.mobileUrl || '',
+    mobileUrl: source.mobileUrl || source.mobile_url || '',
+    image: source.pic || source.cover || source.image || source.img || '',
+    raw: source
+  };
+}
+
+function extractHotlistItems(payload) {
+  if (!payload) return [];
+
+  if (Array.isArray(payload)) return payload;
+
+  if (Array.isArray(payload.data)) return payload.data;
+  if (Array.isArray(payload.list)) return payload.list;
+  if (Array.isArray(payload.items)) return payload.items;
+  if (Array.isArray(payload.result)) return payload.result;
+
+  if (payload.data && Array.isArray(payload.data.list)) return payload.data.list;
+  if (payload.data && Array.isArray(payload.data.items)) return payload.data.items;
+  if (payload.result && Array.isArray(payload.result.list)) return payload.result.list;
+  if (payload.result && Array.isArray(payload.result.items)) return payload.result.items;
+
+  return [];
+}
+
+
+async function fetchBilibiliDirectHotlist(limit = 10) {
+  const safeLimit = normalizeHotlistLimit(limit);
+  const url = 'https://api.bilibili.com/x/web-interface/popular?ps=' + encodeURIComponent(safeLimit) + '&pn=1';
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json,text/plain,*/*',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+      'Referer': 'https://www.bilibili.com/'
+    }
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error('Bilibili API HTTP ' + response.status + ': ' + text.slice(0, 300));
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch (error) {
+    throw new Error('Bilibili API did not return JSON: ' + text.slice(0, 300));
+  }
+
+  if (!payload || payload.code !== 0) {
+    throw new Error('Bilibili API error: ' + (payload && payload.message ? payload.message : text.slice(0, 300)));
+  }
+
+  const list = payload && payload.data && Array.isArray(payload.data.list)
+    ? payload.data.list
+    : [];
+
+  const items = list.slice(0, safeLimit).map((item, index) => ({
+    rank: index + 1,
+    title: String(item.title || '').trim(),
+    description: String(item.desc || item.tname || '').trim(),
+    hot: item.stat && item.stat.view ? String(item.stat.view) : '',
+    url: item.bvid ? 'https://www.bilibili.com/video/' + item.bvid : '',
+    mobileUrl: item.bvid ? 'https://www.bilibili.com/video/' + item.bvid : '',
+    image: item.pic || '',
+    raw: item
+  })).filter(item => item.title);
+
+  return {
+    platform: 'bilibili',
+    platformName: HOTLIST_PLATFORM_LABELS.bilibili || 'B站热榜',
+    source: url,
+    fetchedAt: new Date().toISOString(),
+    count: items.length,
+    items
+  };
+}
+
+
+async function fetchHotlistPlatform(platform, limit = 10, options = {}) {
+  const normalizedPlatform = normalizeHotlistPlatform(platform);
+  const safeLimit = normalizeHotlistLimit(limit);
+
+  if (normalizedPlatform === 'bilibili') {
+    return await fetchBilibiliDirectHotlist(safeLimit);
+  }
+
+  const baseUrl = String(options.baseUrl || HOTLIST_DEFAULT_BASE_URL).replace(/\/+$/, '');
+  const url = baseUrl + '/' + encodeURIComponent(normalizedPlatform);
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json,text/plain,*/*',
+      'User-Agent': 'EPhone-HotList-MCP/1.0'
+    }
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error('HotList API HTTP ' + response.status + ': ' + text.slice(0, 300));
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch (error) {
+    throw new Error('HotList API did not return JSON: ' + text.slice(0, 300));
+  }
+
+  const items = extractHotlistItems(payload)
+    .map((item, index) => normalizeHotlistItem(item, index))
+    .filter(item => item.title)
+    .slice(0, safeLimit);
+
+  return {
+    platform: normalizedPlatform,
+    platformName: HOTLIST_PLATFORM_LABELS[normalizedPlatform] || normalizedPlatform,
+    source: url,
+    fetchedAt: new Date().toISOString(),
+    count: items.length,
+    items
+  };
+}
+
+function parseHotlistPlatforms(value) {
+  if (Array.isArray(value)) {
+    return value.map(normalizeHotlistPlatform).filter(Boolean);
+  }
+
+  const raw = String(value || '').trim();
+  if (!raw) return ['weibo', 'baidu', 'bilibili'];
+
+  return raw
+    .split(/[，,;；\n\r]+/)
+    .map(item => normalizeHotlistPlatform(item))
+    .filter(Boolean);
+}
+
+function formatHotlistDigest(results) {
+  const lines = [
+    '# 今日热榜摘要',
+    ''
+  ];
+
+  for (const result of results) {
+    if (result.error) {
+      lines.push('## ' + (result.platformName || result.platform || 'unknown'));
+      lines.push('- 获取失败：' + result.error);
+      lines.push('');
+      continue;
+    }
+
+    lines.push('## ' + result.platformName);
+    for (const item of (result.items || []).slice(0, 8)) {
+      const hotText = item.hot ? ' · 热度：' + item.hot : '';
+      const descText = item.description ? ' — ' + item.description : '';
+      const urlText = item.url ? ' ｜ ' + item.url : '';
+      lines.push('- ' + item.rank + '. ' + item.title + hotText + descText + urlText);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n').trim();
+}
+
+const HOTLIST_MCP_TOOLS = [
+  {
+    name: 'hotlist_get',
+    description: '读取一个平台的今日热榜/热搜。只读工具。当前稳定支持微博、百度、B站。知乎和抖音暂未启用。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        platform: {
+          type: 'string',
+          description: '平台名称或别名。当前稳定支持 weibo/微博, baidu/百度, bilibili/B站。不要默认使用 zhihu/知乎 或 douyin/抖音。',
+          default: 'weibo'
+        },
+        limit: {
+          type: 'number',
+          description: '返回条数，1-50。',
+          default: 10
+        }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'hotlist_all',
+    description: '一次读取多个平台的今日热榜/热搜。只读工具。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        platforms: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '平台数组，例如 ["weibo","baidu","bilibili"]。不填则使用默认生活化平台组合。'
+        },
+        limit: {
+          type: 'number',
+          description: '每个平台返回条数，1-50。',
+          default: 10
+        }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'hotlist_digest',
+    description: '把多个平台热榜整理成适合聊天使用的“今天大家在聊什么”摘要。只读工具。默认只汇总当前稳定平台：微博、百度、B站；不要主动提及未启用的平台。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        platforms: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '平台数组，例如 ["weibo","baidu","bilibili"]。'
+        },
+        limit: {
+          type: 'number',
+          description: '每个平台读取条数，1-50。',
+          default: 8
+        }
+      },
+      required: []
+    }
+  }
+];
+
+async function callHotlistMcpTool(name, args = {}) {
+  const toolName = String(name || '').trim();
+  const input = args && typeof args === 'object' ? args : {};
+
+  if (toolName === 'hotlist_get') {
+    return await fetchHotlistPlatform(input.platform || 'weibo', input.limit || 10);
+  }
+
+  if (toolName === 'hotlist_all' || toolName === 'hotlist_digest') {
+    const platforms = parseHotlistPlatforms(input.platforms);
+    const limit = normalizeHotlistLimit(input.limit || (toolName === 'hotlist_digest' ? 8 : 10));
+
+    const results = [];
+
+    for (const platform of platforms.slice(0, 8)) {
+      try {
+        results.push(await fetchHotlistPlatform(platform, limit));
+      } catch (error) {
+        results.push({
+          platform,
+          platformName: HOTLIST_PLATFORM_LABELS[platform] || platform,
+          error: error.message || String(error),
+          fetchedAt: new Date().toISOString(),
+          items: []
+        });
+      }
+    }
+
+    if (toolName === 'hotlist_digest') {
+      return {
+        fetchedAt: new Date().toISOString(),
+        platforms,
+        digest: formatHotlistDigest(results),
+        results
+      };
+    }
+
+    return {
+      fetchedAt: new Date().toISOString(),
+      platforms,
+      results
+    };
+  }
+
+  throw new Error('Unknown HotList tool: ' + toolName);
+}
+
+async function handleHotlistMcpRequest(body) {
+  const request = body && typeof body === 'object' ? body : {};
+  const id = Object.prototype.hasOwnProperty.call(request, 'id') ? request.id : null;
+  const method = request.method;
+
+  if (method === 'initialize') {
+    return {
+      jsonrpc: '2.0',
+      id,
+      result: {
+        protocolVersion: '2024-11-05',
+        capabilities: {
+          tools: {}
+        },
+        serverInfo: {
+          name: 'ephone-hotlist',
+          version: '1.0.0'
+        }
+      }
+    };
+  }
+
+  if (method === 'notifications/initialized') {
+    return {
+      jsonrpc: '2.0',
+      id,
+      result: {}
+    };
+  }
+
+  if (method === 'tools/list') {
+    return {
+      jsonrpc: '2.0',
+      id,
+      result: {
+        tools: HOTLIST_MCP_TOOLS
+      }
+    };
+  }
+
+  if (method === 'tools/call') {
+    const params = request.params || {};
+    const name = params.name || params.toolName || '';
+    const args = params.arguments || params.args || {};
+
+    try {
+      const result = await callHotlistMcpTool(name, args);
+      return {
+        jsonrpc: '2.0',
+        id,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(result, null, 2)
+            }
+          ],
+          structuredContent: result
+        }
+      };
+    } catch (error) {
+      return mcpError(id, -32000, error.message || String(error));
+    }
+  }
+
+  return mcpError(id, -32601, 'Method not found: ' + method);
+}
+
+
 function mcpError(id, code, message, data = undefined) {
   return {
     jsonrpc: '2.0',
@@ -1930,6 +2357,33 @@ const server = http.createServer(async (req, res) => {
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key'
     });
     res.end();
+    return;
+  }
+
+
+  if (pathname === '/hotlist-mcp' && req.method === 'GET') {
+    sendJson(res, 200, {
+      ok: true,
+      name: 'ephone-hotlist',
+      endpoint: '/hotlist-mcp',
+      tools: HOTLIST_MCP_TOOLS.map(tool => tool.name)
+    });
+    return;
+  }
+
+  if (pathname === '/hotlist-mcp' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+
+      if (body && body.method === 'initialize') {
+        res.setHeader('mcp-session-id', 'ephone-hotlist-session');
+      }
+
+      const result = await handleHotlistMcpRequest(body);
+      sendJson(res, 200, result);
+    } catch (error) {
+      sendJson(res, 400, mcpError(null, -32700, error.message || String(error)));
+    }
     return;
   }
 
