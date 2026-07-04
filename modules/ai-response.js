@@ -5009,7 +5009,7 @@ ${getActiveThoughtsPrompt()}
         };
 
         try {
-          const maxExternalMcpToolSteps = 2;
+          const maxExternalMcpToolSteps = 5;
           const toolContextMessages = [...messagesPayload];
           let currentMcpToolRequest = externalMcpToolRequest;
           let finalResponseApplied = false;
