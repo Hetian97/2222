@@ -5009,63 +5009,72 @@ ${getActiveThoughtsPrompt()}
         };
 
         try {
-          const firstRun = await runExternalMcpToolRequest(externalMcpToolRequest, "第1步");
+          const maxExternalMcpToolSteps = 2;
+          const toolContextMessages = [...messagesPayload];
+          let currentMcpToolRequest = externalMcpToolRequest;
+          let finalResponseApplied = false;
 
-          if (!firstRun.approved) {
-            consolidatedMessages = buildCancelledMessage(externalMcpToolRequest, "第1步");
-          } else {
-            const firstResponseContent = await generateExternalMcpFinalResponseFromToolResult({
+          for (let stepIndex = 1; stepIndex <= maxExternalMcpToolSteps && currentMcpToolRequest; stepIndex++) {
+            const stepLabel = "第" + stepIndex + "步";
+            const stepRun = await runExternalMcpToolRequest(currentMcpToolRequest, stepLabel);
+
+            if (!stepRun.approved) {
+              consolidatedMessages = buildCancelledMessage(currentMcpToolRequest, stepLabel);
+              finalResponseApplied = true;
+              break;
+            }
+
+            const allowNextToolCall = stepIndex < maxExternalMcpToolSteps;
+            const responseContent = await generateExternalMcpFinalResponseFromToolResult({
               model,
               apiKey,
               proxyUrl,
               isGemini,
               systemPrompt,
-              messagesPayload,
-              toolRequest: externalMcpToolRequest,
-              toolResult: firstRun.result,
-              allowNextToolCall: true,
+              messagesPayload: toolContextMessages,
+              toolRequest: currentMcpToolRequest,
+              toolResult: stepRun.result,
+              allowNextToolCall,
               signal: currentApiController ? currentApiController.signal : undefined
             });
 
-            const firstResponseMessages = parseAiResponse(firstResponseContent);
-            const secondMcpToolRequest = findExternalMcpToolRequest(firstResponseMessages, firstResponseContent);
+            const responseMessages = parseAiResponse(responseContent);
+            const nextMcpToolRequest = findExternalMcpToolRequest(responseMessages, responseContent);
 
-            if (!secondMcpToolRequest) {
-              applyExternalMcpFinalResponseContent(firstResponseContent);
-            } else {
-              const secondRun = await runExternalMcpToolRequest(secondMcpToolRequest, "第2步");
-
-              if (!secondRun.approved) {
-                consolidatedMessages = buildCancelledMessage(secondMcpToolRequest, "第2步");
-              } else {
-                const firstToolContextMessages = [
-                  ...messagesPayload,
-                  {
-                    role: "assistant",
-                    content: "```external_mcp_tool_call\n" + JSON.stringify(externalMcpToolRequest, null, 2) + "\n```"
-                  },
-                  {
-                    role: "user",
-                    content: formatExternalMcpToolResultForModel(externalMcpToolRequest, firstRun.result)
-                  }
-                ];
-
-                const finalResponseContent = await generateExternalMcpFinalResponseFromToolResult({
-                  model,
-                  apiKey,
-                  proxyUrl,
-                  isGemini,
-                  systemPrompt,
-                  messagesPayload: firstToolContextMessages,
-                  toolRequest: secondMcpToolRequest,
-                  toolResult: secondRun.result,
-                  allowNextToolCall: false,
-                  signal: currentApiController ? currentApiController.signal : undefined
-                });
-
-                applyExternalMcpFinalResponseContent(finalResponseContent);
-              }
+            if (nextMcpToolRequest && !allowNextToolCall) {
+              consolidatedMessages = [{
+                type: "text",
+                content: "外部 MCP 工具链已达到本轮最大步数（" + maxExternalMcpToolSteps + "步）。模型仍请求继续调用工具，因此本次已停止继续执行。请重新发送消息继续后续操作。"
+              }];
+              finalResponseApplied = true;
+              break;
             }
+
+            if (!nextMcpToolRequest) {
+              applyExternalMcpFinalResponseContent(responseContent);
+              finalResponseApplied = true;
+              break;
+            }
+
+            toolContextMessages.push(
+              {
+                role: "assistant",
+                content: "```external_mcp_tool_call\n" + JSON.stringify(currentMcpToolRequest, null, 2) + "\n```"
+              },
+              {
+                role: "user",
+                content: formatExternalMcpToolResultForModel(currentMcpToolRequest, stepRun.result)
+              }
+            );
+
+            currentMcpToolRequest = nextMcpToolRequest;
+          }
+
+          if (!finalResponseApplied) {
+            consolidatedMessages = [{
+              type: "text",
+              content: "外部 MCP 工具链没有生成最终回复。请重新发送消息继续操作。"
+            }];
           }
         } catch (error) {
           console.warn("外部 MCP 连续工具调用失败:", error);
