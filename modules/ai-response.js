@@ -273,6 +273,59 @@
     return null;
   }
 
+
+  function parseExternalMcpToolCallJsonText(rawText) {
+    const raw = String(rawText || "").trim();
+    const candidates = [];
+
+    function addCandidate(value) {
+      const text = String(value || "").trim();
+      if (text && !candidates.includes(text)) candidates.push(text);
+    }
+
+    addCandidate(raw);
+
+    // 兼容模型把 JSON 又转义了一层的情况：
+    // \n{\n  \"type\": \"external_mcp_tool_call\" ...}
+    addCandidate(
+      raw
+        .replace(/\\r\\n/g, "\n")
+        .replace(/\\n/g, "\n")
+        .replace(/\\t/g, "\t")
+        .replace(/\\"/g, '"')
+    );
+
+    // 兼容整个内容是 JSON string 的情况。
+    try {
+      const unwrapped = JSON.parse(raw);
+      if (typeof unwrapped === "string") {
+        addCandidate(unwrapped);
+        addCandidate(
+          unwrapped
+            .replace(/\\r\\n/g, "\n")
+            .replace(/\\n/g, "\n")
+            .replace(/\\t/g, "\t")
+            .replace(/\\"/g, '"')
+        );
+      } else if (unwrapped && typeof unwrapped === "object") {
+        return unwrapped;
+      }
+    } catch (error) {
+      // ignore and try candidates below
+    }
+
+    let lastError = null;
+    for (const candidate of candidates) {
+      try {
+        return JSON.parse(candidate);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError || new Error("external_mcp_tool_call JSON parse failed");
+  }
+
   function findExternalMcpToolRequest(messagesArray, rawText) {
     if (Array.isArray(messagesArray)) {
       for (const item of messagesArray) {
@@ -286,7 +339,7 @@
       const jsonText = codeBlockMatch ? codeBlockMatch[1].trim() : "";
       if (jsonText) {
         try {
-          const parsed = JSON.parse(jsonText);
+          const parsed = parseExternalMcpToolCallJsonText(jsonText);
           const normalized = normalizeExternalMcpToolRequest(parsed);
           if (normalized) return normalized;
         } catch (error) {
