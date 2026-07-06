@@ -1492,7 +1492,16 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
     }];
 
     let trimmedContent = content.trim();
+    let prefixResults = [];
 
+    // 兼容AI回复中可能缺少开头 <thinking> 标签的情况
+    const thinkingMatch = trimmedContent.match(/^(?:<thinking>)?([\s\S]*?)<\/thinking>/i);
+    if (thinkingMatch && thinkingMatch[1]) {
+      prefixResults.push({
+        type: 'thought_chain_block',
+        content: thinkingMatch[1].trim()
+      });
+    }
 
     const markdownRegex = /```json\s*([\s\S]*?)\s*```/;
     const markdownMatch = trimmedContent.match(markdownRegex);
@@ -1509,7 +1518,7 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
         const parsed = JSON.parse(trimmedContent);
         if (Array.isArray(parsed)) {
           console.log("解析成功：标准JSON数组格式。");
-          return parsed;
+          return prefixResults.concat(parsed);
         }
       } catch (e) {
         console.warn("标准JSON数组解析失败，将尝试强力提取...");
@@ -1533,7 +1542,7 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
           const parsed = JSON.parse(arrayString);
           if (Array.isArray(parsed)) {
             console.log("解析成功：通过强力提取 [ ... } ... ] 模式。");
-            return parsed;
+            return prefixResults.concat(parsed);
           }
         } catch (e) {
           console.warn("强力提取 [ ... } ... ] 失败，将尝试提取单个对象...");
@@ -1556,16 +1565,16 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
 
       if (results.length > 0) {
         console.log("解析成功：通过强力提取 {...} 模式。");
-        return results;
+        return prefixResults.concat(results);
       }
     }
 
 
     console.error("所有解析方案均失败！将返回原始文本。原始回复:", content);
-    return [{
+    return prefixResults.concat([{
       type: 'text',
       content: content
-    }];
+    }]);
   }
 
   function getStreamDeltaText(delta) {
