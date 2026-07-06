@@ -4880,3 +4880,57 @@
            }
 
 
+
+
+/* Hetian97: 支付宝上下独立滚动区
+   上半区：总资产 / 基金理财 / 角色钱包 / 亲属卡亲密付
+   下半区：流水筛选 / 流水列表 */
+#alipay-screen {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#alipay-screen .alipay-header-area {
+  flex: 0 0 auto;
+}
+
+#alipay-screen .alipay-card-container {
+  flex: 0 1 auto;
+  max-height: 58%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 12px;
+}
+
+#alipay-screen .alipay-bill-container {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin-bottom: 12px !important;
+}
+
+#alipay-screen #alipay-transaction-list {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+}
+
+#alipay-screen #bill-scroll-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+
+/* Hetian97: 支付宝亲属卡间距微调 */
+#alipay-screen #alipay-kinship-section-wrapper {
+  margin-top: -24px;
+}
+
+#alipay-screen .alipay-card-container {
+  padding-bottom: 32px;
+}
