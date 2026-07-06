@@ -2446,3 +2446,24 @@
 #npc-avatars-modal .btn-danger:hover {
     background-color: #c82333 !important;
 }
+
+/* page 4 app grid alignment fix */
+#page-4-content {
+  padding: 20px !important;
+  height: 100% !important;
+  box-sizing: border-box !important;
+  display: block !important;
+}
+
+#page-4-app-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, 1fr) !important;
+  gap: 15px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  align-items: start !important;
+  align-content: start !important;
+  justify-items: center !important;
+  margin-top: 0 !important;
+}
+

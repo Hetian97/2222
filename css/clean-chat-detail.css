@@ -204,3 +204,15 @@
   position: relative !important;
   z-index: 40001 !important;
 }
+
+/* clean mode custom modal top layer fix v3 */
+#custom-modal-overlay.visible,
+#custom-confirm-overlay.visible {
+  z-index: 50000 !important;
+}
+
+#custom-modal-overlay.visible #custom-modal,
+#custom-confirm-overlay.visible #custom-modal {
+  z-index: 50001 !important;
+}
+

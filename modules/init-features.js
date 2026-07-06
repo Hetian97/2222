@@ -575,6 +575,27 @@ window.initFeatures = function(state, db) {
     document.getElementById('regenerate-char-usage-btn').addEventListener('click', handleGenerateAppUsage);
     document.getElementById('regenerate-char-music-btn').addEventListener('click', handleGenerateSimulatedMusic);
     document.getElementById('close-char-music-player-btn').addEventListener('click', closeCharMusicPlayer);
+    // 豆瓣右上角更多操作菜单
+    const doubanMoreActionsBtn = document.getElementById('douban-more-actions-btn');
+    const doubanDropdownMenu = document.getElementById('douban-dropdown-menu');
+    if (doubanMoreActionsBtn && doubanDropdownMenu) {
+      doubanMoreActionsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        doubanDropdownMenu.classList.toggle('show');
+      });
+
+      doubanDropdownMenu.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (e.target.closest('.douban-dropdown-item')) {
+          doubanDropdownMenu.classList.remove('show');
+        }
+      });
+
+      document.addEventListener('click', () => {
+        doubanDropdownMenu.classList.remove('show');
+      });
+    }
+
     document.getElementById('regenerate-douban-btn').addEventListener('click', handleGenerateDoubanPosts);
     document.getElementById('regenerate-douban-btn').addEventListener('click', handleGenerateDoubanPosts);
 
