@@ -89,7 +89,80 @@
     }
   }
 
+  // ======= 渲染上下文（历史模式） =======
+  async function renderChatContext(chatId, targetTimestamp) {
+    state.isViewingHistoryMode = true;
+    state.historyCenterTimestamp = targetTimestamp;
+
+    const returnBtn = document.getElementById('return-to-latest-btn');
+    if (returnBtn) {
+      returnBtn.style.display = 'block';
+      returnBtn.onclick = () => renderChatInterface(chatId);
+    }
+
+    const chat = state.chats[chatId];
+    if (!chat) return;
+
+    const messagesContainer = document.getElementById('chat-messages');
+    messagesContainer.innerHTML = '';
+    showLoader(messagesContainer, 'center');
+
+    const targetIndex = chat.history.findIndex(m => m.timestamp === targetTimestamp);
+    if (targetIndex === -1) {
+      hideLoader(messagesContainer);
+      alert('未找到该消息的上下文');
+      return;
+    }
+
+    const renderWindow = state.globalSettings.chatRenderWindow || 50;
+    const halfWindow = Math.floor(renderWindow / 2);
+
+    let startIndex = Math.max(0, targetIndex - halfWindow);
+    let endIndex = Math.min(chat.history.length, targetIndex + halfWindow + 1);
+
+    if (endIndex - startIndex < renderWindow) {
+      if (startIndex === 0) {
+        endIndex = Math.min(chat.history.length, startIndex + renderWindow);
+      } else if (endIndex === chat.history.length) {
+        startIndex = Math.max(0, endIndex - renderWindow);
+      }
+    }
+
+    const messagesToRender = chat.history.slice(startIndex, endIndex);
+    currentRenderedCount = endIndex - startIndex;
+
+    hideLoader(messagesContainer);
+
+    const fragment = document.createDocumentFragment();
+    let lastTimestamp = 0;
+
+    for (const msg of messagesToRender) {
+      if (!msg.isHidden) {
+        if (lastTimestamp > 0 && (msg.timestamp - lastTimestamp > 600000)) {
+          fragment.appendChild(createSystemTimestampElement(msg.timestamp));
+        }
+        lastTimestamp = msg.timestamp;
+      }
+
+      const messageEl = await createMessageElement(msg, chat, true);
+      if (messageEl) {
+        fragment.appendChild(messageEl);
+      }
+    }
+
+    messagesContainer.appendChild(fragment);
+
+    setTimeout(() => {
+      scrollToOriginalMessage(targetTimestamp);
+    }, 100);
+  }
+
   async function renderChatInterface(chatId) {
+    state.isViewingHistoryMode = false;
+    state.historyCenterTimestamp = null;
+    const returnBtn = document.getElementById('return-to-latest-btn');
+    if (returnBtn) returnBtn.style.display = 'none';
+
     applyButtonOrder();
     cleanupWaimaiTimers();
     const chat = state.chats[chatId];
