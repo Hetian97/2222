@@ -4516,6 +4516,54 @@
         <button class="form-button form-button-secondary" id="reset-font-btn"data-lang-key="fontResetDefault">全部恢复默认字体</button>
       </div>
     </div>
+    <!-- 思维链条目编辑弹窗 -->
+    <div id="thought-chain-editor-modal" class="modal">
+      <div class="modal-content" style="height: 75%; max-width: 500px;">
+        <div class="modal-header">
+          <span id="thought-chain-editor-title">编辑条目</span>
+        </div>
+        <div class="modal-body" style="display: flex; flex-direction: column; gap: 15px;">
+          <div class="form-group">
+            <label>条目名称</label>
+            <input type="text" id="tc-name-input" placeholder="例如：潜台词感知">
+          </div>
+          <div class="form-group" style="display: flex; gap: 15px;">
+            <div style="flex: 1;">
+              <label>注入位置</label>
+              <select id="tc-position-select" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ddd;">
+                <option value="head">头部 (System)</option>
+                <option value="middle">中间 (System)</option>
+                <option value="bottom">底部 (AI Role - 触发器)</option>
+              </select>
+            </div>
+            <div style="flex: 1;">
+              <label>发送身份</label>
+              <select id="tc-role-select" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ddd;">
+                <option value="system">系统 (System)</option>
+                <option value="assistant">AI自己 (Assistant)</option>
+                <option value="user">用户 (User)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group" style="flex-grow: 1; display: flex; flex-direction: column;">
+            <label>内容文本 <span style="font-size: 12px; color: #999; font-weight: normal;">(支持 <code><变量名></code>)</span></label>
+            <textarea id="tc-content-input" style="flex-grow: 1; width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; resize: none; font-family: monospace; font-size: 14px; box-sizing: border-box;" placeholder="输入具体的提示词内容..."></textarea>
+          </div>
+          <div class="form-group" style="display: flex; justify-content: space-between; align-items: center;">
+            <label style="margin: 0;">是否启用</label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="tc-enabled-switch" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="cancel" id="tc-cancel-btn">取消</button>
+          <button class="save" id="tc-save-btn">保存</button>
+        </div>
+      </div>
+    </div>
+
     <div id="contact-picker-screen" class="screen">
       <div class="header"> <span class="back-btn" id="cancel-contact-picker-btn"data-lang-key="cancel">取消</span> <span>选择联系人</span> <span class="save-btn" id="confirm-contact-picker-btn"data-lang-key="done">完成(0)</span> </div>
       <div class="list-container" id="contact-picker-list"> </div>
