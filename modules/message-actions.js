@@ -16,6 +16,38 @@
     if (isSelectionMode) return;
 
     activeMessageTimestamp = timestamp;
+
+    // 检查此消息前面是否有被隐藏的思考过程
+    const msgIndex = chat.history.findIndex(m => m.timestamp === timestamp);
+    const viewThoughtChainBtn = document.getElementById('view-thought-chain-btn');
+    if (viewThoughtChainBtn) {
+      let foundHiddenThought = false;
+
+      for (let i = msgIndex - 1; i >= 0; i--) {
+        const prevMsg = chat.history[i];
+
+        if (prevMsg.type === 'thought_chain_block') {
+          if (state.globalSettings.showThoughtChainInChat === false) {
+            foundHiddenThought = true;
+            viewThoughtChainBtn.onclick = () => {
+              hideMessageActions();
+              showCustomAlert(
+                'AI 深度思考',
+                parseMarkdown(processMentions(String(prevMsg.content), chat)).replace(/\n/g, '<br>')
+              );
+            };
+          }
+          break;
+        }
+
+        if (prevMsg.role === 'user') {
+          break;
+        }
+      }
+
+      viewThoughtChainBtn.style.display = foundHiddenThought ? 'block' : 'none';
+    }
+
     document.getElementById('message-actions-modal').classList.add('visible');
   }
 
