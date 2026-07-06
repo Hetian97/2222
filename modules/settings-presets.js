@@ -1743,6 +1743,7 @@
     document.getElementById('clean-api-settings-switch').checked = state.globalSettings.cleanApiSettings || false;
     document.getElementById('api-style-beautify-switch').checked = state.globalSettings.apiStyleBeautify || false;
     document.getElementById('dropdown-popup-mode-switch').checked = state.globalSettings.dropdownPopupMode || false;
+    document.getElementById('global-show-thought-chain-switch').checked = state.globalSettings.showThoughtChainInChat !== false;
     document.getElementById('lock-screen-toggle').checked = state.globalSettings.lockScreenEnabled || false; // 锁屏回显
     document.getElementById('lock-screen-bypass-toggle').checked = state.globalSettings.lockScreenBypassEnabled || false; // 锁屏跳过回显
     document.getElementById('lock-screen-password-input').value = state.globalSettings.lockScreenPassword || ''; // 密码回显

@@ -165,6 +165,7 @@ document.addEventListener('DOMContentLoaded', () => {
       chatRenderWindow: 50,
       safeRenderMode: false,
       dropdownPopupMode: false,
+      showThoughtChainInChat: true, // 是否在聊天界面显示AI深度思考
       systemNotification: {
         enabled: false,
         appName: 'EPhone',

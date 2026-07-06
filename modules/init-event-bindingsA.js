@@ -1878,6 +1878,7 @@ window.initEventBindingsA = async function(state, db) {
       state.globalSettings.cleanApiSettings = document.getElementById('clean-api-settings-switch').checked;
       state.globalSettings.apiStyleBeautify = document.getElementById('api-style-beautify-switch').checked;
       state.globalSettings.dropdownPopupMode = document.getElementById('dropdown-popup-mode-switch').checked;
+      state.globalSettings.showThoughtChainInChat = document.getElementById('global-show-thought-chain-switch').checked;
       state.globalSettings.lockScreenEnabled = document.getElementById('lock-screen-toggle').checked;
       state.globalSettings.lockScreenBypassEnabled = document.getElementById('lock-screen-bypass-toggle').checked;
       state.globalSettings.lockScreenPassword = document.getElementById('lock-screen-password-input').value.trim();
