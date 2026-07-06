@@ -6477,6 +6477,10 @@
              <span class="gr-title" id="gr-book-name-display" style="font-size:14px; opacity:0.7;">书名</span>
              <span class="gr-title" id="gr-chapter-title-display" style="font-size:16px; font-weight:bold;">第一章</span>
         </div>
+        
+        <button class="gr-icon-btn" id="gr-export-txt-reader-btn" onclick="openExportTxtModal()" title="导出TXT">
+            <span style="font-size:12px;font-weight:700;letter-spacing:.3px;">TXT</span>
+        </button>
         <button class="gr-icon-btn" onclick="openStorySettings()" title="设定">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         </button>
@@ -6876,7 +6880,27 @@
       <div class="modal-footer"><button class="cancel" id="cancel-member-settings-btn"data-lang-key="cancel">取消</button><button class="save" id="save-member-settings-btn"data-lang-key="save">保存</button></div>
     </div>
   </div>
-  <div id="custom-modal-overlay">
+  
+<div id="gr-export-txt-modal" class="modal">
+  <div class="modal-content" style="height: auto; max-height: 80%; max-width: 460px;">
+    <div class="modal-header">
+      <span>导出TXT</span>
+    </div>
+    <div class="modal-body" style="padding: 0;">
+      <label style="display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid #eee;font-size:14px;">
+        <input type="checkbox" id="select-all-gr-export" checked style="width:18px;height:18px;">
+        <span>全选章节</span>
+      </label>
+      <div id="gr-export-txt-list" style="max-height: 360px; overflow-y: auto;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="cancel" id="cancel-gr-export-btn">取消</button>
+      <button class="save" id="confirm-gr-export-btn">导出</button>
+    </div>
+  </div>
+</div>
+
+<div id="custom-modal-overlay">
     <div id="custom-modal">
       <div class="custom-modal-header" id="custom-modal-title"></div>
       <div class="custom-modal-body" id="custom-modal-body"></div>

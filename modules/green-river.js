@@ -240,6 +240,125 @@
     newBtn.onclick = saveAuthor;
   }
 
+
+  // ==========================================
+  // 导出TXT功能
+  // ==========================================
+  async function openExportTxtModal(storyId = null) {
+    const targetStoryId = storyId || grState.activeStoryId;
+    const story = await db.grStories.get(targetStoryId);
+
+    if (!story || !story.chapters || story.chapters.length === 0) {
+      alert("该作品还没有任何章节，无法导出。");
+      return;
+    }
+
+    const modal = document.getElementById('gr-export-txt-modal');
+    const listEl = document.getElementById('gr-export-txt-list');
+    const selectAllCheckbox = document.getElementById('select-all-gr-export');
+    const cancelBtn = document.getElementById('cancel-gr-export-btn');
+    const confirmBtn = document.getElementById('confirm-gr-export-btn');
+
+    if (!modal || !listEl || !selectAllCheckbox || !cancelBtn || !confirmBtn) {
+      alert("导出弹窗缺失，请检查页面结构。");
+      return;
+    }
+
+    listEl.innerHTML = '';
+
+    story.chapters.forEach((ch, index) => {
+      const div = document.createElement('div');
+      div.style.cssText = 'display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #eee;cursor:pointer;';
+      div.innerHTML = `
+        <input type="checkbox" class="gr-export-checkbox" value="${index}" checked style="width:18px;height:18px;margin-right:12px;cursor:pointer;">
+        <span style="font-size:14px;color:#333;">${index + 1}. ${ch.title || '无题'}</span>
+      `;
+
+      div.onclick = (e) => {
+        if (e.target.tagName !== 'INPUT') {
+          const cb = div.querySelector('input');
+          cb.checked = !cb.checked;
+          updateExportSelectAllState();
+        }
+      };
+
+      listEl.appendChild(div);
+    });
+
+    function updateExportSelectAllState() {
+      const allCbs = Array.from(document.querySelectorAll('.gr-export-checkbox'));
+      const allChecked = allCbs.length > 0 && allCbs.every(cb => cb.checked);
+      const someChecked = allCbs.some(cb => cb.checked);
+
+      selectAllCheckbox.checked = allChecked;
+      selectAllCheckbox.indeterminate = someChecked && !allChecked;
+    }
+
+    selectAllCheckbox.checked = true;
+    selectAllCheckbox.indeterminate = false;
+    selectAllCheckbox.onclick = (e) => {
+      const isChecked = e.target.checked;
+      document.querySelectorAll('.gr-export-checkbox').forEach(cb => {
+        cb.checked = isChecked;
+      });
+      selectAllCheckbox.indeterminate = false;
+    };
+
+    document.querySelectorAll('.gr-export-checkbox').forEach(cb => {
+      cb.addEventListener('change', updateExportSelectAllState);
+    });
+
+    const newCancelBtn = cancelBtn.cloneNode(true);
+    cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+    newCancelBtn.onclick = () => modal.classList.remove('visible');
+
+    const newConfirmBtn = confirmBtn.cloneNode(true);
+    confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+    newConfirmBtn.onclick = () => doExportTxt(story);
+
+    modal.classList.add('visible');
+  }
+
+  function doExportTxt(story) {
+    const selectedIndices = Array.from(document.querySelectorAll('.gr-export-checkbox'))
+      .filter(cb => cb.checked)
+      .map(cb => parseInt(cb.value, 10))
+      .filter(n => !Number.isNaN(n));
+
+    if (selectedIndices.length === 0) {
+      alert("请至少选择一个章节进行导出。");
+      return;
+    }
+
+    let txtContent = (story.title || '未命名作品') + "\n\n";
+
+    selectedIndices.sort((a, b) => a - b).forEach(index => {
+      const ch = story.chapters[index];
+      if (!ch) return;
+
+      txtContent += "===============\n";
+      txtContent += (ch.title || `第 ${index + 1} 章`) + "\n";
+      txtContent += "===============\n\n";
+      txtContent += (ch.content || "") + "\n\n";
+    });
+
+    const blob = new Blob([txtContent], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const safeTitle = String(story.title || '作品导出').replace(/[\\/:*?"<>|]/g, '_');
+
+    link.href = url;
+    link.download = `${safeTitle}.txt`;
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    const modal = document.getElementById('gr-export-txt-modal');
+    if (modal) modal.classList.remove('visible');
+  }
+
   // 暴露给全局
   window.openAuthorManager = openAuthorManager;
   window.openAuthorEditor = openAuthorEditor;
@@ -1939,6 +2058,7 @@ ${updatePrompt}
   window.openAuthorManager = openAuthorManager;
   window.createNewStory = createNewStory;
   window.openStorySettings = openStorySettings;
+  window.openExportTxtModal = openExportTxtModal;
   window.addAuthor = addAuthor;
   window.deleteAuthor = deleteAuthor;
   window.checkAllStoriesForAutoUpdate = checkAllStoriesForAutoUpdate; // 手动触发检查
