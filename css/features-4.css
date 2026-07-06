@@ -1907,7 +1907,8 @@
               第三页 - 个人资料小组件 & 布局
               ======================================== */
 
-           #page-3-content {
+           #page-3-content,
+            #page-4-content {
                padding: 8px 20px;
                display: flex;
                flex-direction: column;
@@ -2018,7 +2019,8 @@
            }
 
            /* --- 第三页 App 网格 --- */
-           #page-3-app-grid {
+           #page-3-app-grid,
+            #page-4-app-grid {
                display: grid;
                grid-template-columns: 1fr 1fr;
                gap: 25px;
@@ -2294,7 +2296,8 @@
            }
 
            /* --- 第三页 App 网格 改为 4 列 --- */
-           #page-3-app-grid {
+           #page-3-app-grid,
+            #page-4-app-grid {
                display: grid;
                grid-template-columns: repeat(4, 1fr);
                gap: 10px;
