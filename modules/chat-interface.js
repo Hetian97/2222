@@ -419,7 +419,7 @@
       msg.type !== 'narration' && msg.type !== 'pat_message' && !msg.type?.startsWith('waimai_') &&
       msg.type !== 'red_packet' && msg.type !== 'transfer' && msg.type !== 'poll' && msg.type !== 'gift' &&
       msg.type !== 'kinship_request' && msg.type !== 'synth_music' && msg.type !== 'naiimag' && msg.type !== 'realimag' && msg.type !== 'googleimag' &&
-      msg.type !== 'ai_image' && msg.type !== 'user_photo' && msg.type !== 'couple_invite' && msg.type !== 'couple_invite_response') {
+      msg.type !== 'ai_image' && msg.type !== 'user_photo' && msg.type !== 'couple_invite' && msg.type !== 'couple_invite_response' && msg.type !== 'thought_chain_block') {
       const contentStr = String(msg.content || '').trim().toLowerCase();
       if (contentStr === '' || contentStr === 'undefined') {
         console.log('[QQ Undefined过滤] 已过滤空消息或undefined消息:', msg);
@@ -502,6 +502,42 @@
       return wrapper;
     }
 
+
+    if (msg.type === 'thought_chain_block') {
+      // 根据全局设置决定是否在聊天界面直接显示
+      if (state.globalSettings.showThoughtChainInChat === false) {
+          return null; // 隐藏，直接返回 null
+      }
+      
+      const wrapper = document.createElement('div');
+      wrapper.className = 'message-wrapper thought-chain-wrapper'; // 使用新的专门居中排版
+      wrapper.dataset.timestamp = msg.timestamp;
+
+      const bubble = document.createElement('div');
+      bubble.className = 'message-bubble is-thought-chain-block'; // 移除 system-bubble 以消除灰色背景
+      bubble.dataset.timestamp = msg.timestamp;
+      
+      // 注意这里使用了较弱的颜色，去掉了系统消息原有的灰色背景等
+      bubble.innerHTML = `
+        <details class="thought-chain-details">
+            <summary class="thought-chain-summary" title="点击展开/折叠思考过程">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: -2px; opacity: 0.6;"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
+                <span style="opacity: 0.6; font-size: 11px;">深度思考</span>
+            </summary>
+            <div class="thought-chain-content">
+                ${parseMarkdown(processMentions(String(msg.content), chat)).replace(/\n/g, '<br>')}
+            </div>
+        </details>
+      `;
+
+      wrapper.appendChild(bubble);
+
+      addLongPressListener(wrapper, () => showMessageActions(msg.timestamp));
+      wrapper.addEventListener('click', () => {
+        if (isSelectionMode) toggleMessageSelection(msg.timestamp);
+      });
+      return wrapper;
+    }
 
     const isUser = msg.role === 'user';
     const myNickname = chat.settings.myNickname || '我';
