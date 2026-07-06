@@ -107,7 +107,14 @@
     messagesContainer.innerHTML = '';
     showLoader(messagesContainer, 'center');
 
-    const targetIndex = chat.history.findIndex(m => m.timestamp === targetTimestamp);
+    // 只对显示用副本排序，不修改真实 chat.history，避免历史数组乱序时把不同日期消息拼在一起
+    const sortedHistory = [...chat.history].sort((a, b) => {
+      const ta = Number(a.timestamp) || 0;
+      const tb = Number(b.timestamp) || 0;
+      return ta - tb;
+    });
+
+    const targetIndex = sortedHistory.findIndex(m => m.timestamp === targetTimestamp);
     if (targetIndex === -1) {
       hideLoader(messagesContainer);
       alert('未找到该消息的上下文');
@@ -118,17 +125,17 @@
     const halfWindow = Math.floor(renderWindow / 2);
 
     let startIndex = Math.max(0, targetIndex - halfWindow);
-    let endIndex = Math.min(chat.history.length, targetIndex + halfWindow + 1);
+    let endIndex = Math.min(sortedHistory.length, targetIndex + halfWindow + 1);
 
     if (endIndex - startIndex < renderWindow) {
       if (startIndex === 0) {
-        endIndex = Math.min(chat.history.length, startIndex + renderWindow);
-      } else if (endIndex === chat.history.length) {
+        endIndex = Math.min(sortedHistory.length, startIndex + renderWindow);
+      } else if (endIndex === sortedHistory.length) {
         startIndex = Math.max(0, endIndex - renderWindow);
       }
     }
 
-    const messagesToRender = chat.history.slice(startIndex, endIndex);
+    const messagesToRender = sortedHistory.slice(startIndex, endIndex);
     currentRenderedCount = endIndex - startIndex;
 
     hideLoader(messagesContainer);
@@ -382,6 +389,10 @@
 
 
   async function loadMoreMessages() {
+    // 历史上下文模式下不要自动加载更多，否则会把当前聊天窗口中的其他日期消息 prepend 到搜索结果上下文前面
+    if (state.isViewingHistoryMode) {
+      return;
+    }
     if (isLoadingMoreMessages) return;
     isLoadingMoreMessages = true;
 
