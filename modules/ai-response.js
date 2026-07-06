@@ -4707,6 +4707,17 @@ ${getActiveThoughtsPrompt()}
         systemPrompt += '\n\n' + mcpToolDirectoryPromptForMainChat;
       }
 
+      // 注入 思维链 底部触发器
+      if (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.enabled) {
+        const chunks = ThoughtChainManager.getPayloadChunks();
+        if (chunks.bottom && chunks.bottom.length > 0) {
+          messagesPayload.push(...chunks.bottom.map(c => ({
+            role: c.role,
+            content: c.content
+          })));
+        }
+      }
+
       let isGemini = proxyUrl === GEMINI_API_URL;
       let geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messagesPayload)
 
