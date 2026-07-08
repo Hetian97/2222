@@ -576,6 +576,15 @@
           
           if (Array.isArray(backupData[tableName])) {
             console.log(`正在导入表: ${tableName}, 记录数: ${backupData[tableName].length}`);
+            if (!db.tables.some(t => t.name === tableName)) {
+
+              console.warn(`备份中存在当前版本不支持的数据表，已跳过: ${tableName}`);
+
+              continue;
+
+            }
+
+
             await db.table(tableName).bulkPut(backupData[tableName]);
           }
         }
@@ -960,11 +969,20 @@
           const data = dataToMerge[type];
           if (!data) continue;
 
-          const table = db.table(type);
-          if (!table) {
-            console.warn(`找不到表: ${type}, 跳过...`);
+          if (!db.tables.some(t => t.name === type)) {
+
+
+            console.warn(`备份中存在当前版本不支持的数据表，已跳过: ${type}`);
+
+
             continue;
+
+
           }
+
+
+
+          const table = db.table(type);
 
           if (Array.isArray(data)) {
 
@@ -3075,7 +3093,20 @@
         const dataPart = json.data || json;
         for (const tableName of Object.keys(dataPart)) {
           const records = dataPart[tableName];
-          if (Array.isArray(records) && records.length > 0) await db.table(tableName).bulkPut(records);
+          if (Array.isArray(records) && records.length > 0) {
+
+            if (!db.tables.some(t => t.name === tableName)) {
+
+              console.warn(`备份中存在当前版本不支持的数据表，已跳过: ${tableName}`);
+
+              continue;
+
+            }
+
+
+            await db.table(tableName).bulkPut(records);
+
+          }
         }
       };
       if (targetSet.type === 'multipart') {
@@ -3115,7 +3146,20 @@
             const dataPart = json.data || json;
             for (const tableName of Object.keys(dataPart)) {
               const records = dataPart[tableName];
-              if (Array.isArray(records) && records.length > 0) await db.table(tableName).bulkPut(records);
+              if (Array.isArray(records) && records.length > 0) {
+
+                if (!db.tables.some(t => t.name === tableName)) {
+
+                  console.warn(`备份中存在当前版本不支持的数据表，已跳过: ${tableName}`);
+
+                  continue;
+
+                }
+
+
+                await db.table(tableName).bulkPut(records);
+
+              }
             }
           }
           await new Promise(r => setTimeout(r, 50));
@@ -3131,7 +3175,20 @@
           const dataPart = parsed.data || parsed;
           for (const tableName of Object.keys(dataPart)) {
             const records = dataPart[tableName];
-            if (Array.isArray(records) && records.length > 0) await db.table(tableName).bulkPut(records);
+            if (Array.isArray(records) && records.length > 0) {
+
+              if (!db.tables.some(t => t.name === tableName)) {
+
+                console.warn(`备份中存在当前版本不支持的数据表，已跳过: ${tableName}`);
+
+                continue;
+
+              }
+
+
+              await db.table(tableName).bulkPut(records);
+
+            }
           }
         }
       } else {
