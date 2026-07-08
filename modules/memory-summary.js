@@ -962,7 +962,7 @@ function bindVectorMemoryEvents(chat, container) {
         return;
       }
 
-      const deleted = window.vectorMemoryManager.batchDelete(chat, vmSelectedItems);
+      const deleted = await window.vectorMemoryManager.batchDelete(chat, vmSelectedItems);
 
       if (!deleted) {
         showToast('删除已取消或失败', 'info');
@@ -1674,7 +1674,7 @@ function bindVectorMemoryEvents(chat, container) {
     btn.addEventListener('click', async () => {
       const confirmed = await showCustomConfirm('确认删除', '确定要删除这条记忆片段吗？');
       if (confirmed) {
-        window.vectorMemoryManager.deleteFragment(chat, btn.dataset.id);
+        await window.vectorMemoryManager.deleteFragment(chat, btn.dataset.id);
         await db.chats.put(chat);
         renderVectorMemoryView();
       }

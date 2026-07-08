@@ -508,7 +508,7 @@ class VariableMemoryManager {
     return true;
   }
 
-  deleteFragment(chat, id) {
+  async deleteFragment(chat, id) {
     const vm = this.getVariableMemory(chat);
     vm.fragments = vm.fragments.filter(f => f.id !== id);
     // 清理关联引用
@@ -519,8 +519,10 @@ class VariableMemoryManager {
     vm.stats.lastUpdated = Date.now();
 
     if (this.isExternalMemoryEnabled(chat)) {
-      this.deleteFragmentFromExternalServer(chat, id);
+      await this.deleteFragmentFromExternalServer(chat, id);
     }
+
+    return true;
   }
   
     // 获取批量选中的记忆文本
@@ -581,7 +583,7 @@ class VariableMemoryManager {
   }
 
   // 批量删除
-  batchDelete(chat, selectedItems) {
+  async batchDelete(chat, selectedItems) {
     const vm = this.getVariableMemory(chat);
     const selectedIds = new Set(selectedItems.map(item => item.id));
     const deletedIds = [];
@@ -601,8 +603,8 @@ class VariableMemoryManager {
     vm.stats.totalFragments = vm.fragments.length;
     vm.stats.lastUpdated = Date.now();
 
-    if (this.isExternalMemoryEnabled(chat)) {
-      deletedIds.forEach(id => this.deleteFragmentFromExternalServer(chat, id));
+    if (this.isExternalMemoryEnabled(chat) && deletedIds.length > 0) {
+      await Promise.all(deletedIds.map(id => this.deleteFragmentFromExternalServer(chat, id)));
     }
 
     return deletedIds.length > 0;
@@ -639,8 +641,8 @@ class VariableMemoryManager {
 
       vm.fragments = [];
 
-      if (this.isExternalMemoryEnabled(chat)) {
-        oldIds.forEach(id => this.deleteFragmentFromExternalServer(chat, id));
+      if (this.isExternalMemoryEnabled(chat) && oldIds.length > 0) {
+        await Promise.all(oldIds.map(id => this.deleteFragmentFromExternalServer(chat, id)));
       }
     }
 
@@ -717,8 +719,8 @@ class VariableMemoryManager {
     await this.editFragment(chat, id, { content: newContent });
   }
 
-  deleteCoreMemory(chat, id) {
-    this.deleteFragment(chat, id);
+  async deleteCoreMemory(chat, id) {
+    await this.deleteFragment(chat, id);
   }
 
   async pinToCoreMemory(chat, fragmentId) {
