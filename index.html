@@ -9460,7 +9460,25 @@
 <script src="js/auth-system.js?v=0.0.36"></script>
 
 <script>
-  const MCP_MANAGER_BASE_URL = 'http://127.0.0.1:8765';
+  const EXTERNAL_MCP_PROXY_BASE_STORAGE_KEY = 'externalMcpProxyBaseUrl';
+
+  function getMcpManagerBaseUrl() {
+    try {
+      const saved = localStorage.getItem(EXTERNAL_MCP_PROXY_BASE_STORAGE_KEY);
+      if (saved && saved.trim()) return saved.trim().replace(/\/+$/, '');
+    } catch (error) {}
+
+    try {
+      const hostname = window.location.hostname;
+      if (hostname === 'hetian97.github.io' || hostname.endsWith('.github.io')) {
+        return 'https://mcp.htw1.uk';
+      }
+    } catch (error) {}
+
+    return 'http://127.0.0.1:8765';
+  }
+
+  const MCP_MANAGER_BASE_URL = getMcpManagerBaseUrl();
   const MCP_MANAGER_MCP_URL = MCP_MANAGER_BASE_URL + '/mcp';
   const MCP_MANAGER_HEALTH_URL = MCP_MANAGER_BASE_URL + '/health';
   const MCP_MANAGER_STATS_URL = MCP_MANAGER_BASE_URL + '/memory/stats';
