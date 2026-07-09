@@ -190,3 +190,46 @@
   z-index: 50001 !important;
 }
 
+
+/* clean mode nested screen/modal top layer fix v4
+   Keep nested screens/modals above group member management.
+   Includes an explicit contact picker fallback because showScreen()
+   may remove #member-management-screen.active before contact picker is shown.
+*/
+
+/* Explicit fallback: 从好友列表添加 / 选择联系人 */
+#contact-picker-screen.screen.active,
+#contact-picker-screen.active {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 41000 !important;
+}
+
+#contact-picker-screen.active .header,
+#contact-picker-screen.active .list-container {
+  position: relative !important;
+  z-index: 41001 !important;
+}
+
+/* Generic nested layer: 创建群内新成员 / NPC 编辑等 */
+body:has(#member-management-screen.active) .screen.active:not(#member-management-screen),
+body:has(#member-management-screen.active) .modal.visible,
+body:has(#member-management-screen.active) .modal.active {
+  position: fixed !important;
+  z-index: 41000 !important;
+}
+
+body:has(#member-management-screen.active) .screen.active:not(#member-management-screen) .header,
+body:has(#member-management-screen.active) .screen.active:not(#member-management-screen) .list-container,
+body:has(#member-management-screen.active) .screen.active:not(#member-management-screen) .modal-content,
+body:has(#member-management-screen.active) .modal.visible .modal-content,
+body:has(#member-management-screen.active) .modal.active .modal-content {
+  position: relative !important;
+  z-index: 41001 !important;
+}
+
