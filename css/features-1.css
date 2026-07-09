@@ -4934,3 +4934,13 @@
 #alipay-screen .alipay-card-container {
   padding-bottom: 32px;
 }
+
+
+/* clean/minimal chat UI bottom spacing fix
+   Prevent the bottom action/input bar from covering the last message line.
+*/
+body.minimal-chat-ui-active #chat-interface-screen #chat-messages {
+  padding-bottom: 120px !important;
+  scroll-padding-bottom: 120px !important;
+}
+

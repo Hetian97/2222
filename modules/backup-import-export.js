@@ -1543,6 +1543,7 @@
     const dataCategories = {
       '聊天与消息': ['chats'],
       '空间与社交': ['qzoneSettings', 'qzonePosts', 'qzoneAlbums', 'qzonePhotos', 'qzoneGroups', 'doubanPosts'],
+      '情侣空间': ['coupleAlbumPhotos'],
       '世界书与预设': ['worldBooks', 'worldBookCategories', 'presets', 'presetCategories', 'personaPresets'],
       'API与配置': ['apiConfig', 'apiPresets', 'soundPresets', 'globalSettings', 'renderingRules', 'naiPresets'],
       '贴纸与表情': ['userStickers', 'stickerCategories', 'stickerVisionCache', 'customAvatarFrames'],
@@ -1557,7 +1558,7 @@
     };
 
     // 需要按角色/群聊过滤的数据类别
-    const chatRelatedCategories = ['聊天与消息', '空间与社交', '记忆与记录'];
+    const chatRelatedCategories = ['聊天与消息', '空间与社交', '情侣空间', '记忆与记录'];
 
     // 重置选中的角色/群聊
     advancedExportSelectedChats = [];
