@@ -9460,11 +9460,11 @@
 <script src="js/auth-system.js?v=0.0.36"></script>
 
 <script>
-  const EXTERNAL_MCP_PROXY_BASE_STORAGE_KEY = 'externalMcpProxyBaseUrl';
+  const MCP_MANAGER_PROXY_BASE_STORAGE_KEY = 'externalMcpProxyBaseUrl';
 
   function getMcpManagerBaseUrl() {
     try {
-      const saved = localStorage.getItem(EXTERNAL_MCP_PROXY_BASE_STORAGE_KEY);
+      const saved = localStorage.getItem(MCP_MANAGER_PROXY_BASE_STORAGE_KEY);
       if (saved && saved.trim()) return saved.trim().replace(/\/+$/, '');
     } catch (error) {}
 
