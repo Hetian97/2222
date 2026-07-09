@@ -1,3 +1,67 @@
+
+const EXTERNAL_MCP_PROXY_BASE_STORAGE_KEY = 'externalMcpProxyBaseUrl';
+
+function normalizeExternalMcpNameText(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function extractParenthesizedAliasesFromExternalMcpName(name) {
+  const text = String(name || '');
+  const aliases = [];
+  const re = /[（(]\s*([^（）()]+?)\s*[）)]/g;
+  let match;
+  while ((match = re.exec(text))) {
+    if (match[1] && match[1].trim()) aliases.push(match[1].trim());
+  }
+  return aliases;
+}
+
+function getExternalMcpServiceAliases(service) {
+  const aliases = new Set();
+  const add = (value) => {
+    const text = String(value || '').trim();
+    if (text) aliases.add(text);
+  };
+
+  add(service && service.name);
+  add(service && service.alias);
+  add(service && service.serviceName);
+  add(service && service.id);
+
+  extractParenthesizedAliasesFromExternalMcpName(service && service.name).forEach(add);
+
+  return Array.from(aliases);
+}
+
+function isExternalMcpServiceNameMatch(service, requestedName) {
+  const target = normalizeExternalMcpNameText(requestedName);
+  if (!target) return false;
+  return getExternalMcpServiceAliases(service).some(alias => normalizeExternalMcpNameText(alias) === target);
+}
+
+function getExternalMcpProxyBaseUrl() {
+  try {
+    const saved = localStorage.getItem(EXTERNAL_MCP_PROXY_BASE_STORAGE_KEY);
+    if (saved && saved.trim()) return saved.trim().replace(/\/+$/, '');
+  } catch (error) {}
+
+  try {
+    const hostname = window.location.hostname;
+    if (hostname === 'hetian97.github.io' || hostname.endsWith('.github.io')) {
+      return 'https://mcp.htw1.uk';
+    }
+  } catch (error) {}
+
+  return 'http://127.0.0.1:8765';
+}
+
+function buildExternalMcpProxyUrl(path) {
+  const base = getExternalMcpProxyBaseUrl().replace(/\/+$/, '');
+  const suffix = String(path || '').startsWith('/') ? String(path) : '/' + String(path || '');
+  return base + suffix;
+}
+
+
 // ============================================================
 // ai-response.js
 // AI 响应模块：toGeminiRequestData、uploadImageToImgBB、uploadFileToCatbox、
@@ -637,7 +701,7 @@
       };
     }
 
-    const response = await fetch("http://127.0.0.1:8765/external-mcp/tools-call", {
+    const response = await fetch(buildExternalMcpProxyUrl('/external-mcp/tools-call'), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -872,7 +936,7 @@
           data = memoryCachedData;
           response = { ok: true };
         } else {
-          response = await fetch("http://127.0.0.1:8765/external-mcp/tools-call", {
+          response = await fetch(buildExternalMcpProxyUrl('/external-mcp/tools-call'), {
             method: "POST",
             headers: {
               "Content-Type": "application/json"
