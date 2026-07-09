@@ -35,6 +35,20 @@
       }
     }
     
+    // 额外备份 MCP 服务设置
+    [
+      'mcpServiceConfigs',
+      'mcpServiceSelectedId',
+      'externalMcpProxyBaseUrl'
+    ].forEach(key => {
+      try {
+        const value = localStorage.getItem(key);
+        if (value !== null) localStorageData[key] = value;
+      } catch (e) {
+        console.warn(`无法备份 MCP localStorage 键: ${key}`, e);
+      }
+    });
+
     console.log(`已备份 ${Object.keys(localStorageData).length} 个情侣空间相关的 localStorage 键`);
     return localStorageData;
   }
@@ -62,6 +76,17 @@
       }
     });
     
+    // 完全导入前也清理旧的 MCP 服务设置，避免旧配置残留
+    [
+      'mcpServiceConfigs',
+      'mcpServiceSelectedId',
+      'externalMcpProxyBaseUrl'
+    ].forEach(key => {
+      if (!keysToRemove.includes(key) && localStorage.getItem(key) !== null) {
+        keysToRemove.push(key);
+      }
+    });
+
     console.log(`已清理 ${keysToRemove.length} 个情侣空间相关的 localStorage 键`);
   }
   
@@ -699,7 +724,7 @@
       'inventory': '物品清单',
       'emails': '邮件',
       'watchTogetherPlaylist': '观影播放列表',
-      'localStorage': '情侣空间数据'
+      'localStorage': '情侣空间/MCP设置'
     };
 
     let foundData = false;
