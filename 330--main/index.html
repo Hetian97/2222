@@ -1019,7 +1019,7 @@
 
     /* Garden detail page */
     #garden-detail-page { background: #FAF9F8; z-index: 30; }
-    #garden-detail-page header { display: flex; align-items: center; justify-content: space-between; padding: 24px; flex-shrink: 0; height: 80px; }
+    #garden-detail-page header { display: flex; align-items: center; justify-content: space-between; padding: 24px; flex-shrink: 0; height: 80px; position: relative; }
     .garden-detail-scroll { flex: 1; overflow-y: auto; padding: 0 24px 120px; }
     .garden-detail-author-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
     .garden-detail-avatar { width: 40px; height: 40px; border-radius: 50%; background: #f5f5f4; background-size: cover; background-position: center; flex-shrink: 0; }
@@ -1627,7 +1627,10 @@
       <button class="icon-btn" onclick="closeGardenDetail()">
         <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
-      <span style="font-weight:600;color:#1c1917;letter-spacing:0.1em;font-size:16px;">浇水详情</span>
+      <span style="font-weight:600;color:#1c1917;letter-spacing:0.1em;font-size:16px;position:absolute;left:50%;transform:translateX(-50%);">浇水详情</span>
+      <button class="icon-btn" onclick="editCurrentGardenWater()" title="编辑" style="margin-left:auto;margin-right:12px">
+        <svg style="width:20px;height:20px" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+      </button>
       <button class="icon-btn" onclick="deleteWaterFromDetail()">
         <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
       </button>
@@ -3628,30 +3631,62 @@ function deleteAlbumPhoto() {
 
 function editCurrentAlbumPhoto() {
   if (!currentAlbumPhotoId) return;
-  var photos = getAlbumPhotos();
-  var photo = photos.find(function(p){ return p.id === currentAlbumPhotoId; });
-  if (!photo || photo.author !== 'user') return;
-  var overlay = document.createElement('div');
-  overlay.className = 'sig-overlay animate-fade-in';
-  overlay.innerHTML = '<div class="sig-modal animate-slide-up"><h3>编辑照片描述</h3>' +
-    '<textarea id="album-edit-desc" style="width:100%;background:#fafaf9;border:1px solid #e7e5e4;border-radius:0.75rem;padding:12px 16px;font-size:14px;color:#44403c;outline:none;resize:none;min-height:80px;line-height:1.5;font-family:inherit">' + escHtml(photo.description || '') + '</textarea>' +
-    '<div class="sig-btns"><button class="sig-cancel" id="album-edit-cancel">取消</button><button class="sig-confirm" id="album-edit-confirm">保存</button></div></div>';
-  document.getElementById('app').appendChild(overlay);
-  var textarea = overlay.querySelector('#album-edit-desc'); textarea.focus();
-  overlay.querySelector('#album-edit-cancel').onclick = function() { overlay.remove(); };
-  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
-  overlay.querySelector('#album-edit-confirm').onclick = function() {
-    var val = textarea.value.trim();
-    var photos2 = getAlbumPhotos();
-    var idx = photos2.findIndex(function(p){ return p.id === currentAlbumPhotoId; });
-    if (idx >= 0) {
-      photos2[idx].description = val;
-      saveAlbumPhotos(photos2);
-      renderAlbumDetail();
-      renderAlbumList();
-    }
-    overlay.remove();
-  };
+
+  Promise.resolve(getAlbumPhotos()).then(function(photos) {
+    if (!Array.isArray(photos)) photos = [];
+
+    var photo = photos.find(function(p){ return p.id === currentAlbumPhotoId; });
+    if (!photo) return;
+
+    var overlay = document.createElement('div');
+    overlay.className = 'sig-overlay animate-fade-in';
+    overlay.innerHTML = '<div class="sig-modal animate-slide-up"><h3>编辑照片描述</h3>' +
+      '<textarea id="album-edit-desc" style="width:100%;background:#fafaf9;border:1px solid #e7e5e4;border-radius:0.75rem;padding:12px 16px;font-size:14px;color:#44403c;outline:none;resize:none;min-height:80px;line-height:1.5;font-family:inherit">' + escHtml(photo.description || '') + '</textarea>' +
+      '<div class="sig-btns"><button class="sig-cancel" id="album-edit-cancel">取消</button><button class="sig-confirm" id="album-edit-confirm">保存</button></div></div>';
+
+    document.getElementById('app').appendChild(overlay);
+
+    var textarea = overlay.querySelector('#album-edit-desc');
+    textarea.focus();
+
+    overlay.querySelector('#album-edit-cancel').onclick = function() {
+      overlay.remove();
+    };
+
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) overlay.remove();
+    });
+
+    overlay.querySelector('#album-edit-confirm').onclick = function() {
+      var val = textarea.value.trim();
+
+      Promise.resolve(getAlbumPhotos()).then(function(photos2) {
+        if (!Array.isArray(photos2)) photos2 = [];
+
+        var idx = photos2.findIndex(function(p){ return p.id === currentAlbumPhotoId; });
+        if (idx >= 0) {
+          photos2[idx].description = val;
+          photos2[idx].updatedAt = Date.now();
+
+          Promise.resolve(saveAlbumPhotos(photos2)).then(function() {
+            renderAlbumDetail();
+            renderAlbumList();
+            overlay.remove();
+          }).catch(function(e) {
+            console.error('保存相册描述失败:', e);
+            overlay.remove();
+          });
+        } else {
+          overlay.remove();
+        }
+      }).catch(function(e) {
+        console.error('读取相册数据失败:', e);
+        overlay.remove();
+      });
+    };
+  }).catch(function(e) {
+    console.error('打开相册编辑失败:', e);
+  });
 }
 
 // --- Request char to post ---
@@ -5910,7 +5945,7 @@ function editCurrentMsg() {
   if (!currentViewingMsgId) return;
   var msgs = getMessages();
   var m = msgs.find(function(x){ return x.id === currentViewingMsgId; });
-  if (!m || m.author !== 'user') return;
+  if (!m) return; // couple edit any author v1: keep original author when saving existing item
   var idToEdit = currentViewingMsgId;
   closeMsgDetail();
   openMsgWrite(idToEdit);
@@ -6521,7 +6556,7 @@ function editCurrentTl() {
   if (!currentViewingTlId) return;
   var items = getTlItems();
   var item = items.find(function(x){ return x.id === currentViewingTlId; });
-  if (!item || item.author !== 'user') return;
+  if (!item) return; // couple edit any author v1: keep original author when saving existing item
   var idToEdit = currentViewingTlId;
   closeTlDetail();
   openTlWrite(idToEdit);
@@ -7207,7 +7242,7 @@ function editCurrentMood() {
   if (!currentViewingMoodId) return;
   var moods = getMoods();
   var m = moods.find(function(x){ return x.id === currentViewingMoodId; });
-  if (!m || m.author !== 'user') return;
+  if (!m) return; // couple edit any author v1: keep original author when saving existing item
   var idToEdit = currentViewingMoodId;
   closeMoodDetail();
   openMoodWrite(idToEdit);
@@ -7730,7 +7765,7 @@ function editCurrentLetter() {
   if (!currentViewingLetterId) return;
   var letters = getLetters();
   var l = letters.find(function(x){ return x.id === currentViewingLetterId; });
-  if (!l || l.author !== 'user') return;
+  if (!l) return; // couple edit any author v1: keep original author when saving existing item
   var idToEdit = currentViewingLetterId;
   closeLetterDetail();
   openLetterWrite(null, idToEdit);
@@ -8802,6 +8837,52 @@ function toggleGardenHeart(who) {
   }
 }
 
+function editCurrentGardenWater() {
+  if (!currentViewingWaterId) return;
+
+  var gd = getGardenData();
+  var w = gd.waterLogs.find(function(x) { return x.id === currentViewingWaterId; });
+  if (!w) return;
+
+  var overlay = document.createElement('div');
+  overlay.className = 'sig-overlay animate-fade-in';
+  overlay.innerHTML = '<div class="sig-modal animate-slide-up"><h3>编辑浇水记录</h3>' +
+    '<textarea id="garden-edit-content" style="width:100%;background:#fafaf9;border:1px solid #e7e5e4;border-radius:0.75rem;padding:12px 16px;font-size:14px;color:#44403c;outline:none;resize:none;min-height:100px;line-height:1.6;font-family:inherit">' + escHtml(w.content || '') + '</textarea>' +
+    '<p style="font-size:12px;color:#a8a29e;margin:10px 0 0">只修改文字内容，不重新计算或发放浇水奖励。</p>' +
+    '<div class="sig-btns"><button class="sig-cancel" id="garden-edit-cancel">取消</button><button class="sig-confirm" id="garden-edit-confirm">保存</button></div></div>';
+
+  document.getElementById('app').appendChild(overlay);
+
+  var textarea = overlay.querySelector('#garden-edit-content');
+  textarea.focus();
+
+  overlay.querySelector('#garden-edit-cancel').onclick = function() {
+    overlay.remove();
+  };
+
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) overlay.remove();
+  });
+
+  overlay.querySelector('#garden-edit-confirm').onclick = function() {
+    var val = textarea.value.trim();
+    if (!val) return;
+
+    var gd2 = getGardenData();
+    var idx = gd2.waterLogs.findIndex(function(x) { return x.id === currentViewingWaterId; });
+    if (idx >= 0) {
+      gd2.waterLogs[idx].content = val;
+      gd2.waterLogs[idx].updatedAt = Date.now();
+      saveGardenData(gd2);
+      notifyGardenChanged();
+      openGardenDetail(currentViewingWaterId);
+      showGardenToast('已保存');
+    }
+
+    overlay.remove();
+  };
+}
+
 function deleteWaterFromDetail() {
   if (!currentViewingWaterId) return;
   if (!confirm('确定删除这条浇水记录？')) return;
@@ -9770,7 +9851,7 @@ function editCurrentLoc() {
   if (!currentViewingLocId) return;
   var items = getLocItems();
   var item = items.find(function(x){ return x.id === currentViewingLocId; });
-  if (!item || item.author !== 'user') return;
+  if (!item) return; // couple edit any author v1: keep original author when saving existing item
   var idToEdit = currentViewingLocId;
   closeLocDetail();
   openLocWrite(idToEdit);
@@ -10926,7 +11007,7 @@ function editCurrentSleep() {
   if (!currentViewingSleepId) return;
   var sleeps = getSleeps();
   var s = sleeps.find(function(x){ return x.id === currentViewingSleepId; });
-  if (!s || s.author !== 'user') return;
+  if (!s) return; // couple edit any author v1: keep original author when saving existing item
   var idToEdit = currentViewingSleepId;
   closeSleepDetail();
   openSleepWrite(null, idToEdit);
@@ -11622,7 +11703,7 @@ function editCurrentFin() {
   if (!currentViewingFinId) return;
   var items = getFinItems();
   var item = items.find(function(x){ return x.id === currentViewingFinId; });
-  if (!item || item.author !== 'user') return;
+  if (!item) return; // couple edit any author v1: keep original author when saving existing item
   var idToEdit = currentViewingFinId;
   closeFinDetail();
   openFinWrite(idToEdit);
@@ -11990,3 +12071,9 @@ function resetFinPrompt() {
 </script>
 </body>
 </html>
+
+<!-- couple edit any author v1 -->
+
+<!-- couple album garden edit v2 safe -->
+
+<!-- garden detail header actions v1 -->
