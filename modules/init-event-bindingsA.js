@@ -3213,9 +3213,34 @@ window.initEventBindingsA = async function(state, db) {
         // 群聊也需要加载表情包识图与智能匹配设置
         document.getElementById('enable-sticker-vision-checkbox').checked = chat.settings.enableStickerVision || false;
         document.getElementById('enable-sticker-smart-match-checkbox').checked = chat.settings.enableStickerSmartMatch || false;
+
+        // group reply sanitizer v1: load group reply sanitizer settings
+        const groupReplySanitizerSwitchRow = document.getElementById('group-reply-sanitizer-switch-row');
+        const groupReplySanitizerRulesRow = document.getElementById('group-reply-sanitizer-rules-row');
+        const groupReplySanitizerSwitch = document.getElementById('group-reply-sanitizer-switch');
+        const groupReplySanitizerRulesInput = document.getElementById('group-reply-sanitizer-rules-input');
+
+        if (groupReplySanitizerSwitchRow) {
+          groupReplySanitizerSwitchRow.style.setProperty('display', 'flex', 'important');
+        }
+        if (groupReplySanitizerSwitch) {
+          groupReplySanitizerSwitch.checked = chat.settings.enableReplySanitizer || false;
+        }
+        if (groupReplySanitizerRulesInput) {
+          groupReplySanitizerRulesInput.value = chat.settings.replySanitizerRulesText || '';
+        }
+        if (groupReplySanitizerRulesRow) {
+          groupReplySanitizerRulesRow.style.setProperty('display', groupReplySanitizerSwitch && groupReplySanitizerSwitch.checked ? 'flex' : 'none', 'important');
+        }
       } else {
 
         document.getElementById('single-char-background-activity-group').style.display = 'block';
+        // group reply sanitizer v1: hide group-only reply sanitizer UI in single chat settings
+        const groupReplySanitizerSwitchRowForSingle = document.getElementById('group-reply-sanitizer-switch-row');
+        const groupReplySanitizerRulesRowForSingle = document.getElementById('group-reply-sanitizer-rules-row');
+        if (groupReplySanitizerSwitchRowForSingle) groupReplySanitizerSwitchRowForSingle.style.setProperty('display', 'none', 'important');
+        if (groupReplySanitizerRulesRowForSingle) groupReplySanitizerRulesRowForSingle.style.setProperty('display', 'none', 'important');
+
         document.getElementById('enable-todo-list-switch').checked = chat.settings.enableTodoList || false;
         // --- 修复天气设置回显逻辑 ---
         const weatherSection = document.getElementById('weather-settings-section');
@@ -4046,6 +4071,12 @@ window.initEventBindingsA = async function(state, db) {
         // 群聊也保存表情包识图与智能匹配，与单聊一致
         chat.settings.enableStickerVision = document.getElementById('enable-sticker-vision-checkbox').checked;
         chat.settings.enableStickerSmartMatch = document.getElementById('enable-sticker-smart-match-checkbox').checked;
+
+        // group reply sanitizer v1: save group reply sanitizer settings
+        const groupReplySanitizerSwitchForSave = document.getElementById('group-reply-sanitizer-switch');
+        const groupReplySanitizerRulesInputForSave = document.getElementById('group-reply-sanitizer-rules-input');
+        if (groupReplySanitizerSwitchForSave) chat.settings.enableReplySanitizer = groupReplySanitizerSwitchForSave.checked;
+        if (groupReplySanitizerRulesInputForSave) chat.settings.replySanitizerRulesText = groupReplySanitizerRulesInputForSave.value || '';
         
         // 保存群聊线下模式设置
         const newOfflineModeState = document.getElementById('offline-mode-toggle').checked;
