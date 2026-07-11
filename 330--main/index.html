@@ -1397,6 +1397,9 @@
       </button>
       <span style="font-weight:600;color:#1c1917;letter-spacing:0.1em;font-size:16px;">清单详情</span>
       <div style="display:flex;gap:8px">
+        <button class="icon-btn" onclick="shareCurrentClToChat()" title="分享到聊天">
+          <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+        </button>
         <button class="icon-btn" onclick="editCurrentClItem()">
           <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
@@ -1523,6 +1526,9 @@
       </button>
       <span style="font-weight:600;color:#1c1917;letter-spacing:0.1em;font-size:16px;">账目详情</span>
       <div style="display:flex;gap:8px">
+        <button class="icon-btn" onclick="shareCurrentFinToChat()" title="分享到聊天">
+          <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+        </button>
         <button class="icon-btn" onclick="editCurrentFin()">
           <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
@@ -1676,6 +1682,9 @@
       </button>
       <span style="font-weight:600;color:#1c1917;letter-spacing:0.1em;font-size:16px;">定位详情</span>
       <div style="display:flex;gap:8px">
+        <button class="icon-btn" onclick="shareCurrentLocToChat()" title="分享到聊天">
+          <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+        </button>
         <button class="icon-btn" onclick="editCurrentLoc()">
           <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
@@ -1720,6 +1729,9 @@
       </button>
       <span style="font-weight:600;color:#1c1917;letter-spacing:0.1em;font-size:16px;">睡眠详情</span>
       <div style="display:flex;gap:8px">
+        <button class="icon-btn" onclick="shareCurrentSleepToChat()" title="分享到聊天">
+          <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+        </button>
         <button class="icon-btn" onclick="editCurrentSleep()">
           <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
@@ -5254,6 +5266,48 @@ function openClDetail(itemId) {
 
   document.getElementById('cl-detail-page').classList.add('active');
   document.getElementById('feature-wrapper').classList.remove('active');
+}
+
+function shareCurrentClToChat() {
+  if (!currentViewingClId) return;
+
+  var items = getChecklistItems();
+  var item = items.find(function(i) { return i.id === currentViewingClId; });
+  if (!item) return;
+
+  var cat = typeof getCategoryInfo === 'function' ? getCategoryInfo(item.category) : null;
+  var pri = typeof getPriorityInfo === 'function' ? getPriorityInfo(item.priority) : null;
+  var authorName = item.author === 'char' ? (csCharName || 'TA') : (csUserName || '我');
+  var dateStr = formatCoupleShareDateForText(item.createdAt || item.timestamp);
+  var commentsText = formatCoupleShareComments(item.comments || []);
+
+  var text =
+    '我分享了一条情侣空间记录：\n\n' +
+    '[情侣空间分享｜清单]\n' +
+    authorName + '在情侣空间创建了一条清单。\n' +
+    '标题：' + (item.title || '未命名清单') + '\n' +
+    '分类：' + ((cat && cat.label) ? cat.label : (item.category || '未分类')) + '\n' +
+    '优先级：' + ((pri && pri.label) ? pri.label : (item.priority || '未设置')) + '\n' +
+    '状态：' + (item.done ? '已完成' : '未完成') + '\n' +
+    '创建时间：' + dateStr;
+
+  if (item.note) {
+    text += '\n备注：' + item.note;
+  }
+
+  if (item.done && item.doneAt) {
+    text += '\n完成时间：' + formatCoupleShareDateForText(item.doneAt);
+  }
+
+  if (item.doneNote) {
+    text += '\n完成感想：' + item.doneNote;
+  }
+
+  if (commentsText) {
+    text += '\n\n评论：\n' + commentsText;
+  }
+
+  postCoupleShareText(text);
 }
 
 function closeClDetail() {
@@ -10283,6 +10337,51 @@ function openLocDetail(id) {
   updateLocCommentBtn();
 }
 
+function shareCurrentLocToChat() {
+  if (!currentViewingLocId) return;
+
+  var items = getLocItems();
+  var item = items.find(function(i) { return i.id === currentViewingLocId; });
+  if (!item) return;
+
+  var authorName = item.author === 'char' ? (csCharName || 'TA') : (csUserName || '我');
+  var dateStr = formatCoupleShareDateForText(item.createdAt || item.timestamp);
+  var commentsText = formatCoupleShareComments(item.comments || []);
+  var catLabel = item.category || '';
+
+  try {
+    if (typeof getLocCatInfo === 'function') {
+      var cat = getLocCatInfo(item.category);
+      if (cat && cat.label) catLabel = cat.label;
+    } else if (typeof getLocCategoryInfo === 'function') {
+      var cat2 = getLocCategoryInfo(item.category);
+      if (cat2 && cat2.label) catLabel = cat2.label;
+    }
+  } catch(e) {}
+
+  var placeName = item.name || item.title || '未命名地点';
+  var address = item.address || item.addr || '';
+
+  var text =
+    '我分享了一条情侣空间记录：\n\n' +
+    '[情侣空间分享｜定位]\n' +
+    authorName + '在情侣空间分享了一个地点。\n' +
+    '地点：' + placeName + '\n' +
+    (address ? '地址：' + address + '\n' : '') +
+    (catLabel ? '分类：' + catLabel + '\n' : '') +
+    '时间：' + dateStr;
+
+  if (item.description) {
+    text += '\n描述：' + item.description;
+  }
+
+  if (commentsText) {
+    text += '\n\n评论：\n' + commentsText;
+  }
+
+  postCoupleShareText(text);
+}
+
 function closeLocDetail() {
   currentViewingLocId = null;
   document.getElementById('loc-detail-page').classList.remove('active');
@@ -11488,6 +11587,93 @@ function openSleepDetail(id) {
   updateSleepCommentBtn();
 }
 
+function shareCurrentSleepToChat() {
+  if (!currentViewingSleepId) return;
+
+  var sleeps = getSleeps();
+  var rec = sleeps.find(function(x) { return x.id === currentViewingSleepId; });
+  if (!rec) return;
+
+  var authorName = rec.author === 'char' ? (csCharName || 'TA') : (csUserName || '我');
+  var dateStr = formatCoupleShareDateForText(rec.createdAt || rec.timestamp);
+  var commentsText = formatCoupleShareComments(rec.comments || []);
+
+  var lines = [];
+  lines.push('我分享了一条情侣空间记录：');
+  lines.push('');
+  lines.push('[情侣空间分享｜睡眠]');
+  lines.push(authorName + '在情侣空间记录了一条睡眠。');
+  lines.push('记录时间：' + dateStr);
+
+  if (rec.duration) {
+    var hrs = Math.floor(rec.duration / 60);
+    var mins = rec.duration % 60;
+    lines.push('睡眠时长：' + (hrs > 0 ? hrs + '小时' : '') + (mins > 0 ? mins + '分钟' : ''));
+  }
+
+  if (rec.quality) {
+    try {
+      var qi = getSleepQualityInfo(rec.quality);
+      lines.push('睡眠质量：' + ((qi && qi.label) ? qi.label : rec.quality));
+    } catch(e) {
+      lines.push('睡眠质量：' + rec.quality);
+    }
+  }
+
+  if (rec.sleepAt || rec.sleepNote || rec.sleepMood) {
+    lines.push('');
+    lines.push('入睡：');
+    if (rec.sleepAt) lines.push('- 时间：' + String(rec.sleepAt).split('T').pop().substring(0, 5));
+    if (rec.sleepMood) {
+      try {
+        var sm = getSleepMoodInfo(rec.sleepMood);
+        lines.push('- 心情：' + ((sm && sm.label) ? sm.label : rec.sleepMood));
+      } catch(e) {
+        lines.push('- 心情：' + rec.sleepMood);
+      }
+    }
+    if (rec.sleepNote) lines.push('- 记录：' + rec.sleepNote);
+  }
+
+  if (Array.isArray(rec.events) && rec.events.length > 0) {
+    lines.push('');
+    lines.push('睡眠期间：');
+    var events = rec.events.slice(-5);
+    if (rec.events.length > 5) lines.push('（以下仅分享最近5条睡眠事件）');
+    events.forEach(function(evt) {
+      var label = evt.type || '事件';
+      try {
+        var info = getSleepEventTypeInfo(evt.type);
+        if (info && info.label) label = info.label;
+      } catch(e) {}
+      lines.push('- ' + label + '：' + (evt.content || ''));
+    });
+  }
+
+  if (rec.wakeAt || rec.wakeNote || rec.wakeMood) {
+    lines.push('');
+    lines.push('起床：');
+    if (rec.wakeAt) lines.push('- 时间：' + String(rec.wakeAt).split('T').pop().substring(0, 5));
+    if (rec.wakeMood) {
+      try {
+        var wm = getSleepMoodInfo(rec.wakeMood);
+        lines.push('- 心情：' + ((wm && wm.label) ? wm.label : rec.wakeMood));
+      } catch(e) {
+        lines.push('- 心情：' + rec.wakeMood);
+      }
+    }
+    if (rec.wakeNote) lines.push('- 记录：' + rec.wakeNote);
+  }
+
+  if (commentsText) {
+    lines.push('');
+    lines.push('评论：');
+    lines.push(commentsText);
+  }
+
+  postCoupleShareText(lines.join('\n'));
+}
+
 function closeSleepDetail() {
   currentViewingSleepId = null;
   document.getElementById('sleep-detail-page').classList.remove('active');
@@ -12140,6 +12326,43 @@ function openFinDetail(id) {
   document.getElementById('fin-comment-input').value = '';
   updateFinCommentBtn();
 }
+function shareCurrentFinToChat() {
+  if (!currentViewingFinId) return;
+
+  var items = getFinItems();
+  var item = items.find(function(x) { return x.id === currentViewingFinId; });
+  if (!item) return;
+
+  var cat = typeof getFinCatInfo === 'function' ? getFinCatInfo(item.category) : null;
+  var authorName = item.author === 'char' ? (csCharName || 'TA') : (csUserName || '我');
+  var typeLabel = item.type === 'income' ? '收入' : '支出';
+  var sign = item.type === 'income' ? '+' : '-';
+  var amount = Number(item.amount || 0).toFixed(2);
+  var createdText = formatCoupleShareDateForText(item.createdAt || item.timestamp);
+  var commentsText = formatCoupleShareComments(item.comments || []);
+
+  var text =
+    '我分享了一条情侣空间记录：\n\n' +
+    '[情侣空间分享｜记账]\n' +
+    authorName + '在情侣空间记录了一笔账目。\n' +
+    '类型：' + typeLabel + '\n' +
+    '金额：' + sign + '¥' + amount + '\n' +
+    '描述：' + (item.title || '（无描述）') + '\n' +
+    '分类：' + ((cat && cat.label) ? cat.label : (item.category || '未分类')) + '\n' +
+    '账目日期：' + (item.date || '未填写') + '\n' +
+    '记录时间：' + createdText;
+
+  if (item.note) {
+    text += '\n备注：' + item.note;
+  }
+
+  if (commentsText) {
+    text += '\n\n评论：\n' + commentsText;
+  }
+
+  postCoupleShareText(text);
+}
+
 function closeFinDetail() {
   currentViewingFinId = null;
   document.getElementById('fin-detail-page').classList.remove('active');
@@ -12450,3 +12673,5 @@ function resetFinPrompt() {
 <!-- couple share first batch v1 -->
 
 <!-- couple share second batch v1 -->
+
+<!-- couple share third batch v1 -->
