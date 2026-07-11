@@ -1907,11 +1907,43 @@ async function openVectorMemorySettings(chat, defaultTab = 'settings') {
   }
 }
 
+// couple share memory filter v1b: skip Couple Space share messages only for memory summary/extraction.
+// Chat history and normal online/offline AI context stay unchanged.
+function isCoupleSpaceShareMemoryNoise(msg) {
+  if (!msg || typeof msg.content !== 'string') return false;
+  const content = msg.content;
+  return content.includes('我分享了一条情侣空间记录') && content.includes('[情侣空间分享｜');
+}
+
+function filterCoupleSpaceShareMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+  return messages.filter(msg => !isCoupleSpaceShareMemoryNoise(msg));
+}
+
 // ==================== 向量记忆自动总结 ====================
 // ===== 变量记忆提取核心逻辑（公共函数） =====
 async function executeVectorExtraction(chat, messages, updateTimestamp = false) {
   if (messages.length === 0) {
     showToast('没有可总结的消息', 'info');
+    return;
+  }
+
+  const originalMessagesForCoupleShareFilter = messages;
+  const originalLastMsgForCoupleShareFilter = originalMessagesForCoupleShareFilter[originalMessagesForCoupleShareFilter.length - 1];
+  messages = filterCoupleSpaceShareMessages(originalMessagesForCoupleShareFilter);
+
+  if (messages.length === 0) {
+    if (updateTimestamp && originalLastMsgForCoupleShareFilter && chat.history) {
+      const vm = window.vectorMemoryManager.getVariableMemory(chat);
+      const idx = chat.history.findIndex(m => m.timestamp === originalLastMsgForCoupleShareFilter.timestamp);
+      if (idx !== -1) {
+        vm.settings.lastExtractedMsgIndex = idx;
+      } else if (window.vectorMemoryManager._tempLastMsgIndex !== undefined && window.vectorMemoryManager._tempLastMsgIndex !== -1) {
+        vm.settings.lastExtractedMsgIndex = window.vectorMemoryManager._tempLastMsgIndex;
+      }
+      await db.chats.put(chat);
+    }
+    showToast('本批消息只有情侣空间分享，已跳过变量记忆提取', 'info');
     return;
   }
 
@@ -1966,7 +1998,7 @@ async function executeVectorExtraction(chat, messages, updateTimestamp = false) 
   // 查找本次处理的最后一条消息在总历史记录中的索引
   let processedLastIndex = -1;
   if (chat.history) {
-    const lastMsg = messages[messages.length - 1];
+    const lastMsg = originalLastMsgForCoupleShareFilter || messages[messages.length - 1];
     processedLastIndex = chat.history.findIndex(m => m.timestamp === lastMsg.timestamp);
   }
 
@@ -3180,9 +3212,21 @@ async function triggerStructuredMemorySummary(chatId, forceUpdate = false) {
   if (!chat || !window.structuredMemoryManager) return;
 
   const lastTimestamp = chat.lastStructuredMemoryTimestamp || 0;
-  const messagesToSummarize = chat.history.filter(m => m.timestamp > lastTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
+  const originalMessagesToSummarizeForCoupleShareFilter = chat.history.filter(m => m.timestamp > lastTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
+  let messagesToSummarize = filterCoupleSpaceShareMessages(originalMessagesToSummarizeForCoupleShareFilter);
+  const skippedCoupleShareCount = originalMessagesToSummarizeForCoupleShareFilter.length - messagesToSummarize.length;
 
-  console.log(`[结构化记忆] 检查更新: 上次时间戳=${lastTimestamp}, 待总结消息=${messagesToSummarize.length}条`);
+  console.log(`[结构化记忆] 检查更新: 上次时间戳=${lastTimestamp}, 待总结消息=${messagesToSummarize.length}条，已过滤情侣空间分享 ${skippedCoupleShareCount} 条`);
+
+  if (messagesToSummarize.length === 0) {
+    if (originalMessagesToSummarizeForCoupleShareFilter.length > 0) {
+      const originalEndMsg = originalMessagesToSummarizeForCoupleShareFilter[originalMessagesToSummarizeForCoupleShareFilter.length - 1];
+      chat.lastStructuredMemoryTimestamp = originalEndMsg.timestamp;
+      await db.chats.put(chat);
+      console.log(`[结构化记忆] 本批消息只有情侣空间分享，已跳过并推进时间戳: ${originalEndMsg.timestamp}`);
+    }
+    return;
+  }
 
   // 如果不是强制更新且消息太少，则跳过
   if (!forceUpdate && messagesToSummarize.length < 5) {
@@ -3528,6 +3572,19 @@ async function executeStructuredSummary(chat, messages, updateTimestamp = false)
     throw new Error('没有消息需要总结');
   }
 
+  const originalMessagesForCoupleShareFilter = messages;
+  const originalEndMsgForCoupleShareFilter = originalMessagesForCoupleShareFilter[originalMessagesForCoupleShareFilter.length - 1];
+  messages = filterCoupleSpaceShareMessages(originalMessagesForCoupleShareFilter);
+
+  if (messages.length === 0) {
+    if (updateTimestamp && originalEndMsgForCoupleShareFilter) {
+      chat.lastStructuredMemoryTimestamp = originalEndMsgForCoupleShareFilter.timestamp;
+      await db.chats.put(chat);
+    }
+    showToast('本批消息只有情侣空间分享，已跳过结构化记忆提取', 'info');
+    return;
+  }
+
   const userNickname = chat.settings.myNickname || (state.qzoneSettings.nickname || '用户');
   const startMsg = messages[0];
   const endMsg = messages[messages.length - 1];
@@ -3605,7 +3662,7 @@ async function executeStructuredSummary(chat, messages, updateTimestamp = false)
 
   // 根据参数决定是否更新时间戳
   if (updateTimestamp) {
-    const newTimestamp = endMsg.timestamp;
+    const newTimestamp = (originalEndMsgForCoupleShareFilter || endMsg).timestamp;
     chat.lastStructuredMemoryTimestamp = newTimestamp;
     console.log(`[结构化记忆] 时间戳已更新到: ${newTimestamp}`);
   }
@@ -4096,7 +4153,7 @@ function generateSummaryForTimeframe(chat, duration, unit) {
     timeAgo = Date.now() - duration * 24 * 60 * 60 * 1000;
   }
 
-  const messagesToSummarize = chat.history.filter(m => m.timestamp > timeAgo && !m.isHidden);
+  const messagesToSummarize = filterCoupleSpaceShareMessages(chat.history.filter(m => m.timestamp > timeAgo && !m.isHidden));
 
   if (messagesToSummarize.length < 3) {
     return "";
@@ -4613,6 +4670,20 @@ async function triggerAutoSummary(chatId, force = false, customRange = null) {
       chat.history.filter(m => m.timestamp > lastSummaryTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
   }
 
+  const originalMessagesBeforeCoupleShareFilter = Array.isArray(messagesToSummarize) ? messagesToSummarize : [];
+  const originalEndMsgForSummary = originalMessagesBeforeCoupleShareFilter[originalMessagesBeforeCoupleShareFilter.length - 1];
+  messagesToSummarize = filterCoupleSpaceShareMessages(originalMessagesBeforeCoupleShareFilter);
+
+  if (messagesToSummarize.length === 0) {
+    if (!customRange && originalEndMsgForSummary) {
+      chat.lastMemorySummaryTimestamp = originalEndMsgForSummary.timestamp;
+      await db.chats.put(chat);
+      console.log('[长期记忆总结] 本批消息只有情侣空间分享，已跳过并推进时间戳');
+    }
+    if (force) alert('本批消息只有情侣空间分享，已跳过总结。');
+    return;
+  }
+
   if (messagesToSummarize.length < 5) {
     if (force) alert("最近的消息太少，无法进行有意义的总结。");
     return;
@@ -4880,7 +4951,7 @@ ${formattedHistory}
       }
     }
 
-    chat.lastMemorySummaryTimestamp = messagesToSummarize.slice(-1)[0].timestamp;
+    chat.lastMemorySummaryTimestamp = (originalEndMsgForSummary || messagesToSummarize.slice(-1)[0]).timestamp;
     await db.chats.put(chat);
 
     if (document.getElementById('long-term-memory-screen').classList.contains('active')) {
