@@ -1628,7 +1628,10 @@
         <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
       </button>
       <span style="font-weight:600;color:#1c1917;letter-spacing:0.1em;font-size:16px;position:absolute;left:50%;transform:translateX(-50%);">浇水详情</span>
-      <button class="icon-btn" onclick="editCurrentGardenWater()" title="编辑" style="margin-left:auto;margin-right:12px">
+      <button class="icon-btn" onclick="shareCurrentGardenWaterToChat()" title="分享到聊天" style="margin-left:auto;margin-right:12px">
+        <svg style="width:20px;height:20px" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></svg>
+      </button>
+      <button class="icon-btn" onclick="editCurrentGardenWater()" title="编辑" style="margin-right:12px">
         <svg style="width:20px;height:20px" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
       </button>
       <button class="icon-btn" onclick="deleteWaterFromDetail()">
@@ -2167,6 +2170,10 @@ function editDays() {
 
 // ===== Init from parent =====
 window.addEventListener('message', function(e) {
+  if (e.data && e.data.type === 'coupleSpaceShareToChatResult') {
+    if (!e.data.ok) showGardenToast('分享到聊天失败');
+  }
+
   if (e.data && e.data.type === 'coupleSpaceInit') {
     var d = e.data;
     currentCharId = d.charId;
@@ -4162,7 +4169,7 @@ function renderAnnivTimeline(container, annivs) {
 }
 
 // --- Anniversary Detail ---
-function openAnnivDetail(id) {
+async function openAnnivDetail(id) {
   var annivs = getAnniversaries();
   var a = annivs.find(function(x) { return x.id === id; });
   if (!a) return;
@@ -4212,7 +4219,7 @@ function openAnnivDetail(id) {
   '</div>';
 
   // Linked diary/album
-  var linkedItems = findLinkedContent(a.date);
+  var linkedItems = await findLinkedContent(a.date);
   if (linkedItems.length > 0) {
     html += '<div class="anniv-detail-linked">' +
       '<div class="anniv-detail-linked-title">📎 相关回忆</div>';
@@ -4237,7 +4244,7 @@ function closeAnnivDetail() {
   renderAnnivList();
 }
 
-function findLinkedContent(dateStr) {
+async function findLinkedContent(dateStr) {
   var items = [];
   // Check diaries on that date
   var diaries = getDiaries();
@@ -4248,7 +4255,8 @@ function findLinkedContent(dateStr) {
     }
   });
   // Check album photos on that date
-  var photos = getAlbumPhotos();
+  var photos = await getAlbumPhotos();
+  if (!Array.isArray(photos)) photos = [];
   photos.forEach(function(p) {
     var pDate = new Date(p.timestamp).toISOString().slice(0, 10);
     if (pDate === dateStr) {
@@ -8837,6 +8845,43 @@ function toggleGardenHeart(who) {
   }
 }
 
+function shareCurrentGardenWaterToChat() {
+  if (!currentViewingWaterId) return;
+
+  var gd = getGardenData();
+  var w = gd.waterLogs.find(function(x) { return x.id === currentViewingWaterId; });
+  if (!w) return;
+
+  var isChar = w.author === 'char';
+  var name = isChar ? (csCharName || 'TA') : (csUserName || '我');
+  var treeName = gd.treeName || '情侣树';
+  var content = (w.content || '（无文字）').trim();
+  var reward = Number(w.coinsEarned || 0).toFixed(2);
+  var dateStr = new Date(w.createdAt || Date.now()).toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  var text =
+    '我分享了一条情侣空间记录：\n\n' +
+    '[情侣空间分享｜情侣树浇水记录]\n' +
+    name + '在情侣空间给“' + treeName + '”浇了水：\n' +
+    '“' + content + '”\n' +
+    '奖励：+' + reward + ' 元\n' +
+    '时间：' + dateStr;
+
+  window.parent.postMessage({
+    type: 'coupleSpaceShareToChat',
+    charId: currentCharId,
+    text: text
+  }, '*');
+
+  showGardenToast('已分享到聊天');
+}
+
 function editCurrentGardenWater() {
   if (!currentViewingWaterId) return;
 
@@ -12077,3 +12122,7 @@ function resetFinPrompt() {
 <!-- couple album garden edit v2 safe -->
 
 <!-- garden detail header actions v1 -->
+
+<!-- garden share to chat v2 -->
+
+<!-- anniv linked album promise v1 -->

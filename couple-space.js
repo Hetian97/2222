@@ -425,9 +425,60 @@ function closeCoupleSpace() {
   document.getElementById('couple-space-iframe').src = '';
 }
 
+
+// garden share to chat v2
+async function handleCoupleSpaceShareToChat(data) {
+  try {
+    const charId = data && data.charId ? data.charId : localStorage.getItem('coupleSpaceLastId');
+    const text = data && data.text ? String(data.text).trim() : '';
+    if (!charId || !text) return;
+
+    const chat = state.chats[charId];
+    if (!chat) return;
+
+    const myNickname = chat.settings && chat.settings.myNickname ? chat.settings.myNickname : '我';
+
+    const msg = {
+      role: 'user',
+      content: text,
+      senderName: myNickname,
+      timestamp: Date.now()
+    };
+
+    chat.history.push(msg);
+
+    if (typeof db !== 'undefined' && db.chats) {
+      await db.chats.put(chat);
+    }
+
+    if (typeof renderChatList === 'function') {
+      renderChatList();
+    }
+
+    if (state.activeChatId === charId && typeof renderChatInterface === 'function') {
+      renderChatInterface(charId);
+    }
+
+    const iframe = document.getElementById('couple-space-iframe');
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage({ type: 'coupleSpaceShareToChatResult', ok: true }, '*');
+    }
+  } catch (err) {
+    console.error('[情侣空间] 分享到聊天失败:', err);
+    const iframe = document.getElementById('couple-space-iframe');
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage({ type: 'coupleSpaceShareToChatResult', ok: false }, '*');
+    }
+  }
+}
+
 window.addEventListener('message', function(e) {
   if (e.data === 'closeCoupleSpace') closeCoupleSpace();
   if (e.data === 'coupleSpaceSwitchPartner') showCoupleSpaceSelect('list');
+
+  if (e.data && e.data.type === 'coupleSpaceShareToChat') {
+    handleCoupleSpaceShareToChat(e.data);
+  }
 
   // --- Storage Sync ---
   if (e.data && e.data.type === 'coupleSpaceSyncStorageSet') {
@@ -5859,3 +5910,5 @@ async function triggerAutoFinancePost(charId, isTimer = false) {
 if (typeof setTimeout !== 'undefined') {
   setTimeout(setupCoupleSpaceFinanceAutoTimer, 13000);
 }
+
+// garden share to chat v2
