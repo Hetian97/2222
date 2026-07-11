@@ -3278,6 +3278,16 @@ window.initEventBindingsA = async function(state, db) {
         document.getElementById('char-auto-cart-clear-probability').value = chat.settings.autoCartClearProbability ?? 30;
         document.getElementById('char-auto-todo-schedule-switch').checked = chat.settings.enableAutoTodoSchedule || false;
         document.getElementById('char-auto-todo-schedule-probability').value = chat.settings.autoTodoScheduleProbability ?? 15;
+
+        // role reply sanitizer v1: load current chat reply sanitizer settings
+        const replySanitizerSwitch = document.getElementById('char-reply-sanitizer-switch');
+        if (replySanitizerSwitch) replySanitizerSwitch.checked = chat.settings.enableReplySanitizer || false;
+        const replySanitizerRulesInput = document.getElementById('char-reply-sanitizer-rules-input');
+        if (replySanitizerRulesInput) replySanitizerRulesInput.value = chat.settings.replySanitizerRulesText || '';
+        const replySanitizerRulesRow = document.getElementById('char-reply-sanitizer-rules-row');
+        if (replySanitizerRulesRow) {
+          replySanitizerRulesRow.style.setProperty('display', replySanitizerSwitch && replySanitizerSwitch.checked ? 'flex' : 'none', 'important');
+        }
         
         // 新增：加载后台查看用户手机设置
         const charViewMyPhoneBgSelect = document.getElementById('char-view-myphone-bg-select');
@@ -4062,6 +4072,12 @@ window.initEventBindingsA = async function(state, db) {
         chat.settings.autoCartClearProbability = parseInt(document.getElementById('char-auto-cart-clear-probability').value) || 30;
         chat.settings.enableAutoTodoSchedule = document.getElementById('char-auto-todo-schedule-switch').checked;
         chat.settings.autoTodoScheduleProbability = parseInt(document.getElementById('char-auto-todo-schedule-probability').value) || 15;
+
+        // role reply sanitizer v1: save current chat reply sanitizer settings
+        const replySanitizerSwitch = document.getElementById('char-reply-sanitizer-switch');
+        if (replySanitizerSwitch) chat.settings.enableReplySanitizer = replySanitizerSwitch.checked;
+        const replySanitizerRulesInput = document.getElementById('char-reply-sanitizer-rules-input');
+        if (replySanitizerRulesInput) chat.settings.replySanitizerRulesText = replySanitizerRulesInput.value || '';
         
         // 新增：保存后台查看用户手机设置
         const charViewMyPhoneBgSelect = document.getElementById('char-view-myphone-bg-select');

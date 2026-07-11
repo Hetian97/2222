@@ -2068,6 +2068,77 @@ ${linkedContents}
     const chatId = state.activeChatId;
     const chat = state.chats[state.activeChatId];
 
+      // role reply sanitizer v1: sanitize new assistant replies before saving/rendering.
+      function escapeReplySanitizerRegExp(text) {
+        const specials = "\\^$*+?.()|{}[]";
+        return String(text).split("").map(function(ch) {
+          return specials.indexOf(ch) >= 0 ? "\\" + ch : ch;
+        }).join("");
+      }
+
+      function buildReplySanitizerRegExp(patternText) {
+        let pattern = String(patternText || "").trim();
+        let isRegex = false;
+        if (pattern.startsWith("regex:")) {
+          isRegex = true;
+          pattern = pattern.slice(6).trim();
+        }
+        if (pattern.startsWith("/") && pattern.lastIndexOf("/") > 0) {
+          isRegex = true;
+        }
+        if (!isRegex) {
+          return new RegExp(escapeReplySanitizerRegExp(pattern), "g");
+        }
+        if (pattern.startsWith("/") && pattern.lastIndexOf("/") > 0) {
+          const lastSlash = pattern.lastIndexOf("/");
+          const source = pattern.slice(1, lastSlash);
+          let flags = pattern.slice(lastSlash + 1) || "g";
+          if (!flags.includes("g")) flags += "g";
+          return new RegExp(source, flags);
+        }
+        return new RegExp(pattern, "g");
+      }
+
+      function applyReplySanitizerToText(text, rulesText) {
+        let output = String(text || "");
+        const ruleLines = String(rulesText || "").split(/\r?\n/);
+        for (const rawLine of ruleLines) {
+          const line = String(rawLine || "").trim();
+          if (!line || line.startsWith("#") || line.startsWith("//")) continue;
+          let sep = "=>";
+          let idx = line.indexOf(sep);
+          if (idx < 0) {
+            sep = "->";
+            idx = line.indexOf(sep);
+          }
+          if (idx < 0) continue;
+          const pattern = line.slice(0, idx).trim();
+          const replacement = line.slice(idx + sep.length);
+          if (!pattern) continue;
+          try {
+            output = output.replace(buildReplySanitizerRegExp(pattern), replacement);
+          } catch (error) {
+            console.warn("AI 回复净化规则无效，已跳过:", line, error);
+          }
+        }
+        return output;
+      }
+
+      function applyRoleReplySanitizer(aiMessage, currentChat) {
+        if (!aiMessage || !currentChat || !currentChat.settings) return aiMessage;
+        if (!currentChat.settings.enableReplySanitizer) return aiMessage;
+        const rulesText = currentChat.settings.replySanitizerRulesText || "";
+        if (!rulesText.trim()) return aiMessage;
+        const allowedTypes = [null, undefined, "", "text", "voice_message", "offline_text"];
+        if (!allowedTypes.includes(aiMessage.type)) return aiMessage;
+        ["content", "dialogue", "description"].forEach(function(field) {
+          if (typeof aiMessage[field] === "string") {
+            aiMessage[field] = applyReplySanitizerToText(aiMessage[field], rulesText);
+          }
+        });
+        return aiMessage;
+      }
+
     let isViewingThisChat = document.getElementById('chat-interface-screen').classList.contains('active') && state.activeChatId === chatId;
 
     setAvatarActingState(chatId, true);
@@ -7900,6 +7971,7 @@ ${getActiveThoughtsPrompt()}
         }
 
         if (aiMessage) {
+          aiMessage = applyRoleReplySanitizer(aiMessage, chat);
           chat.history.push(aiMessage);
           if (!isViewingThisChat) {
             chat.unreadCount = (chat.unreadCount || 0) + 1;

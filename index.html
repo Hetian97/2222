@@ -5223,7 +5223,29 @@
                         <input type="number" id="char-auto-todo-schedule-probability" min="0" max="100" value="15" class="settings-num-input">
                     </div>
                 </div>
-                
+
+                <!-- role reply sanitizer v1: AI 回复净化 -->
+                <div class="settings-item" style="display: flex !important; justify-content: space-between !important; align-items: center !important; flex-direction: row !important;">
+                     <div style="flex: 1; padding-right: 10px; display: flex; flex-direction: column; align-items: flex-start;">
+                        <label style="margin-bottom: 2px;">启用 AI 回复净化</label>
+                        <div class="settings-desc">仅处理当前聊天中新生成的角色回复；不会修改旧历史</div>
+                    </div>
+                    <label class="toggle-switch" style="margin: 0;">
+                        <input type="checkbox" id="char-reply-sanitizer-switch" onchange="var row=document.getElementById('char-reply-sanitizer-rules-row'); if(row) row.style.setProperty('display', this.checked ? 'flex' : 'none', 'important');">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="settings-item" id="char-reply-sanitizer-rules-row" style="display: none !important; justify-content: space-between !important; align-items: flex-start !important; flex-direction: row !important; gap: 16px;">
+                    <div style="flex: 0 0 36%; min-width: 160px; padding-right: 10px; display: flex; flex-direction: column; align-items: flex-start;">
+                        <label style="margin-bottom: 6px;">AI 回复净化规则</label>
+                        <div class="settings-desc" style="white-space: normal; line-height: 1.6;">保存前执行，显示和后续上下文都会使用净化后的文本。支持普通替换，也支持 regex:/正则/g=&gt;替换。</div>
+                    </div>
+                    <div class="settings-right" style="flex: 1; min-width: 0; justify-content: flex-end;">
+                        <textarea id="char-reply-sanitizer-rules-input" rows="8" style="width: 100%; min-height: 150px; resize: vertical; font-family: monospace; font-size: 13px; line-height: 1.55; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--secondary-bg); color: var(--text-color);" placeholder="一行一条：原文=>替换&#10;例如：&#10;这台机体=>我&#10;这把刀=>我&#10;语言中枢=>这张嘴&#10;&#10;正则写法：regex:/这台机体|这把刀/g=>我"></textarea>
+                    </div>
+                </div>
+
                 <!-- 后台查看用户手机 -->
                 <div class="settings-item" style="display: flex !important; justify-content: space-between !important; align-items: center !important; flex-direction: row !important;">
                     <label>后台查看用户手机</label>
