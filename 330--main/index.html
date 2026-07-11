@@ -1440,6 +1440,9 @@
       </button>
       <span style="font-weight:600;color:#1c1917;letter-spacing:0.1em;font-size:16px;">留言详情</span>
       <div style="display:flex;gap:8px">
+        <button class="icon-btn" onclick="shareCurrentMsgToChat()" title="分享到聊天">
+          <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+        </button>
         <button class="icon-btn" onclick="editCurrentMsg()">
           <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
@@ -1465,6 +1468,9 @@
       </button>
       <span style="font-weight:600;color:#1c1917;letter-spacing:0.1em;font-size:16px;">时光详情</span>
       <div style="display:flex;gap:8px">
+        <button class="icon-btn" onclick="shareCurrentTlToChat()" title="分享到聊天">
+          <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+        </button>
         <button class="icon-btn" onclick="editCurrentTl()">
           <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
@@ -1561,6 +1567,9 @@
       </button>
       <span style="font-weight:600;color:#1c1917;letter-spacing:0.1em;font-size:16px;">心情详情</span>
       <div style="display:flex;gap:8px">
+        <button class="icon-btn" onclick="shareCurrentMoodToChat()" title="分享到聊天">
+          <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+        </button>
         <button class="icon-btn" onclick="editCurrentMood()">
           <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
@@ -1598,6 +1607,9 @@
       </button>
       <span style="font-weight:600;color:#1c1917;letter-spacing:0.1em;font-size:16px;">信件详情</span>
       <div style="display:flex;gap:8px">
+        <button class="icon-btn" onclick="shareCurrentLetterToChat()" title="分享到聊天">
+          <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+        </button>
         <button class="icon-btn" onclick="editCurrentLetter()">
           <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </button>
@@ -6189,6 +6201,44 @@ function openMsgDetail(id) {
   document.getElementById('msg-comment-input').value = '';
   updateMsgCommentBtn();
 }
+function formatCoupleShareDateForText(value) {
+  var d = new Date(value || Date.now());
+  if (isNaN(d.getTime())) return String(value || '');
+  return d.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function shareCurrentMsgToChat() {
+  if (!currentViewingMsgId) return;
+
+  var msgs = getMessages();
+  var m = msgs.find(function(x) { return x.id === currentViewingMsgId; });
+  if (!m) return;
+
+  var isChar = m.author === 'char';
+  var name = isChar ? (csCharName || 'TA') : (csUserName || '我');
+  var dateStr = formatCoupleShareDateForText(m.createdAt || m.timestamp);
+  var commentsText = formatCoupleShareComments(m.comments || []);
+
+  var text =
+    '我分享了一条情侣空间记录：\n\n' +
+    '[情侣空间分享｜留言]\n' +
+    name + '在情侣空间留下了一条留言。\n' +
+    '时间：' + dateStr + '\n' +
+    '内容：\n' + (m.content || '（无内容）');
+
+  if (commentsText) {
+    text += '\n\n评论：\n' + commentsText;
+  }
+
+  postCoupleShareText(text);
+}
+
 function closeMsgDetail() {
   currentViewingMsgId = null;
   document.getElementById('msg-detail-page').classList.remove('active');
@@ -6796,6 +6846,38 @@ function openTlDetail(id) {
   document.getElementById('tl-detail-page').classList.add('active');
   document.getElementById('feature-wrapper').classList.remove('active');
 }
+function shareCurrentTlToChat() {
+  if (!currentViewingTlId) return;
+
+  var items = getTlItems();
+  var item = items.find(function(x) { return x.id === currentViewingTlId; });
+  if (!item) return;
+
+  var isChar = item.author === 'char';
+  var name = isChar ? (csCharName || 'TA') : (csUserName || '我');
+  var dateStr = formatCoupleShareDateForText(item.createdAt || item.timestamp || item.date);
+  var commentsText = formatCoupleShareComments(item.comments || []);
+
+  var title = item.title || item.name || '无标题时光';
+  var content = item.content || item.text || item.note || '（无内容）';
+  var category = item.category || item.cat || '';
+
+  var text =
+    '我分享了一条情侣空间记录：\n\n' +
+    '[情侣空间分享｜时光轴]\n' +
+    name + '在情侣空间记录了一段时光。\n' +
+    '标题：' + title + '\n' +
+    (category ? '分类：' + category + '\n' : '') +
+    '时间：' + dateStr + '\n' +
+    '内容：\n' + content;
+
+  if (commentsText) {
+    text += '\n\n评论：\n' + commentsText;
+  }
+
+  postCoupleShareText(text);
+}
+
 function closeTlDetail() {
   currentViewingTlId = null;
   document.getElementById('tl-detail-page').classList.remove('active');
@@ -7485,6 +7567,37 @@ function openMoodDetail(id) {
   updateMoodCommentBtn();
 }
 
+function shareCurrentMoodToChat() {
+  if (!currentViewingMoodId) return;
+
+  var moods = getMoods();
+  var m = moods.find(function(x) { return x.id === currentViewingMoodId; });
+  if (!m) return;
+
+  var info = getMoodTypeInfo(m.moodType);
+  var isChar = m.author === 'char';
+  var name = isChar ? (csCharName || 'TA') : (csUserName || '我');
+  var dateStr = formatCoupleShareDateForText(m.createdAt || m.timestamp);
+  var commentsText = formatCoupleShareComments(m.comments || []);
+
+  var text =
+    '我分享了一条情侣空间记录：\n\n' +
+    '[情侣空间分享｜心情]\n' +
+    name + '在情侣空间记录了一条心情。\n' +
+    '心情：' + ((info && info.label) ? info.label : (m.moodType || '未命名心情')) + '\n' +
+    '时间：' + dateStr;
+
+  if (m.content) {
+    text += '\n内容：\n' + m.content;
+  }
+
+  if (commentsText) {
+    text += '\n\n评论：\n' + commentsText;
+  }
+
+  postCoupleShareText(text);
+}
+
 function closeMoodDetail() {
   currentViewingMoodId = null;
   document.getElementById('mood-detail-page').classList.remove('active');
@@ -8039,6 +8152,44 @@ function openLetterDetail(id) {
   document.getElementById('letter-comment-input').value = '';
   updateLetterCommentBtn();
 }
+function shareCurrentLetterToChat() {
+  if (!currentViewingLetterId) return;
+
+  var letters = getLetters();
+  var l = letters.find(function(x) { return x.id === currentViewingLetterId; });
+  if (!l) return;
+
+  var isChar = l.author === 'char';
+  var name = isChar ? (csCharName || 'TA') : (csUserName || '我');
+  var dateStr = formatCoupleShareDateForText(l.createdAt || l.timestamp);
+  var commentsText = formatCoupleShareComments(l.comments || []);
+  var envLabel = getLetterEnvelopeLabel(l.envelope || 'none');
+  var replyLine = '';
+
+  if (l.replyTo) {
+    var origLetter = letters.find(function(x) { return x.id === l.replyTo; });
+    if (origLetter) {
+      replyLine = '回复：' + (origLetter.title || '无题') + '\n';
+    }
+  }
+
+  var text =
+    '我分享了一条情侣空间记录：\n\n' +
+    '[情侣空间分享｜信件]\n' +
+    name + '在情侣空间写了一封信。\n' +
+    '标题：' + (l.title || '无题') + '\n' +
+    (envLabel && envLabel !== '普通' ? '信封：' + envLabel + '\n' : '') +
+    replyLine +
+    '时间：' + dateStr + '\n' +
+    '正文：\n' + (l.content || '（无内容）');
+
+  if (commentsText) {
+    text += '\n\n批注：\n' + commentsText;
+  }
+
+  postCoupleShareText(text);
+}
+
 function closeLetterDetail() {
   currentViewingLetterId = null;
   document.getElementById('letter-detail-page').classList.remove('active');
@@ -12297,3 +12448,5 @@ function resetFinPrompt() {
 <!-- anniv linked album promise v1 -->
 
 <!-- couple share first batch v1 -->
+
+<!-- couple share second batch v1 -->
