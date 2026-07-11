@@ -1327,6 +1327,35 @@
     }
 
 
+    // couple share collapse ui v2: UI-only folding for Couple Space share messages.
+    // msg.content stays unchanged, so online/offline AI still reads the full original text.
+    if (typeof rawContent === 'string' && rawContent.includes('我分享了一条情侣空间记录') && rawContent.includes('[情侣空间分享｜')) {
+      const shareMatch = rawContent.match(/\[情侣空间分享｜([^\]\n]+)\]/);
+      const shareTitle = shareMatch ? shareMatch[1].trim() : '情侣空间记录';
+      const escShareHtml = (typeof escapeHTML === "function") ? escapeHTML : function(value) {
+        return String(value || '').replace(/[&<>"']/g, function(ch) {
+          return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
+        });
+      };
+      const safeShareTitle = escShareHtml(shareTitle);
+      const safeShareText = escShareHtml(rawContent).replace(/\n/g, '<br>');
+      bubble.classList.add('is-couple-space-share-folded');
+      contentHtml = `
+        <details class="couple-space-share-fold" style="border:1px solid rgba(255,120,150,.22);border-radius:14px;background:rgba(255,245,247,.72);overflow:hidden;">
+          <summary style="list-style:none;cursor:pointer;padding:10px 12px;display:flex;align-items:center;gap:8px;user-select:none;">
+            <span style="font-size:18px;line-height:1">💌</span>
+            <span style="flex:1;min-width:0;">
+              <span style="display:block;font-size:13px;font-weight:600;color:#7f1d1d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">情侣空间分享｜${safeShareTitle}</span>
+              <span style="display:block;font-size:11px;color:#a8a29e;margin-top:2px;">点击展开</span>
+            </span>
+          </summary>
+          <div style="border-top:1px solid rgba(255,120,150,.16);padding:10px 12px;font-size:13px;line-height:1.65;color:inherit;white-space:normal;">
+            ${safeShareText}
+          </div>
+        </details>
+      `;
+    }
+
     bubble.innerHTML = `
                 ${avatarGroupHtml}
                 <div class="content">
