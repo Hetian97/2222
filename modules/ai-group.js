@@ -5,9 +5,451 @@
 // 包含：triggerInactiveAiAction, triggerGroupAiAction
 // ============================================================
 
+// offline auto reply v1
+  async function triggerOfflineInactiveAiAction(chatId) {
+  const chat = state.chats[chatId];
+  if (!chat || chat.isGroup || !chat.settings || !chat.settings.isOfflineMode) return;
+
+  const actionCooldownMinutes = chat.settings.actionCooldownMinutes || 10;
+
+  if (chat.lastActionTimestamp) {
+    const minutesSinceLastAction = (Date.now() - chat.lastActionTimestamp) / (1000 * 60);
+    if (minutesSinceLastAction < actionCooldownMinutes) {
+      console.log(`线下自动回复：角色 "${chat.name}" 处于行动冷却中 (还剩 ${Math.round(actionCooldownMinutes - minutesSinceLastAction)} 分钟)，本次跳过。`);
+      return;
+    }
+  }
+
+  const useBackgroundApi = state.apiConfig.backgroundProxyUrl && state.apiConfig.backgroundApiKey && state.apiConfig.backgroundModel;
+  const {
+    proxyUrl,
+    apiKey,
+    model
+  } = useBackgroundApi
+    ? {
+        proxyUrl: state.apiConfig.backgroundProxyUrl,
+        apiKey: state.apiConfig.backgroundApiKey,
+        model: state.apiConfig.backgroundModel
+      }
+    : state.apiConfig;
+
+  if (!proxyUrl || !apiKey || !model) return;
+
+  setAvatarActingState(chatId, true);
+
+  try {
+    const userNickname = chat.settings.myNickname || (state.qzoneSettings && state.qzoneSettings.nickname && state.qzoneSettings.nickname !== '{{user}}' ? state.qzoneSettings.nickname : '我');
+    const maxMemory = chat.settings.maxMemory || 10;
+    const recentHistoryRaw = chat.history.filter(m => !m.isHidden && !m.isExcluded).slice(-maxMemory);
+    const filteredHistory = await filterHistoryWithDoNotSendRules(recentHistoryRaw, chatId);
+
+    const customTimeInfo = window.getCustomTime ? window.getCustomTime() : null;
+    const customTimeEnabled = customTimeInfo && customTimeInfo.enabled;
+    let currentTime = '';
+    let localizedDate = new Date();
+
+    if (customTimeEnabled) {
+      const weekDays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+      const weekDay = weekDays[customTimeInfo.date.getDay()];
+      currentTime = `${customTimeInfo.year}年${customTimeInfo.month}月${customTimeInfo.day}日${weekDay} ${String(customTimeInfo.hour).padStart(2, '0')}:${String(customTimeInfo.minute).padStart(2, '0')}`;
+      localizedDate = customTimeInfo.date;
+    } else {
+      const selectedTimeZone = chat.settings.timeZone || 'Asia/Shanghai';
+      currentTime = new Date().toLocaleString('zh-CN', {
+        timeZone: selectedTimeZone,
+        dateStyle: 'full',
+        timeStyle: 'short'
+      });
+      localizedDate = new Date(new Date().toLocaleString('en-US', {
+        timeZone: selectedTimeZone
+      }));
+    }
+
+    const timeOfDayGreeting = typeof getTimeOfDayGreeting === 'function' ? getTimeOfDayGreeting(localizedDate) : '';
+
+    let presetContext = '';
+    if (chat.settings.offlinePresetId && Array.isArray(state.presets)) {
+      const selectedPreset = state.presets.find(p => p.id === chat.settings.offlinePresetId);
+      if (selectedPreset && Array.isArray(selectedPreset.content)) {
+        const enabledEntries = selectedPreset.content
+          .filter(entry => entry.enabled !== false)
+          .map(entry => `- ${entry.content}`)
+          .join('\n');
+
+        if (enabledEntries) {
+          presetContext = `
+# 【写作风格铁律 (最高优先级)】
+你【必须】严格遵守以下“预设”中的所有规则和风格来描写。它的优先级高于你的基础人设。
+---
+${enabledEntries}
+---
+`;
+        }
+      }
+    }
+
+    let worldBookContent = '';
+    const allWorldBookIds = [...(chat.settings.linkedWorldBookIds || [])];
+    if (Array.isArray(state.worldBooks)) {
+      state.worldBooks.forEach(wb => {
+        if (wb && wb.isGlobal && !allWorldBookIds.includes(wb.id)) {
+          allWorldBookIds.push(wb.id);
+        }
+      });
+    }
+
+    if (allWorldBookIds.length > 0 && Array.isArray(state.worldBooks)) {
+      const linkedContents = allWorldBookIds.map(bookId => {
+        const worldBook = state.worldBooks.find(wb => wb.id === bookId);
+        if (!worldBook || !Array.isArray(worldBook.content)) return '';
+
+        const formattedEntries = worldBook.content
+          .filter(entry => entry.enabled !== false)
+          .map(entry => {
+            let entryString = `\n### 条目: ${entry.comment || '无备注'}\n`;
+            entryString += `**内容:**\n${entry.content}`;
+            return entryString;
+          })
+          .join('');
+
+        return formattedEntries ? `\n\n## 世界书: ${worldBook.name}\n${formattedEntries}` : '';
+      }).filter(Boolean).join('');
+
+      if (linkedContents) {
+        worldBookContent = `# --- 世界书 (World Book) ---
+# 【最高优先级指令：绝对真理】
+# 以下内容是你所在世界的"物理法则"和"基础常识"。
+# 无论用户是否提及，你都【必须】时刻主动应用这些设定来指导你的思考和描写。
+# 它们是无条件生效的，不需要触发词。
+${linkedContents}
+# --- 世界书设定结束 ---
+`;
+      }
+    }
+
+    const memMode = chat.settings.memoryMode || (chat.settings.enableStructuredMemory ? 'structured' : 'diary');
+    let longTermMemoryContext = '- (暂无)';
+    if (memMode === 'structured' && window.structuredMemoryManager) {
+      longTermMemoryContext = window.structuredMemoryManager.serializeForPrompt(chat);
+    } else if (memMode === 'vector' && window.vectorMemoryManager) {
+      longTermMemoryContext = window.vectorMemoryManager.serializeCoreMemories(chat) || '- (暂无)';
+    } else if (chat.longTermMemory && chat.longTermMemory.length > 0) {
+      longTermMemoryContext = chat.longTermMemory.map(mem => `- (记录于 ${formatTimeAgo(mem.timestamp)}) ${mem.content}`).join('\n');
+    }
+
+    let linkedMemoryContext = '';
+    const memoryCount = chat.settings.linkedMemoryCount || 10;
+    if (chat.settings.linkedMemoryChatIds && chat.settings.linkedMemoryChatIds.length > 0) {
+      const linkedChatsWithTimestamps = chat.settings.linkedMemoryChatIds
+        .filter(id => id !== chatId)
+        .map(id => {
+          const linkedChat = state.chats[id];
+          if (!linkedChat) return null;
+          const lastMsg = linkedChat.history.slice(-1)[0];
+          return {
+            chat: linkedChat,
+            latestTimestamp: lastMsg ? lastMsg.timestamp : 0
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.latestTimestamp - a.latestTimestamp);
+
+      if (linkedChatsWithTimestamps.length > 0) {
+        linkedMemoryContext += `\n\n# 参考记忆\n`;
+        for (const item of linkedChatsWithTimestamps) {
+          const linkedChat = item.chat;
+          const prefix = linkedChat.isGroup ? '[群聊]' : '[私聊]';
+          const timeAgo = item.latestTimestamp > 0 ? ` (最后互动于 ${formatTimeAgo(item.latestTimestamp)})` : '';
+          linkedMemoryContext += `\n## --- 来自${prefix}"${linkedChat.name}"的参考记忆${timeAgo} ---\n`;
+
+          const linkedRecentHistory = linkedChat.history.slice(-memoryCount).filter(msg => !String(msg.content).includes('已被用户删除'));
+          if (linkedRecentHistory.length > 0) {
+            linkedRecentHistory.forEach(msg => {
+              const sender = msg.role === 'user' ? (linkedChat.settings.myNickname || '我') : (msg.senderName || linkedChat.name);
+              let contentText = String(msg.content || '');
+              if (msg.type === 'ai_image' || msg.type === 'user_photo') {
+                contentText = `[发送了一张图片，描述为：${msg.content}]`;
+              } else if (msg.type === 'voice_message') {
+                contentText = `[发送了一条语音，内容是：${msg.content}]`;
+              } else if (msg.type === 'offline_text') {
+                if (msg.content) {
+                  contentText = msg.content;
+                } else {
+                  const dialogue = msg.dialogue ? `「${msg.dialogue}」` : '';
+                  const description = msg.description ? `(${msg.description})` : '';
+                  contentText = `${dialogue} ${description}`.trim();
+                }
+              }
+              linkedMemoryContext += `(${formatTimeAgo(msg.timestamp)}) ${sender}: ${contentText}\n`;
+            });
+          } else {
+            linkedMemoryContext += "(暂无有效聊天记录)\n";
+          }
+        }
+      }
+    }
+
+    const historySliceStr = filteredHistory.map(msg => {
+      if (msg.isHidden) return null;
+
+      if (msg.role === 'system') {
+        if (msg.type === 'narration') return `(Timestamp: ${msg.timestamp}) [旁白] ${msg.content}`;
+        if (msg.type === 'pat_message') return `(Timestamp: ${msg.timestamp}) [系统] ${msg.content}`;
+      }
+
+      const sender = msg.role === 'user' ? userNickname : (msg.senderName || chat.name);
+      let content = '';
+
+      if (msg.type === 'offline_text') {
+        if (msg.content) {
+          content = msg.content;
+        } else {
+          const dialogue = msg.dialogue ? `「${msg.dialogue}」` : '';
+          const description = msg.description ? `(${msg.description})` : '';
+          content = `${dialogue} ${description}`.trim();
+        }
+      } else if (msg.type === 'user_photo') {
+        content = `[${sender} 发送了一张图片，内容是：${msg.content}]`;
+      } else if (msg.type === 'voice_message') {
+        content = `[${sender} 发送了一条语音，内容是：${msg.content}]`;
+      } else if (msg.type === 'sticker') {
+        content = `[表情: ${msg.meaning || 'sticker'}]`;
+      } else if (Array.isArray(msg.content)) {
+        content = '[图片]';
+      } else {
+        content = String(msg.content || '');
+      }
+
+      return `(Timestamp: ${msg.timestamp}) ${sender}: ${content}`;
+    }).filter(Boolean).join('\n');
+
+    const minLength = chat.settings.offlineMinLength || 100;
+    const maxLength = chat.settings.offlineMaxLength || 300;
+
+    const formatRules = `
+# 【格式铁律 (最高优先级：线下后台自动回复)】
+1. 你的回复【必须】是一个 JSON 数组，且数组中【永远只能包含一个】元素，即 \`offline_text\` 对象。
+2. 禁止返回普通 text / sticker / qzone_post / qzone_comment / view_myphone / naiimag / googleimag 等线上或后台动作。
+3. 禁止返回纯文本，禁止在 JSON 数组前后添加 markdown 代码块。
+4. \`offline_text\` 可以使用以下任一格式：
+[
+  {
+    "type": "offline_text",
+    "content": "「这是角色自然说出的话。」这里写动作、神态、环境和心理描写。"
+  }
+]
+或：
+[
+  {
+    "type": "offline_text",
+    "dialogue": "这是角色自然说出的话",
+    "description": "这里写动作、神态、环境和心理描写"
+  }
+]
+5. 这是线下现实场景，不是手机聊天。不要写成多条短消息，不要像发微信/QQ留言。
+6. 每次只生成一次自然的现场推进，长度约 ${minLength}-${maxLength} 字。
+`;
+
+    const fallbackOfflinePrompt = `# 你的任务
+你正在扮演"${chat.originalName}"。当前是【线下现实互动模式】，你和${userNickname}并不是在手机上聊天，而是在同一个现实场景中自然相处。
+
+${presetContext}
+
+# 角色设定
+- 你的角色名：${chat.originalName}
+- 用户称呼：${userNickname}
+- 你的角色人设：
+${chat.settings.aiPersona || '(无)'}
+
+- 用户人设：
+${chat.settings.myPersona || '(无)'}
+
+${worldBookContent}
+
+# 长期记忆
+${longTermMemoryContext}
+
+${linkedMemoryContext}
+
+# 当前时间
+${currentTime} ${timeOfDayGreeting ? `(${timeOfDayGreeting})` : ''}
+
+# 最近线下互动记录
+${historySliceStr || '(暂无)'}
+
+${formatRules}
+
+现在，请在不等待用户主动说话的情况下，基于现场氛围和你的人设，生成一次自然的线下自动回复或动作推进。`;
+
+    const systemPromptTemplate = window.getActiveChatPrompt ? window.getActiveChatPrompt('offline') : '';
+    const contextMapOffline = {
+      aiAgeContext: typeof getDynamicAgeContext === 'function' ? getDynamicAgeContext(chat) : '',
+      currencyExchangeContext: chat.settings.enableDynamicCurrency && typeof getCurrencyExchangeContext === 'function' ? getCurrencyExchangeContext() : '',
+      char_avatar: chat.settings.aiAvatar || 'https://i.postimg.cc/y8xWzCqj/anime-boy.jpg',
+      user_avatar: chat.settings.myAvatar || (state.qzoneSettings && state.qzoneSettings.avatar) || 'https://i.postimg.cc/y8xWzCqj/anime-boy.jpg',
+      char_name: chat.originalName,
+      char_remark: chat.name,
+      user_name: (state.qzoneSettings && state.qzoneSettings.nickname) || '用户',
+      user_nickname: userNickname,
+      'chat.originalName': chat.originalName,
+      presetContext,
+      aiPersona: chat.settings.aiPersona || '',
+      myPersona: chat.settings.myPersona || '',
+      timePerceptionContext: chat.settings.enableTimePerception ? `- **当前时间**: ${currentTime} (${timeOfDayGreeting})` : '',
+      worldBookContent,
+      longTermMemoryContext,
+      linkedMemoryContext,
+      historySliceStr,
+      formatRules,
+      minLength,
+      maxLength
+    };
+
+    let systemPrompt = systemPromptTemplate && typeof replaceTemplateVars === 'function'
+      ? replaceTemplateVars(systemPromptTemplate, contextMapOffline)
+      : fallbackOfflinePrompt;
+
+    if (typeof processPromptWithSettings === 'function') {
+      systemPrompt = processPromptWithSettings(systemPrompt, 'offline');
+    }
+
+    if (window.getPeriodPromptForChat && chat?.id) {
+      const periodPrompt = await window.getPeriodPromptForChat(chat.id);
+      if (periodPrompt) systemPrompt += '\n\n' + periodPrompt;
+    }
+
+    if (window.getShoppingCartPromptForChat && chat?.id) {
+      const shoppingCartPrompt = await window.getShoppingCartPromptForChat(chat.id);
+      if (shoppingCartPrompt) systemPrompt += '\n\n' + shoppingCartPrompt;
+    }
+
+    if (window.getCharacterWalletPromptForChat && chat?.id) {
+      const walletPrompt = await window.getCharacterWalletPromptForChat(chat.id);
+      if (walletPrompt) systemPrompt += '\n\n' + walletPrompt;
+    }
+
+    const messagesPayload = [{
+      role: 'user',
+      content: `[系统指令：这是线下模式的后台自动回复。请不要等待用户输入；请基于上面的线下提示词、预设、记忆和现场历史，生成一次自然的现场回应或动作推进。]`
+    }];
+
+    const isGemini = proxyUrl === GEMINI_API_URL || proxyUrl.includes('generativelanguage.googleapis.com');
+    let response;
+
+    if (isGemini) {
+      const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messagesPayload);
+      response = await fetch(geminiConfig.url, geminiConfig.data);
+    } else {
+      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...messagesPayload
+          ]
+        })
+      });
+    }
+
+    if (!response.ok) {
+      let errMsg = `API请求失败: ${response.status}`;
+      try {
+        const errData = await response.json();
+        errMsg = errData?.error?.message || errData?.message || JSON.stringify(errData);
+      } catch (e) {}
+      throw new Error(errMsg);
+    }
+
+    const data = await response.json();
+    const aiResponseContent = isGemini ? getGeminiResponseText(data) : (data.choices?.[0]?.message?.content || '');
+
+    if (!aiResponseContent || aiResponseContent.trim() === '') {
+      console.warn(`线下自动回复：角色 "${chat.name}" API空回复，本次跳过。`);
+      return;
+    }
+
+    const responseArray = parseAiResponse(aiResponseContent);
+    if (!responseArray || responseArray.length === 0) {
+      console.warn(`线下自动回复：角色 "${chat.name}" API格式不正确，本次跳过。原始回复:`, aiResponseContent);
+      return;
+    }
+
+    let messageTimestamp = Date.now();
+    const isViewingThisChat =
+      state.activeChatId === chatId &&
+      document.getElementById('chat-screen') &&
+      document.getElementById('chat-screen').classList.contains('active');
+
+    let pushedCount = 0;
+
+    for (const action of responseArray) {
+      if (!action || action.type !== 'offline_text') {
+        console.warn('线下自动回复：忽略非 offline_text 动作:', action);
+        continue;
+      }
+
+      const aiMessage = {
+        role: 'assistant',
+        senderName: chat.name,
+        type: 'offline_text',
+        timestamp: messageTimestamp++
+      };
+
+      if (action.content) {
+        aiMessage.content = action.content;
+      } else {
+        aiMessage.dialogue = action.dialogue || '';
+        aiMessage.description = action.description || '';
+      }
+
+      if (!aiMessage.content && !aiMessage.dialogue && !aiMessage.description) {
+        continue;
+      }
+
+      chat.history.push(aiMessage);
+      pushedCount++;
+
+      if (isViewingThisChat && typeof appendMessage === 'function') {
+        appendMessage(aiMessage, chat);
+      }
+    }
+
+    if (pushedCount > 0) {
+      chat.lastActionTimestamp = Date.now();
+      chat.lastActionType = 'offline_text';
+
+      if (!isViewingThisChat) {
+        chat.unreadCount = (chat.unreadCount || 0) + pushedCount;
+        if (typeof showNotification === 'function') {
+          showNotification(chatId, `${chat.name}: [线下自动回复]`);
+        }
+      }
+
+      await db.chats.put(chat);
+      console.log(`线下自动回复：角色 "${chat.name}" 已生成 ${pushedCount} 条 offline_text。`);
+    } else {
+      console.warn(`线下自动回复：角色 "${chat.name}" 没有生成可用 offline_text。`);
+    }
+  } catch (error) {
+    console.error(`角色 "${chat.name}" 的线下自动回复失败:`, error);
+  } finally {
+    setAvatarActingState(chatId, false);
+    renderChatList();
+  }
+}
+
   async function triggerInactiveAiAction(chatId) {
     const chat = state.chats[chatId];
     if (!chat) return;
+
+    if (!chat.isGroup && chat.settings && chat.settings.isOfflineMode) {
+      return triggerOfflineInactiveAiAction(chatId);
+    }
 
 
     const actionCooldownMinutes = chat.settings.actionCooldownMinutes || 10;
