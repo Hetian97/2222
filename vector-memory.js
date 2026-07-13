@@ -900,6 +900,63 @@ class VariableMemoryManager {
     return Math.max(0.1, Math.exp(-0.693 * daysSince / 30));
   }
 
+
+  async retrieveRelevantFromExternalServer(chat, queryText, topN = null) {
+    if (!this.isExternalMemoryEnabled(chat)) return null;
+
+    const query = String(queryText || '').trim();
+    if (!query) return null;
+
+    const vm = this.getVariableMemory(chat);
+    const limit = topN || vm.settings.topN || 10;
+
+    try {
+      const result = await this.externalMemoryRequest(chat, '/memory/search', {
+        method: 'POST',
+        body: {
+          query,
+          limit
+        }
+      });
+
+      const rows = Array.isArray(result?.memories)
+        ? result.memories
+        : (Array.isArray(result?.results) ? result.results : []);
+
+      if (!result?.ok || rows.length === 0) {
+        return null;
+      }
+
+      const memories = rows
+        .filter(memory => memory && memory.content)
+        .map(memory => {
+          const score = Number(
+            memory._searchScore ??
+            memory._score ??
+            memory.score ??
+            memory.relevanceScore ??
+            0
+          ) || 0;
+
+          return {
+            fragment: {
+              ...memory,
+              _externalSearch: true
+            },
+            score
+          };
+        });
+
+      if (memories.length === 0) return null;
+
+      console.log('[变量记忆] 已使用外部 memory-server /memory/search 召回:', memories.length, result.searchMode || '');
+      return memories;
+    } catch (error) {
+      console.warn('[变量记忆] 外部 memory-server /memory/search 失败，回退前端缓存检索:', error.message);
+      return null;
+    }
+  }
+
   async retrieveRelevant(chat, queryText, topN = null) {
     const vm = this.getVariableMemory(chat);
     if (!vm.fragments.length) return [];
@@ -983,23 +1040,36 @@ class VariableMemoryManager {
     const coreStr = this.serializeCoreMemories(chat);
     if (coreStr) output += coreStr + '\n';
 
-    // 动态向量检索
-    if (recentMessages && vm.fragments.length > 0) {
-      const results = await this.retrieveRelevant(chat, recentMessages);
-      // 过滤掉已经在核心里的
-      const nonCoreResults = results.filter(r => r.fragment.category !== 'C');
-      
+    // 动态记忆检索：外置 memory-server 优先，失败再回退前端缓存检索
+    if (recentMessages) {
+      let results = null;
+
+      if (this.isExternalMemoryEnabled(chat)) {
+        results = await this.retrieveRelevantFromExternalServer(chat, recentMessages);
+      }
+
+      if (!Array.isArray(results) && vm.fragments.length > 0) {
+        results = await this.retrieveRelevant(chat, recentMessages);
+      }
+
+      const nonCoreResults = (results || []).filter(r => r.fragment && r.fragment.category !== 'C');
+
       if (nonCoreResults.length > 0) {
         output += '## 回闪记忆 (根据当前情境唤醒的记忆片段)\n';
-        // 按时间发生顺序排序，让 AI 更有时间观念
-        nonCoreResults.sort((a, b) => a.fragment.memoryTime - b.fragment.memoryTime);
-        
-        const cats = this.getCategories(chat);
+
+        // 按记忆发生时间排序，让 AI 更有时间顺序感
+        nonCoreResults.sort((a, b) => {
+          const at = Number(a.fragment.memoryTime || a.fragment.createdAt || a.fragment.updatedAt || 0);
+          const bt = Number(b.fragment.memoryTime || b.fragment.createdAt || b.fragment.updatedAt || 0);
+          return at - bt;
+        });
+
         for (const r of nonCoreResults) {
-          const cat = cats[r.fragment.category] || { icon: '' };
-          const dateStr = new Date(r.fragment.memoryTime).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-          output += `[${dateStr}] ${r.fragment.content}\n`;
+          const memoryTime = Number(r.fragment.memoryTime || r.fragment.createdAt || r.fragment.updatedAt || Date.now());
+          const dateStr = new Date(memoryTime).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+          output += '[' + dateStr + '] ' + r.fragment.content + '\n';
         }
+
         output += '\n';
       }
     }
