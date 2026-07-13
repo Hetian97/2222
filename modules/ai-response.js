@@ -1764,8 +1764,8 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
       const maxMemory = parseInt(chat.settings.maxMemory) || 10;
       const historySlice = chat.history.filter(m => !m.isExcluded && m.type !== 'thought_chain_block').slice(-maxMemory);
       const filteredHistory = await filterHistoryWithDoNotSendRules(historySlice, chatId);
-      const thoughtChainChunks = (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.enabled)
-        ? ThoughtChainManager.getPayloadChunks()
+      const thoughtChainChunks = (typeof ThoughtChainManager !== 'undefined')
+        ? ThoughtChainManager.getPayloadChunks('chat')
         : { head: [], middle: [], bottom: [] };
       const thoughtChainContextHead = thoughtChainChunks.head.map(c => c.content).join('\n');
       const thoughtChainContextMiddle = thoughtChainChunks.middle.map(c => c.content).join('\n');
@@ -2802,8 +2802,8 @@ ${linkedContents}
       const maxMemory = parseInt(chat.settings.maxMemory) || 10;
       const historySlice = chat.history.filter(m => !m.isExcluded && m.type !== 'thought_chain_block').slice(-maxMemory);
       const filteredHistory = await filterHistoryWithDoNotSendRules(historySlice, chatId);
-      const thoughtChainChunks = (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.enabled)
-        ? ThoughtChainManager.getPayloadChunks()
+      const thoughtChainChunks = (typeof ThoughtChainManager !== 'undefined')
+        ? ThoughtChainManager.getPayloadChunks('chat')
         : { head: [], middle: [], bottom: [] };
       const thoughtChainContextHead = thoughtChainChunks.head.map(c => c.content).join('\n');
       const thoughtChainContextMiddle = thoughtChainChunks.middle.map(c => c.content).join('\n');

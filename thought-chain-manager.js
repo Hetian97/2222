@@ -3,6 +3,27 @@ const ThoughtChainManager = {
     enabled: true,
     selectedIds: [],
     draggedItemId: null,
+    activeMode: 'chat',
+    modes: {
+        chat: {
+            label: '聊天',
+            enabledKey: 'ephone_thought_chain_enabled',
+            itemsKey: 'ephone_thought_chain_items',
+            defaultEnabled: true
+        },
+        call: {
+            label: '通话',
+            enabledKey: 'ephone_thought_chain_call_enabled',
+            itemsKey: 'ephone_thought_chain_call_items',
+            defaultEnabled: false
+        },
+        offline: {
+            label: '线下',
+            enabledKey: 'ephone_thought_chain_offline_enabled',
+            itemsKey: 'ephone_thought_chain_offline_items',
+            defaultEnabled: false
+        }
+    },
     
     defaultItems: [
         {
@@ -50,7 +71,8 @@ const ThoughtChainManager = {
     ],
 
     init() {
-        this.loadData();
+        this.ensurePresetStore();
+        this.loadData('chat');
         this.bindEvents();
         this.renderList();
         
@@ -58,6 +80,49 @@ const ThoughtChainManager = {
         setTimeout(() => {
             this.loadPresetsDropdown();
         }, 500);
+    },
+
+    ensurePresetStore() {
+        if (window.db && db.thoughtChainPresets) return;
+
+        window.db = window.db || {};
+        db.thoughtChainPresets = {
+            async toArray() {
+                try {
+                    return JSON.parse(localStorage.getItem('ephone_thought_chain_presets') || '[]');
+                } catch (e) {
+                    return [];
+                }
+            },
+            async get(id) {
+                const presets = await this.toArray();
+                return presets.find(preset => preset.id === id);
+            },
+            async put(presetData) {
+                const presets = await this.toArray();
+                const id = presetData.id || Date.now();
+                const nextPreset = { ...presetData, id };
+                const index = presets.findIndex(preset => preset.id === id);
+                if (index >= 0) presets[index] = nextPreset;
+                else presets.push(nextPreset);
+                localStorage.setItem('ephone_thought_chain_presets', JSON.stringify(presets));
+                return id;
+            },
+            async delete(id) {
+                const presets = await this.toArray();
+                localStorage.setItem('ephone_thought_chain_presets', JSON.stringify(presets.filter(preset => preset.id !== id)));
+            },
+            where(field) {
+                return {
+                    equals: (value) => ({
+                        first: async () => {
+                            const presets = await db.thoughtChainPresets.toArray();
+                            return presets.find(preset => preset[field] === value);
+                        }
+                    })
+                };
+            }
+        };
     },
 
     async loadPresetsDropdown(forceSelectedId = null) {
@@ -192,22 +257,40 @@ const ThoughtChainManager = {
         }
     },
 
-    loadData() {
-        const storedEnabled = localStorage.getItem('ephone_thought_chain_enabled');
-        if (storedEnabled !== null) {
-            this.enabled = storedEnabled === 'true';
-        }
+    getModeConfig(mode = this.activeMode) {
+        return this.modes[mode] || this.modes.chat;
+    },
 
-        const storedItems = localStorage.getItem('ephone_thought_chain_items');
+    cloneDefaultItems() {
+        return JSON.parse(JSON.stringify(this.defaultItems));
+    },
+
+    getStoredModeState(mode = 'chat') {
+        const config = this.getModeConfig(mode);
+        const storedEnabled = localStorage.getItem(config.enabledKey);
+        const enabled = storedEnabled !== null ? storedEnabled === 'true' : config.defaultEnabled;
+        const storedItems = localStorage.getItem(config.itemsKey);
+        let items = this.cloneDefaultItems();
+
         if (storedItems) {
             try {
-                this.items = JSON.parse(storedItems);
+                items = JSON.parse(storedItems);
             } catch (e) {
                 console.error('Failed to parse thought chain items', e);
-                this.items = [...this.defaultItems];
             }
-        } else {
-            this.items = [...this.defaultItems];
+        }
+
+        return { enabled, items };
+    },
+
+    loadData(mode = this.activeMode) {
+        this.activeMode = this.modes[mode] ? mode : 'chat';
+        const modeState = this.getStoredModeState(this.activeMode);
+        this.enabled = modeState.enabled;
+        this.items = modeState.items;
+        this.selectedIds = [];
+
+        if (!localStorage.getItem(this.getModeConfig(this.activeMode).itemsKey)) {
             this.saveData();
         }
         
@@ -215,14 +298,37 @@ const ThoughtChainManager = {
         if (enableSwitch) {
             enableSwitch.checked = this.enabled;
         }
+        this.updateModeTabs();
     },
 
-    saveData() {
-        localStorage.setItem('ephone_thought_chain_enabled', this.enabled);
-        localStorage.setItem('ephone_thought_chain_items', JSON.stringify(this.items));
+    saveData(mode = this.activeMode) {
+        const config = this.getModeConfig(mode);
+        localStorage.setItem(config.enabledKey, this.enabled);
+        localStorage.setItem(config.itemsKey, JSON.stringify(this.items));
+    },
+
+    switchMode(mode) {
+        if (!this.modes[mode] || mode === this.activeMode) return;
+        this.saveData();
+        this.loadData(mode);
+        this.renderList();
+        this.loadPresetsDropdown();
+    },
+
+    updateModeTabs() {
+        document.querySelectorAll('.thought-chain-mode-tab').forEach(btn => {
+            const isActive = btn.dataset.mode === this.activeMode;
+            btn.style.background = isActive ? '#1f2933' : 'transparent';
+            btn.style.color = isActive ? '#fff' : '#666';
+            btn.style.boxShadow = isActive ? '0 2px 8px rgba(0,0,0,0.12)' : 'none';
+        });
     },
 
     bindEvents() {
+        document.querySelectorAll('.thought-chain-mode-tab').forEach(btn => {
+            btn.addEventListener('click', () => this.switchMode(btn.dataset.mode));
+        });
+
         const enableSwitch = document.getElementById('thought-chain-enable-switch');
         if (enableSwitch) {
             enableSwitch.addEventListener('change', (e) => {
@@ -235,7 +341,7 @@ const ThoughtChainManager = {
         if (resetBtn) {
             resetBtn.addEventListener('click', () => {
                 if (confirm('确定要恢复默认的思维链条目吗？这会覆盖你所有的自定义修改。')) {
-                    this.items = [...this.defaultItems];
+                    this.items = this.cloneDefaultItems();
                     this.saveData();
                     this.renderList();
                 }
@@ -873,8 +979,12 @@ const ThoughtChainManager = {
         this.loadPresetsDropdown(); // 更新下拉框状态，可能变为"当前配置 (未保存)"
     },
 
-    getPayloadChunks() {
-        if (!this.enabled) return { head: [], middle: [], bottom: [] };
+    getPayloadChunks(mode = 'chat') {
+        const modeState = mode === this.activeMode
+            ? { enabled: this.enabled, items: this.items }
+            : this.getStoredModeState(mode);
+
+        if (!modeState.enabled) return { head: [], middle: [], bottom: [] };
 
         const chunks = {
             head: [],
@@ -882,7 +992,7 @@ const ThoughtChainManager = {
             bottom: []
         };
 
-        this.items.forEach(item => {
+        modeState.items.forEach(item => {
             if (item.enabled) {
                 if (item.position === 'head') chunks.head.push(item);
                 else if (item.position === 'middle') chunks.middle.push(item);
