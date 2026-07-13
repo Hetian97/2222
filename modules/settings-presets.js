@@ -470,6 +470,9 @@
 
 {{formatRules}}
 
+{{thoughtChainContextHead}}
+{{thoughtChainContextMiddle}}
+
 # 【其他核心规则】
 1.  **叙事视角**: 叙述人称【必须】严格遵循“预设”中的第一人称、第二人称或第三人称规定。
 2.  **字数要求**: 你生成的每个角色 \`content\` 内容应在 **{{minLength}}到{{maxLength}}字** 之间。
@@ -499,6 +502,9 @@
 {{historySliceStr}}
 
 {{formatRules}}
+
+{{thoughtChainContextHead}}
+{{thoughtChainContextMiddle}}
 
 # 【其他核心规则】
 1.  **叙事视角**: 叙述人称【必须】严格遵循“预设”中的第一人称、第二人称或第三人称规定。
