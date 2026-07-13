@@ -181,7 +181,7 @@ function buildExternalMcpProxyUrl(path) {
       const services = JSON.parse(raw);
       if (!Array.isArray(services)) return '';
 
-      const actor = buildExternalMcpActorContext(chat, "chat");
+      const actor = buildExternalMcpActorContext(chat);
       const latestUserText = getLatestUserTextForExternalMcpMemory(messagesPayload);
 
       const enabledServices = services.filter(service => {
@@ -623,7 +623,7 @@ function buildExternalMcpProxyUrl(path) {
 
     if (requestedName) {
       selected = services.find(service =>
-        service.name === requestedName ||
+        isExternalMcpServiceNameMatch(service, requestedName) ||
         service.url === requestedName ||
         service.serverName === requestedName
       ) || null;
@@ -658,16 +658,23 @@ function buildExternalMcpProxyUrl(path) {
 
   function buildExternalMcpActorContext(chat, source) {
     const character = chat && chat.character && typeof chat.character === "object" ? chat.character : null;
+    const isOfflineMode = !!(chat && (
+      chat.isOfflineMode ||
+      chat.offlineMode ||
+      chat.isOffline ||
+      (chat.settings && chat.settings.isOfflineMode)
+    ));
+    const actorSource = source || (isOfflineMode ? "offline_dialogue" : "chat");
 
     return {
-      source: source || "chat",
+      source: actorSource,
       chatId: chat && (chat.id || chat.chatId || chat.conversationId) ? String(chat.id || chat.chatId || chat.conversationId) : "",
       chatName: chat && (chat.name || chat.title || chat.chatName) ? String(chat.name || chat.title || chat.chatName) : "",
       characterId: chat && (chat.characterId || (character && character.id)) ? String(chat.characterId || character.id) : "",
       characterName: chat && (chat.characterName || (character && character.name) || chat.name || chat.title) ? String(chat.characterName || (character && character.name) || chat.name || chat.title) : "",
       originalName: chat && (chat.originalName || (character && character.originalName)) ? String(chat.originalName || character.originalName) : "",
       isGroup: !!(chat && chat.isGroup),
-      isOfflineMode: !!(chat && (chat.isOfflineMode || chat.offlineMode || chat.isOffline)),
+      isOfflineMode,
       createdAt: new Date().toISOString()
     };
   }
@@ -5247,7 +5254,7 @@ ${getActiveThoughtsPrompt()}
         }];
 
         const runExternalMcpToolRequest = async (request, stepLabel) => {
-          const actor = buildExternalMcpActorContext(chat, "chat");
+          const actor = buildExternalMcpActorContext(chat);
           const requestWithActor = Object.assign({}, request || {}, { actor });
 
           if (!confirmExternalMcpToolRequest(requestWithActor, stepLabel)) {
