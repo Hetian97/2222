@@ -2023,12 +2023,18 @@
       </div>
       <div class="settings-container ios-scroll-container" style="background-color: #f5f5f7;">
         
+        <div id="thought-chain-mode-tabs" style="display: flex; gap: 6px; margin: 15px; padding: 4px; background: rgba(0,0,0,0.06); border-radius: 12px; flex-shrink: 0;">
+          <button type="button" class="thought-chain-mode-tab" data-mode="chat" style="flex: 1; border: none; border-radius: 9px; padding: 9px 0; font-size: 14px; font-weight: 600; color: #666; background: transparent; cursor: pointer;">聊天</button>
+          <button type="button" class="thought-chain-mode-tab" data-mode="call" style="flex: 1; border: none; border-radius: 9px; padding: 9px 0; font-size: 14px; font-weight: 600; color: #666; background: transparent; cursor: pointer;">通话</button>
+          <button type="button" class="thought-chain-mode-tab" data-mode="offline" style="flex: 1; border: none; border-radius: 9px; padding: 9px 0; font-size: 14px; font-weight: 600; color: #666; background: transparent; cursor: pointer;">线下</button>
+        </div>
+
         <!-- 全局开关与重置 -->
         <div class="settings-section" style="margin: 15px; border-radius: 12px; overflow: hidden; background: white; flex-shrink: 0;">
           <div class="settings-item" style="border-bottom: 1px solid #eee;">
             <div>
-              <div style="font-weight: 500;">启用自定义思维链</div>
-              <div style="font-size: 12px; color: var(--text-secondary);">关闭后将不注入这里的思维链条目</div>
+              <div style="font-weight: 500;">启用当前模式思维链</div>
+              <div style="font-size: 12px; color: var(--text-secondary);">关闭后当前模式不注入这里的思维链条目</div>
             </div>
             <label class="toggle-switch">
               <input type="checkbox" id="thought-chain-enable-switch" checked>
