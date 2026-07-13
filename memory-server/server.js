@@ -494,6 +494,19 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
   const q = String(query || '').trim();
   const safeLimit = clampNumber(limit, 1, 200, 20);
 
+  const rawWeights = options.scoreWeights || options.weights || {};
+  const readWeight = (name, fallback) => {
+    const value = Number(rawWeights[name]);
+    return Number.isFinite(value) ? value : fallback;
+  };
+  const weights = {
+    semantic: readWeight('semantic', 0.4),
+    keyword: readWeight('keyword', 0.3),
+    importance: readWeight('importance', 0.2),
+    emotion: readWeight('emotion', 0.05),
+    recency: readWeight('recency', 0.05)
+  };
+
   if (!q) {
     return memories.slice(0, safeLimit);
   }
@@ -528,14 +541,27 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
 
       const textScore = keywordScore(q, memory);
 
-      const importanceScore = (Number(memory.importance) || 0) / 10;
-      const emotionScore = (Number(memory.emotionalWeight) || 0) / 10;
+      const importanceVal = Number(memory.importance) || 5;
+      let importanceScore = importanceVal / 10;
+      if (importanceVal >= 8) importanceScore *= 1.5;
+
+      const emotionScore = (Number(memory.emotionalWeight) || 3) / 10;
+
+      const timeBase = Number(memory.memoryTime || memory.createdAt || memory.updatedAt || 0);
+      const daysSince = timeBase > 0
+        ? Math.max(0, (Date.now() - timeBase) / (1000 * 60 * 60 * 24))
+        : 999;
+      let recencyScore = Math.max(0.1, Math.exp(-0.693 * daysSince / 30));
+      if (importanceVal >= 9) recencyScore = 1.0;
 
       const hasVector = vectorScore > 0;
 
-      const totalScore = hasVector
-        ? vectorScore * 0.72 + textScore * 0.16 + importanceScore * 0.08 + emotionScore * 0.04
-        : textScore * 0.78 + importanceScore * 0.16 + emotionScore * 0.06;
+      const totalScore =
+        vectorScore * weights.semantic +
+        textScore * weights.keyword +
+        importanceScore * weights.importance +
+        emotionScore * weights.emotion +
+        recencyScore * weights.recency;
 
       return {
         memory,
@@ -2806,7 +2832,8 @@ const server = http.createServer(async (req, res) => {
       }
 
       const results = await simpleSearch(memories, q, safeLimit, {
-        embedding: embeddingConfig
+        embedding: embeddingConfig,
+        scoreWeights: body.scoreWeights || body.weights || {}
       });
 
       sendJson(res, 200, {
