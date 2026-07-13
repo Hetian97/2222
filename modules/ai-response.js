@@ -5256,12 +5256,26 @@ ${getActiveThoughtsPrompt()}
         const runExternalMcpToolRequest = async (request, stepLabel) => {
           const actor = buildExternalMcpActorContext(chat);
           const requestWithActor = Object.assign({}, request || {}, { actor });
+          let autoApprovedService = null;
 
-          if (!confirmExternalMcpToolRequest(requestWithActor, stepLabel)) {
+          try {
+            autoApprovedService = findExternalMcpServiceForRequest(requestWithActor);
+          } catch (error) {
+            autoApprovedService = null;
+          }
+
+          const shouldAutoApprove = !!(autoApprovedService && autoApprovedService.allowAutonomousCall === true);
+
+          if (!shouldAutoApprove && !confirmExternalMcpToolRequest(requestWithActor, stepLabel)) {
             return { approved: false, result: null };
           }
 
-          console.log("用户已确认外部 MCP 工具调用，开始执行:", stepLabel, requestWithActor);
+          if (shouldAutoApprove) {
+            console.log("[MCP Auto] 已自动批准角色调用外部 MCP 工具:", stepLabel, requestWithActor);
+          } else {
+            console.log("用户已确认外部 MCP 工具调用，开始执行:", stepLabel, requestWithActor);
+          }
+
           const result = await executeExternalMcpToolRequest(requestWithActor, actor);
           return { approved: true, result };
         };
