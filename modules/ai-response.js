@@ -623,7 +623,7 @@ function buildExternalMcpProxyUrl(path) {
 
     if (requestedName) {
       selected = services.find(service =>
-        service.name === requestedName ||
+        isExternalMcpServiceNameMatch(service, requestedName) ||
         service.url === requestedName ||
         service.serverName === requestedName
       ) || null;
