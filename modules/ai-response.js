@@ -1565,6 +1565,8 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
         type: 'thought_chain_block',
         content: thinkingMatch[1].trim()
       });
+      trimmedContent = trimmedContent.slice(thinkingMatch[0].length).trim();
+      if (!trimmedContent) return prefixResults;
     }
 
     const markdownRegex = /```json\s*([\s\S]*?)\s*```/;
@@ -1637,7 +1639,7 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
     console.error("所有解析方案均失败！将返回原始文本。原始回复:", content);
     return prefixResults.concat([{
       type: 'text',
-      content: content
+      content: trimmedContent || content
     }]);
   }
 
@@ -1760,8 +1762,13 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
 
 
       const maxMemory = parseInt(chat.settings.maxMemory) || 10;
-      const historySlice = chat.history.filter(m => !m.isExcluded).slice(-maxMemory);
+      const historySlice = chat.history.filter(m => !m.isExcluded && m.type !== 'thought_chain_block').slice(-maxMemory);
       const filteredHistory = await filterHistoryWithDoNotSendRules(historySlice, chatId);
+      const thoughtChainChunks = (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.enabled)
+        ? ThoughtChainManager.getPayloadChunks()
+        : { head: [], middle: [], bottom: [] };
+      const thoughtChainContextHead = thoughtChainChunks.head.map(c => c.content).join('\n');
+      const thoughtChainContextMiddle = thoughtChainChunks.middle.map(c => c.content).join('\n');
 
       let worldBookContent = '';
       // 获取所有应该使用的世界书ID（包括手动选择的和全局的）
@@ -1850,6 +1857,8 @@ ${linkedContents}
       let systemPromptTemplate = window.getActiveChatPrompt ? window.getActiveChatPrompt('spectator') : '';
       
       const contextMap = {
+        'thoughtChainContextHead': thoughtChainContextHead,
+        'thoughtChainContextMiddle': thoughtChainContextMiddle,
         'aiAgeContext': aiAgeContext,
         'currencyExchangeContext': currencyExchangeContext,
         'char_avatar': chat.isGroup ? (chat.settings.groupAvatar || 'https://i.postimg.cc/y8xWzCqj/anime-boy.jpg') : (chat.settings.aiAvatar || 'https://i.postimg.cc/y8xWzCqj/anime-boy.jpg'),
@@ -2791,8 +2800,13 @@ ${linkedContents}
 
 
       const maxMemory = parseInt(chat.settings.maxMemory) || 10;
-      const historySlice = chat.history.filter(m => !m.isExcluded).slice(-maxMemory);
+      const historySlice = chat.history.filter(m => !m.isExcluded && m.type !== 'thought_chain_block').slice(-maxMemory);
       const filteredHistory = await filterHistoryWithDoNotSendRules(historySlice, chatId);
+      const thoughtChainChunks = (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.enabled)
+        ? ThoughtChainManager.getPayloadChunks()
+        : { head: [], middle: [], bottom: [] };
+      const thoughtChainContextHead = thoughtChainChunks.head.map(c => c.content).join('\n');
+      const thoughtChainContextMiddle = thoughtChainChunks.middle.map(c => c.content).join('\n');
       let sharedContext = '';
       const lastAiTurnIndex = chat.history.findLastIndex(msg => msg.role === 'assistant');
       const recentUserMessages = chat.history.slice(lastAiTurnIndex + 1);
@@ -2850,7 +2864,7 @@ ${linkedContents}
             linkedMemoryContext += `\n## --- 来自${prefix}“${linkedChat.name}”的参考记忆${timeAgo} ---\n`;
 
             const recentHistory = linkedChat.history.slice(-memoryCount);
-            const filteredHistory = recentHistory.filter(msg => !String(msg.content).includes('已被用户删除'));
+            const filteredHistory = recentHistory.filter(msg => !String(msg.content).includes('已被用户删除') && msg.type !== 'thought_chain_block');
 
             if (filteredHistory.length > 0) {
               filteredHistory.forEach(msg => {
@@ -2922,7 +2936,7 @@ ${linkedContents}
               const timeAgo = item.latestTimestamp > 0 ? ` (最后互动于 ${formatTimeAgo(item.latestTimestamp)})` : '';
               linkedMemoryContext += `\n## --- 来自${prefix}“${linkedChat.name}”的参考记忆${timeAgo} ---\n`;
               const recentHistory = linkedChat.history.slice(-memoryCount);
-              const filteredHistory = recentHistory.filter(msg => !String(msg.content).includes('已被用户删除'));
+              const filteredHistory = recentHistory.filter(msg => !String(msg.content).includes('已被用户删除') && msg.type !== 'thought_chain_block');
               if (filteredHistory.length > 0) {
                 filteredHistory.forEach(msg => {
                   const sender = msg.role === 'user' ? (linkedChat.settings.myNickname || '我') : (msg.senderName || linkedChat.name);
@@ -3203,6 +3217,8 @@ ${linkedContents}
         let bilingualAlertVoice = chat.settings.enableBilingualMode ? ' ⚠️ 必须使用双语格式：外语〖中文〗' : '';
 
           const contextMap = {
+            'thoughtChainContextHead': thoughtChainContextHead,
+            'thoughtChainContextMiddle': thoughtChainContextMiddle,
             'aiAgeContext': aiAgeContext,
             'currencyExchangeContext': currencyExchangeContext,
             'char_avatar': chat.settings.groupAvatar || 'https://i.postimg.cc/y8xWzCqj/anime-boy.jpg',
@@ -3432,7 +3448,7 @@ ${linkedContents}
               linkedMemoryContext += `\n## --- 来自${prefix}“${linkedChat.name}”的参考记忆${timeAgo} ---\n`;
 
               const recentHistory = linkedChat.history.slice(-memoryCount);
-              const filteredHistory = recentHistory.filter(msg => !String(msg.content).includes('已被用户删除'));
+              const filteredHistory = recentHistory.filter(msg => !String(msg.content).includes('已被用户删除') && msg.type !== 'thought_chain_block');
 
               if (filteredHistory.length > 0) {
                 filteredHistory.forEach(msg => {
@@ -3578,6 +3594,8 @@ ${enabledEntries}
           }).join('\n');
           
           const contextMapOffline = {
+            'thoughtChainContextHead': thoughtChainContextHead,
+            'thoughtChainContextMiddle': thoughtChainContextMiddle,
             'aiAgeContext': aiAgeContext,
             'currencyExchangeContext': currencyExchangeContext,
             'char_avatar': chat.settings.aiAvatar || 'https://i.postimg.cc/y8xWzCqj/anime-boy.jpg',
@@ -4508,6 +4526,8 @@ ${getActiveThoughtsPrompt()}
           }
 
           const contextMapSingle = {
+            'thoughtChainContextHead': thoughtChainContextHead,
+            'thoughtChainContextMiddle': thoughtChainContextMiddle,
             'aiAgeContext': aiAgeContext,
             'currencyExchangeContext': currencyExchangeContext,
             'char_avatar': chat.settings.aiAvatar || 'https://i.postimg.cc/y8xWzCqj/anime-boy.jpg',
@@ -4867,14 +4887,11 @@ ${getActiveThoughtsPrompt()}
       }
 
       // 注入 思维链 底部触发器
-      if (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.enabled) {
-        const chunks = ThoughtChainManager.getPayloadChunks();
-        if (chunks.bottom && chunks.bottom.length > 0) {
-          messagesPayload.push(...chunks.bottom.map(c => ({
-            role: c.role,
-            content: c.content
-          })));
-        }
+      if (thoughtChainChunks.bottom && thoughtChainChunks.bottom.length > 0) {
+        messagesPayload.push(...thoughtChainChunks.bottom.map(c => ({
+          role: c.role,
+          content: c.content
+        })));
       }
 
       let isGemini = proxyUrl === GEMINI_API_URL;
@@ -7581,6 +7598,13 @@ ${getActiveThoughtsPrompt()}
               content: msgData.content
             };
             break;
+          case 'thought_chain_block':
+            aiMessage = {
+              ...baseMessage,
+              type: 'thought_chain_block',
+              content: msgData.content
+            };
+            break;
           case 'transfer':
             aiMessage = {
               ...baseMessage,
@@ -7973,10 +7997,10 @@ ${getActiveThoughtsPrompt()}
         if (aiMessage) {
           aiMessage = applyRoleReplySanitizer(aiMessage, chat);
           chat.history.push(aiMessage);
-          if (!isViewingThisChat) {
+          if (!isViewingThisChat && aiMessage.type !== 'thought_chain_block') {
             chat.unreadCount = (chat.unreadCount || 0) + 1;
           }
-          if (!isViewingThisChat && !notificationShown) {
+          if (!isViewingThisChat && !notificationShown && aiMessage.type !== 'thought_chain_block') {
             let notificationText;
             switch (aiMessage.type) {
               case 'transfer':
@@ -8004,7 +8028,7 @@ ${getActiveThoughtsPrompt()}
             const finalNotifText = chat.isGroup ? `${aiMessage.senderName}: ${notificationText}` : notificationText;
             showNotification(chatId, finalNotifText.substring(0, 40) + (finalNotifText.length > 40 ? '...' : ''));
             notificationShown = true;
-          } else if (isViewingThisChat && !notificationShown) {
+          } else if (isViewingThisChat && !notificationShown && aiMessage.type !== 'thought_chain_block') {
             // 新增：如果在聊天页面且启用了"在聊天页面也发送通知"，则发送系统级通知
             let notificationText;
             switch (aiMessage.type) {
