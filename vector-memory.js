@@ -915,7 +915,9 @@ class VariableMemoryManager {
         method: 'POST',
         body: {
           query,
-          limit
+          limit,
+          chatId: chat?.id || chat?.chatId || '',
+          scoreWeights: vm.settings?.scoreWeights || {}
         }
       });
 
