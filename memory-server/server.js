@@ -2702,8 +2702,10 @@ const server = http.createServer(async (req, res) => {
 
       let chromaError = null;
       let chromaAttempted = false;
+      const memorySearchEngine = String(body.searchEngine || process.env.MEMORY_SEARCH_ENGINE || 'sqlite').trim().toLowerCase();
+      const preferChroma = memorySearchEngine === 'chroma';
 
-      if (q && embeddingConfig.endpoint && embeddingConfig.apiKey) {
+      if (preferChroma && q && embeddingConfig.endpoint && embeddingConfig.apiKey) {
         chromaAttempted = true;
 
         try {
