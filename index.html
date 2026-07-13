@@ -1856,6 +1856,10 @@
                 <input id="mcp-service-enabled-input" type="checkbox" checked>
                 启用此服务
               </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#555;">
+                <input id="mcp-service-allow-autonomous-call-input" type="checkbox">
+                允许角色自动调用
+              </label>
               <label style="font-size:13px;color:#555;">模式
                 <select id="mcp-service-mode-select" style="
                   width:100%;
@@ -9968,6 +9972,7 @@
     const nameInput = document.getElementById('mcp-service-name-input');
     const urlInput = document.getElementById('mcp-service-url-input');
     const enabledInput = document.getElementById('mcp-service-enabled-input');
+    const allowAutonomousCallInput = document.getElementById('mcp-service-allow-autonomous-call-input');
     const modeSelect = document.getElementById('mcp-service-mode-select');
     const authTypeSelect = document.getElementById('mcp-service-auth-type-select');
     const bearerTokenInput = document.getElementById('mcp-service-bearer-token-input');
@@ -9985,6 +9990,7 @@
       name,
       url,
       enabled: enabledInput ? enabledInput.checked : true,
+      allowAutonomousCall: allowAutonomousCallInput ? allowAutonomousCallInput.checked : false,
       mode: modeSelect ? modeSelect.value : 'tools',
       authType: authTypeSelect ? authTypeSelect.value : 'none',
       bearerToken: bearerTokenInput ? bearerTokenInput.value.trim() : '',
@@ -10003,6 +10009,7 @@
     const nameInput = document.getElementById('mcp-service-name-input');
     const urlInput = document.getElementById('mcp-service-url-input');
     const enabledInput = document.getElementById('mcp-service-enabled-input');
+    const allowAutonomousCallInput = document.getElementById('mcp-service-allow-autonomous-call-input');
     const modeSelect = document.getElementById('mcp-service-mode-select');
     const authTypeSelect = document.getElementById('mcp-service-auth-type-select');
     const bearerTokenInput = document.getElementById('mcp-service-bearer-token-input');
@@ -10015,6 +10022,7 @@
     if (nameInput) nameInput.value = service?.name || '';
     if (urlInput) urlInput.value = service?.url || '';
     if (enabledInput) enabledInput.checked = service?.enabled !== false;
+    if (allowAutonomousCallInput) allowAutonomousCallInput.checked = service?.allowAutonomousCall === true;
     if (modeSelect) modeSelect.value = service?.mode || 'tools';
     if (authTypeSelect) authTypeSelect.value = service?.authType || 'none';
     if (bearerTokenInput) bearerTokenInput.value = service?.bearerToken || '';
@@ -10078,6 +10086,7 @@
         name: form.name,
         url: form.url,
         enabled: form.enabled,
+        allowAutonomousCall: form.allowAutonomousCall,
         mode: form.mode,
         authType: form.authType,
         bearerToken: form.bearerToken,
@@ -10098,6 +10107,7 @@
         name: form.name,
         url: form.url,
         enabled: form.enabled,
+        allowAutonomousCall: form.allowAutonomousCall,
         mode: form.mode,
         authType: form.authType,
         bearerToken: form.bearerToken,
@@ -10228,6 +10238,7 @@
       const triggerKeywordsText = service.triggerKeywordsText && String(service.triggerKeywordsText).trim()
         ? ' · 触发词：' + String(service.triggerKeywordsText).trim().replace(/\s+/g, ' ')
         : '';
+      const autoCallText = service.allowAutonomousCall === true ? ' · 自动调用' : '';
       const authText = ' · 认证：' + (
         service.authType === 'bearer'
           ? 'Bearer'
@@ -10240,6 +10251,7 @@
         (service.enabled === false ? '禁用' : '启用') +
         ' · 模式：' + (service.mode || 'tools') +
         authText +
+        autoCallText +
         allowedCallersText +
         triggerKeywordsText +
         toolsText +
