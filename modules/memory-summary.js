@@ -94,7 +94,7 @@ window.openTokenBreakdown = async function() {
   parts.push({ name: '离线预设', tokens: estimateTokens(offlineStr) });
 
   // 7. 聊天上下文
-  const historySlice = chat.history.filter(msg => !msg.isExcluded).slice(-maxMemory);
+  const historySlice = getSummarizableChatHistory(chat).filter(msg => !msg.isExcluded).slice(-maxMemory);
   const historyStr = historySlice.map(msg => {
     if (typeof msg.content === 'string') return msg.content;
     if (Array.isArray(msg.content)) return msg.content.map(p => p.text).join(' ');
@@ -1915,9 +1915,21 @@ function isCoupleSpaceShareMemoryNoise(msg) {
   return content.includes('我分享了一条情侣空间记录') && content.includes('[情侣空间分享｜');
 }
 
+function isSummarizableMemoryMessage(msg) {
+  return msg && msg.type !== 'thought_chain_block';
+}
+
+function getSummarizableChatHistory(chat) {
+  return chat && Array.isArray(chat.history)
+    ? chat.history.filter(isSummarizableMemoryMessage)
+    : [];
+}
+
 function filterCoupleSpaceShareMessages(messages) {
   if (!Array.isArray(messages)) return [];
-  return messages.filter(msg => !isCoupleSpaceShareMemoryNoise(msg));
+  return messages
+    .filter(isSummarizableMemoryMessage)
+    .filter(msg => !isCoupleSpaceShareMemoryNoise(msg));
 }
 
 // ==================== 向量记忆自动总结 ====================
@@ -2142,7 +2154,7 @@ async function handleVectorNewMessagesSummary(chat) {
     return;
   }
 
-  const newMessages = chat.history.slice(lastIdx + 1);
+  const newMessages = chat.history.slice(lastIdx + 1).filter(isSummarizableMemoryMessage);
 
   if (newMessages.length < 5) {
     const confirmed = await showCustomConfirm(
@@ -2219,7 +2231,7 @@ async function handleVectorRangeSummary(chat) {
 
       hideCustomModal();
 
-      const rangeMessages = chat.history.slice(start - 1, end);
+      const rangeMessages = getSummarizableChatHistory(chat).slice(start - 1, end);
       const validMessages = rangeMessages.filter(m => !m.isHidden || (m.role === 'system' && m.content && m.content.includes('内心独白')));
 
       if (validMessages.length === 0) {
@@ -2277,10 +2289,10 @@ async function triggerVectorMemorySummary(chatId, force = false) {
   let messagesToProcess;
   if (force) {
     const autoInterval = vm.settings.autoExtractionMsgInterval || 20;
-    messagesToProcess = chat.history.filter(m => !m.isHidden || (m.role === 'system' && m.content && m.content.includes('内心独白'))).slice(-autoInterval);
+    messagesToProcess = getSummarizableChatHistory(chat).filter(m => !m.isHidden || (m.role === 'system' && m.content && m.content.includes('内心独白'))).slice(-autoInterval);
   } else {
     if (lastIdx + 1 >= historyLen) return; // 没有新消息
-    messagesToProcess = chat.history.slice(lastIdx + 1);
+    messagesToProcess = chat.history.slice(lastIdx + 1).filter(isSummarizableMemoryMessage);
   }
 
   if (messagesToProcess.length === 0) {
@@ -3212,7 +3224,7 @@ async function triggerStructuredMemorySummary(chatId, forceUpdate = false) {
   if (!chat || !window.structuredMemoryManager) return;
 
   const lastTimestamp = chat.lastStructuredMemoryTimestamp || 0;
-  const originalMessagesToSummarizeForCoupleShareFilter = chat.history.filter(m => m.timestamp > lastTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
+  const originalMessagesToSummarizeForCoupleShareFilter = getSummarizableChatHistory(chat).filter(m => m.timestamp > lastTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
   let messagesToSummarize = filterCoupleSpaceShareMessages(originalMessagesToSummarizeForCoupleShareFilter);
   const skippedCoupleShareCount = originalMessagesToSummarizeForCoupleShareFilter.length - messagesToSummarize.length;
 
@@ -3424,7 +3436,7 @@ async function openStructuredSummaryMenu(chat) {
 // 模式1：新消息总结
 async function handleNewMessagesSummary(chat) {
   const lastTimestamp = chat.lastStructuredMemoryTimestamp || 0;
-  const newMessages = chat.history.filter(m => m.timestamp > lastTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
+  const newMessages = getSummarizableChatHistory(chat).filter(m => m.timestamp > lastTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
 
   if (newMessages.length === 0) {
     showToast('暂无新消息需要总结', 'info');
@@ -3516,7 +3528,7 @@ async function handleRangeSummary(chat) {
 
       hideCustomModal();
 
-      const rangeMessages = chat.history.slice(start - 1, end);
+      const rangeMessages = getSummarizableChatHistory(chat).slice(start - 1, end);
       const validMessages = rangeMessages.filter(m => !m.isHidden || (m.role === 'system' && m.content.includes('内心独白')));
 
       if (validMessages.length === 0) {
@@ -3687,7 +3699,7 @@ function openManualSummaryModal() {
   const endInput = document.getElementById('manual-summary-end');
 
   // 计算可用消息总数（排除隐藏消息）
-  const availableMessages = chat.history.filter(m => !m.isHidden || (m.role === 'system' && m.content.includes('内心独白')));
+  const availableMessages = getSummarizableChatHistory(chat).filter(m => !m.isHidden || (m.role === 'system' && m.content.includes('内心独白')));
   const totalMessages = availableMessages.length;
 
   totalCount.textContent = totalMessages;
@@ -3704,7 +3716,7 @@ async function handleDiaryModeSummary() {
   if (!chat) return;
 
   const lastSummaryTimestamp = chat.lastMemorySummaryTimestamp || 0;
-  const unsummarizedMessages = chat.history.filter(m => m.timestamp > lastSummaryTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
+  const unsummarizedMessages = getSummarizableChatHistory(chat).filter(m => m.timestamp > lastSummaryTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
 
   if (unsummarizedMessages.length < 5) {
     await showCustomAlert('消息太少', `上次总结之后只有 ${unsummarizedMessages.length} 条新消息，至少需要5条才能进行有意义的总结。`);
@@ -3746,7 +3758,7 @@ async function executeManualSummary() {
   }
 
   const chat = state.chats[state.activeChatId];
-  const availableMessages = chat.history.filter(m => !m.isHidden || (m.role === 'system' && m.content.includes('内心独白')));
+  const availableMessages = getSummarizableChatHistory(chat).filter(m => !m.isHidden || (m.role === 'system' && m.content.includes('内心独白')));
 
   if (end > availableMessages.length) {
     await showCustomAlert('范围超出', `结束位置不能超过总消息数（${availableMessages.length}）`);
@@ -3863,7 +3875,7 @@ async function checkAndTriggerAutoSummary(chatId) {
     }
   } else {
     const lastSummaryTimestamp = chat.lastMemorySummaryTimestamp || 0;
-    const messagesSinceLastSummary = chat.history.filter(m => m.timestamp > lastSummaryTimestamp && !m.isHidden);
+    const messagesSinceLastSummary = getSummarizableChatHistory(chat).filter(m => m.timestamp > lastSummaryTimestamp && !m.isHidden);
 
     if (messagesSinceLastSummary.length >= chat.settings.autoMemoryInterval) {
       console.log(`达到自动总结阈值 (${messagesSinceLastSummary.length}/${chat.settings.autoMemoryInterval})，开始总结...`);
@@ -4153,7 +4165,7 @@ function generateSummaryForTimeframe(chat, duration, unit) {
     timeAgo = Date.now() - duration * 24 * 60 * 60 * 1000;
   }
 
-  const messagesToSummarize = filterCoupleSpaceShareMessages(chat.history.filter(m => m.timestamp > timeAgo && !m.isHidden));
+  const messagesToSummarize = filterCoupleSpaceShareMessages(getSummarizableChatHistory(chat).filter(m => m.timestamp > timeAgo && !m.isHidden));
 
   if (messagesToSummarize.length < 3) {
     return "";
@@ -4656,18 +4668,18 @@ async function triggerAutoSummary(chatId, force = false, customRange = null) {
 
   if (customRange) {
     // 手动总结：使用自定义范围
-    const allMessages = chat.history.filter(m => !m.isHidden || (m.role === 'system' && m.content.includes('内心独白')));
+    const allMessages = getSummarizableChatHistory(chat).filter(m => !m.isHidden || (m.role === 'system' && m.content.includes('内心独白')));
     const startIndex = Math.max(0, customRange.start - 1);
     const endIndex = Math.min(allMessages.length, customRange.end);
     messagesToSummarize = allMessages.slice(startIndex, endIndex);
   } else if (force && chat.settings.enableDiaryMode) {
     // 日记模式：总结上次总结之后的所有消息，不受 autoMemoryInterval 限制
-    messagesToSummarize = chat.history.filter(m => m.timestamp > lastSummaryTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
+    messagesToSummarize = getSummarizableChatHistory(chat).filter(m => m.timestamp > lastSummaryTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
   } else {
     // 原有逻辑
     messagesToSummarize = force ?
-      chat.history.filter(m => !m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))).slice(-(chat.settings.autoMemoryInterval || 20)) :
-      chat.history.filter(m => m.timestamp > lastSummaryTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
+      getSummarizableChatHistory(chat).filter(m => !m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))).slice(-(chat.settings.autoMemoryInterval || 20)) :
+      getSummarizableChatHistory(chat).filter(m => m.timestamp > lastSummaryTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
   }
 
   const originalMessagesBeforeCoupleShareFilter = Array.isArray(messagesToSummarize) ? messagesToSummarize : [];
