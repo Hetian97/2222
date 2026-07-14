@@ -2146,7 +2146,7 @@ ${linkedContents}
         if (!currentChat.settings.enableReplySanitizer) return aiMessage;
         const rulesText = currentChat.settings.replySanitizerRulesText || "";
         if (!rulesText.trim()) return aiMessage;
-        const allowedTypes = [null, undefined, "", "text", "voice_message", "offline_text"];
+        const allowedTypes = [null, undefined, "", "text", "voice_message", "offline_text", "thought_chain_block"];
         if (!allowedTypes.includes(aiMessage.type)) return aiMessage;
         ["content", "dialogue", "description"].forEach(function(field) {
           if (typeof aiMessage[field] === "string") {
