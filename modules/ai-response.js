@@ -7575,10 +7575,18 @@ ${getActiveThoughtsPrompt()}
           }
 
           case 'text':
-            aiMessage = {
-              ...baseMessage,
-              content: String(msgData.content || msgData.message)
-            };
+            if (chat.settings && chat.settings.isOfflineMode) {
+              aiMessage = {
+                ...baseMessage,
+                type: 'offline_text',
+                content: String(msgData.content || msgData.message)
+              };
+            } else {
+              aiMessage = {
+                ...baseMessage,
+                content: String(msgData.content || msgData.message)
+              };
+            }
             break;
           case 'sticker':
             if (msgData.meaning) {
