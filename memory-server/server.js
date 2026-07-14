@@ -564,12 +564,21 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
         emotionScore * weights.emotion +
         recencyScore * weights.recency;
 
+      const scoreParts = {
+        semantic: vectorScore * weights.semantic,
+        keyword: textScore * weights.keyword,
+        importance: importanceScore * weights.importance,
+        emotion: emotionScore * weights.emotion,
+        recency: recencyScore * weights.recency
+      };
+
       return {
         memory,
         score: totalScore,
         vectorScore,
         keywordScore: textScore,
-        hasVector
+        hasVector,
+        scoreParts
       };
     })
     .filter(item => item.score > 0)
@@ -591,6 +600,13 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
       _searchScore: Number(item.score.toFixed(6)),
       _vectorScore: Number(item.vectorScore.toFixed(6)),
       _keywordScore: Number(item.keywordScore.toFixed(6)),
+      _scoreParts: {
+        semantic: Number((item.scoreParts?.semantic || 0).toFixed(6)),
+        keyword: Number((item.scoreParts?.keyword || 0).toFixed(6)),
+        importance: Number((item.scoreParts?.importance || 0).toFixed(6)),
+        emotion: Number((item.scoreParts?.emotion || 0).toFixed(6)),
+        recency: Number((item.scoreParts?.recency || 0).toFixed(6))
+      },
       _searchMode: item.hasVector ? 'vector+keyword' : 'keyword'
     };
   });
