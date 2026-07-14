@@ -681,6 +681,31 @@ async function tryResetChromaCollection() {
   }
 }
 
+
+function parseExternalMcpResponseJson(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch {}
+
+  const dataLines = raw
+    .split(/\r?\n/)
+    .filter(line => line.startsWith('data:'))
+    .map(line => line.slice(5).trim())
+    .filter(Boolean);
+
+  for (const line of dataLines) {
+    if (line === '[DONE]') continue;
+    try {
+      return JSON.parse(line);
+    } catch {}
+  }
+
+  return null;
+}
+
 async function callExternalMcpTool(serviceUrl, toolName, toolArguments = {}, options = {}) {
   const urlText = String(serviceUrl || '').trim();
   const safeToolName = String(toolName || '').trim();
@@ -738,7 +763,7 @@ async function callExternalMcpTool(serviceUrl, toolName, toolArguments = {}, opt
 
       let data = null;
       try {
-        data = JSON.parse(text);
+        data = parseExternalMcpResponseJson(text);
       } catch {
         data = null;
       }
@@ -898,7 +923,7 @@ async function callExternalMcpToolsList(serviceUrl, options = {}) {
 
       let data = null;
       try {
-        data = JSON.parse(text);
+        data = parseExternalMcpResponseJson(text);
       } catch {
         data = null;
       }
@@ -1008,7 +1033,12 @@ async function callExternalMcpToolsList(serviceUrl, options = {}) {
   } catch (firstError) {
     const message = firstError.message || String(firstError);
 
-    if (!message.includes('mcp-session-id') && !message.includes('initialize')) {
+    if (
+      !message.includes('mcp-session-id') &&
+      !message.includes('session ID') &&
+      !message.includes('valid session') &&
+      !message.includes('initialize')
+    ) {
       throw firstError;
     }
 
