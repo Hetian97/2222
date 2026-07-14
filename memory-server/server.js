@@ -544,6 +544,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
       const importanceVal = Number(memory.importance) || 5;
       let importanceScore = importanceVal / 10;
       if (importanceVal >= 8) importanceScore *= 1.5;
+      importanceScore = Math.min(1, importanceScore);
 
       const emotionScore = (Number(memory.emotionalWeight) || 3) / 10;
 
