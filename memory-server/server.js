@@ -6,6 +6,7 @@ const {
   db,
   addMemory,
   listMemories,
+  getMemoryById,
   deleteMemory,
   clearAllMemories,
   getMemoryStats,
@@ -2075,7 +2076,7 @@ async function handleMcpRequest(body) {
           return mcpError(id, -32602, 'id is required');
         }
 
-        const memory = listMemories({ limit: 5000 }).find(item => item.id === idArg);
+        const memory = getMemoryById(idArg);
 
         if (!memory) {
           return mcpError(id, -32004, 'Memory not found');
