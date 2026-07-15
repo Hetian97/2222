@@ -186,24 +186,82 @@ function cosineSimilarity(a, b) {
 }
 
 function keywordScore(query, memory) {
-  const queryText = String(query || '').trim().toLowerCase();
-  if (!queryText) return 0;
+  const rawQuery = String(query || '');
+  const q = rawQuery.toLowerCase();
+  if (!q.trim()) return 0;
 
-  const terms = tokenizeText(queryText);
-  if (terms.length === 0) return 0;
+  const parseTags = (value) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return value.split(/[，,\s]+/).filter(Boolean);
+      }
+    }
+    return [];
+  };
 
-  const text = memoryToSearchText(memory);
+  const tags = parseTags(memory.tags).map(t => String(t || '').trim()).filter(Boolean);
+  const tagText = tags.join(' ');
+  const content = String(memory.content || '');
+  const context = String(memory.context || '');
+  const haystackRaw = [content, context, tagText].join(' ');
+  const haystack = haystackRaw.toLowerCase();
+
   let score = 0;
 
-  for (const term of terms) {
-    if (text.includes(term)) score += 1;
+  // 英文缩写 / 专名强命中：BERA、MCP、Akso、API、VPS 等
+  const latinTokens = Array.from(new Set(rawQuery.match(/[A-Za-z][A-Za-z0-9._-]{1,}/g) || []))
+    .map(t => t.toLowerCase())
+    .filter(t => t.length >= 2);
+
+  for (const token of latinTokens) {
+    const inContent = haystack.includes(token);
+    const inTag = tags.some(tag => tag.toLowerCase().includes(token));
+    if (inTag) score += 0.45;
+    else if (inContent) score += 0.28;
   }
 
-  if (memory.content && String(memory.content).toLowerCase().includes(queryText)) {
-    score += 3;
+  // tag 完整命中：query 里有 BERA会议 / 北京会议 / 乔教授 等，强加分
+  for (const tag of tags) {
+    const nt = tag.toLowerCase();
+    if (!nt) continue;
+    if (q.includes(nt)) {
+      score += 0.55;
+    } else {
+      for (const token of latinTokens) {
+        if (nt.includes(token)) score += 0.35;
+      }
+    }
   }
 
-  return Math.min(1, score / Math.max(1, terms.length + 3));
+  // 中文事实型短语命中
+  const factPhrases = Array.from(new Set(rawQuery.match(/[\u4e00-\u9fffA-Za-z0-9]{2,18}/g) || []))
+    .map(t => t.toLowerCase())
+    .filter(t =>
+      /会议|教授|老师|大学|学院|医院|机场|签证|论文|项目|系统|手术|婚礼|计划|之行|英国|北京|上海|日本/.test(t)
+    );
+
+  for (const phrase of factPhrases) {
+    if (haystack.includes(phrase)) score += 0.22;
+  }
+
+  // 原有宽松词面匹配，保留少量普通关键词作用
+  const looseTokens = Array.from(new Set(
+    rawQuery
+      .replace(/[，。！？、；：\n\r\t"'“”‘’（）()\[\]{}]/g, ' ')
+      .split(/\s+/)
+      .map(t => t.trim().toLowerCase())
+      .filter(t => t.length >= 2 && t.length <= 24)
+  ));
+
+  for (const token of looseTokens) {
+    if (haystack.includes(token)) score += 0.04;
+  }
+
+  return Math.min(1, score);
 }
 
 function safeParseEmbedding(value) {
@@ -1889,7 +1947,7 @@ async function handleMcpRequest(body) {
           category: args.category || '',
           minImportance: args.minImportance || '',
           maxImportance: args.maxImportance || '',
-          limit: args.candidateLimit || 1000
+          limit: Math.min(10000, Math.max(1000, Number(args.candidateLimit || process.env.MEMORY_SEARCH_CANDIDATE_LIMIT || 6000) || 6000))
         });
 
         const embeddingConfig = {
@@ -2764,7 +2822,7 @@ const server = http.createServer(async (req, res) => {
         category: body.category || '',
         minImportance: body.minImportance || '',
         maxImportance: body.maxImportance || '',
-        limit: body.candidateLimit || 1000
+        limit: Math.min(10000, Math.max(1000, Number(body.candidateLimit || process.env.MEMORY_SEARCH_CANDIDATE_LIMIT || 6000) || 6000))
       });
 
       const embeddingConfig = {
