@@ -411,6 +411,9 @@ ${formatRules}
         continue;
       }
 
+      applyBackgroundReplySanitizer(aiMessage, chat);
+
+
       chat.history.push(aiMessage);
       pushedCount++;
 
@@ -426,7 +429,7 @@ ${formatRules}
       if (!isViewingThisChat) {
         chat.unreadCount = (chat.unreadCount || 0) + pushedCount;
         if (typeof showNotification === 'function') {
-          showNotification(chatId, `${chat.name}: [线下自动回复]`);
+          showBackgroundActivityNotification(chatId, `${chat.name}: [线下自动回复]`);
         }
       }
 
@@ -442,6 +445,95 @@ ${formatRules}
     renderChatList();
   }
 }
+
+  // role reply sanitizer helper for background/group AI actions.
+  function escapeReplySanitizerRegExp(text) {
+    const specials = "\\^$*+?.()|{}[]";
+    return String(text).split("").map(function(ch) {
+      return specials.indexOf(ch) >= 0 ? "\\" + ch : ch;
+    }).join("");
+  }
+
+  function buildReplySanitizerRegExp(patternText) {
+    let pattern = String(patternText || "").trim();
+    let isRegex = false;
+    if (pattern.startsWith("regex:")) {
+      isRegex = true;
+      pattern = pattern.slice(6).trim();
+    }
+    if (pattern.startsWith("/") && pattern.lastIndexOf("/") > 0) {
+      isRegex = true;
+    }
+    if (!isRegex) {
+      return new RegExp(escapeReplySanitizerRegExp(pattern), "g");
+    }
+    if (pattern.startsWith("/") && pattern.lastIndexOf("/") > 0) {
+      const lastSlash = pattern.lastIndexOf("/");
+      const source = pattern.slice(1, lastSlash);
+      let flags = pattern.slice(lastSlash + 1) || "g";
+      if (!flags.includes("g")) flags += "g";
+      return new RegExp(source, flags);
+    }
+    return new RegExp(pattern, "g");
+  }
+
+  function applyReplySanitizerToText(text, rulesText) {
+    let output = String(text || "");
+    const ruleLines = String(rulesText || "").split(/\r?\n/);
+    for (const rawLine of ruleLines) {
+      const line = String(rawLine || "").trim();
+      if (!line || line.startsWith("#") || line.startsWith("//")) continue;
+      let sep = "=>";
+      let idx = line.indexOf(sep);
+      if (idx < 0) {
+        sep = "->";
+        idx = line.indexOf(sep);
+      }
+      if (idx < 0) continue;
+      const pattern = line.slice(0, idx).trim();
+      const replacement = line.slice(idx + sep.length);
+      if (!pattern) continue;
+      try {
+        output = output.replace(buildReplySanitizerRegExp(pattern), replacement);
+      } catch (error) {
+        console.warn("AI 回复净化规则无效，已跳过:", line, error);
+      }
+    }
+    return output;
+  }
+
+  function applyBackgroundReplySanitizer(aiMessage, currentChat) {
+    if (!aiMessage || !currentChat || !currentChat.settings) return aiMessage;
+    if (!currentChat.settings.enableReplySanitizer) return aiMessage;
+    const rulesText = currentChat.settings.replySanitizerRulesText || "";
+    if (!rulesText.trim()) return aiMessage;
+    const allowedTypes = [null, undefined, "", "text", "voice_message", "offline_text", "thought_chain_block"];
+    if (!allowedTypes.includes(aiMessage.type)) return aiMessage;
+    ["content", "dialogue", "description"].forEach(function(field) {
+      if (typeof aiMessage[field] === "string") {
+        aiMessage[field] = applyReplySanitizerToText(aiMessage[field], rulesText);
+      }
+    });
+    return aiMessage;
+  }
+
+  function showBackgroundActivityNotification(chatId, messageContent) {
+    if (typeof showNotification === 'function') {
+      showNotification(chatId, messageContent);
+    }
+
+    const disableInternalNotification = state.globalSettings.systemNotification?.disableInternalNotification || false;
+
+    if (disableInternalNotification && typeof playNotificationSound === 'function') {
+      setTimeout(() => {
+        try {
+          playNotificationSound();
+        } catch (error) {
+          console.warn('后台活动通知音播放失败:', error);
+        }
+      }, 0);
+    }
+  }
 
   async function triggerInactiveAiAction(chatId) {
     const chat = state.chats[chatId];
@@ -1136,7 +1228,7 @@ ${longTimeNoSee ? `【重要提示】你们已经很久没聊天了！你【必�
                 appendMessage(systemMessage, chat);
               } else {
                 chat.unreadCount = (chat.unreadCount || 0) + 1;
-                showNotification(chatId, `[${chat.name} 删除了自己的一条动态]`);
+                showBackgroundActivityNotification(chatId, `[${chat.name} 删除了自己的一条动态]`);
                 hasSentNotification = true;
               }
             } else {
@@ -1459,11 +1551,12 @@ ${longTimeNoSee ? `【重要提示】你们已经很久没聊天了！你【必�
 
 
         if (aiMessage) {
+          aiMessage = applyBackgroundReplySanitizer(aiMessage, chat);
           chat.history.push(aiMessage);
           chat.unreadCount = (chat.unreadCount || 0) + 1;
           if (!hasSentNotification) {
             let notificationText = aiMessage.type === 'ai_image' ? '[图片]' : (aiMessage.content || '');
-            showNotification(chatId, notificationText);
+            showBackgroundActivityNotification(chatId, notificationText);
             hasSentNotification = true;
           }
         }
@@ -2264,6 +2357,7 @@ ${longTermMemoryContext}
             timestamp: actionTimestamp++
           });
         } else if (aiMessage) {
+          aiMessage = applyBackgroundReplySanitizer(aiMessage, chat);
           chat.history.push(aiMessage);
           if (!notificationSender) {
             notificationSender = senderDisplayName;
@@ -2277,7 +2371,7 @@ ${longTermMemoryContext}
         chat.lastActionTimestamp = Date.now();
         chat.unreadCount = (chat.unreadCount || 0) + responseArray.filter(a => a.type !== 'qzone_post' && a.type !== 'qzone_comment' && a.type !== 'qzone_like').length;
         if (notificationSender && notificationContent) {
-          showNotification(chatId, `${notificationSender}: ${notificationContent}`);
+          showBackgroundActivityNotification(chatId, `${notificationSender}: ${notificationContent}`);
         }
         await db.chats.put(chat);
       }
