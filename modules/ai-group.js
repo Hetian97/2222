@@ -429,7 +429,7 @@ ${formatRules}
       if (!isViewingThisChat) {
         chat.unreadCount = (chat.unreadCount || 0) + pushedCount;
         if (typeof showNotification === 'function') {
-          showNotification(chatId, `${chat.name}: [线下自动回复]`);
+          showBackgroundActivityNotification(chatId, `${chat.name}: [线下自动回复]`);
         }
       }
 
@@ -515,6 +515,24 @@ ${formatRules}
       }
     });
     return aiMessage;
+  }
+
+  function showBackgroundActivityNotification(chatId, messageContent) {
+    if (typeof showNotification === 'function') {
+      showNotification(chatId, messageContent);
+    }
+
+    const disableInternalNotification = state.globalSettings.systemNotification?.disableInternalNotification || false;
+
+    if (disableInternalNotification && typeof playNotificationSound === 'function') {
+      setTimeout(() => {
+        try {
+          playNotificationSound();
+        } catch (error) {
+          console.warn('后台活动通知音播放失败:', error);
+        }
+      }, 0);
+    }
   }
 
   async function triggerInactiveAiAction(chatId) {
@@ -1210,7 +1228,7 @@ ${longTimeNoSee ? `【重要提示】你们已经很久没聊天了！你【必�
                 appendMessage(systemMessage, chat);
               } else {
                 chat.unreadCount = (chat.unreadCount || 0) + 1;
-                showNotification(chatId, `[${chat.name} 删除了自己的一条动态]`);
+                showBackgroundActivityNotification(chatId, `[${chat.name} 删除了自己的一条动态]`);
                 hasSentNotification = true;
               }
             } else {
@@ -1538,7 +1556,7 @@ ${longTimeNoSee ? `【重要提示】你们已经很久没聊天了！你【必�
           chat.unreadCount = (chat.unreadCount || 0) + 1;
           if (!hasSentNotification) {
             let notificationText = aiMessage.type === 'ai_image' ? '[图片]' : (aiMessage.content || '');
-            showNotification(chatId, notificationText);
+            showBackgroundActivityNotification(chatId, notificationText);
             hasSentNotification = true;
           }
         }
@@ -2353,7 +2371,7 @@ ${longTermMemoryContext}
         chat.lastActionTimestamp = Date.now();
         chat.unreadCount = (chat.unreadCount || 0) + responseArray.filter(a => a.type !== 'qzone_post' && a.type !== 'qzone_comment' && a.type !== 'qzone_like').length;
         if (notificationSender && notificationContent) {
-          showNotification(chatId, `${notificationSender}: ${notificationContent}`);
+          showBackgroundActivityNotification(chatId, `${notificationSender}: ${notificationContent}`);
         }
         await db.chats.put(chat);
       }
