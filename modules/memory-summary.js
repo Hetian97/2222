@@ -1907,17 +1907,20 @@ async function openVectorMemorySettings(chat, defaultTab = 'settings') {
   }
 }
 
-// couple share memory filter v1b: skip Couple Space share messages only for memory summary/extraction.
-// Chat history and normal online/offline AI context stay unchanged.
-function isCoupleSpaceShareMemoryNoise(msg) {
-  if (!msg || typeof msg.content !== 'string') return false;
+// memory summary/extraction noise filter v2:
+// Skip Couple Space share messages and thought-chain blocks only for memory summary/extraction.
+// Chat history, normal online/offline AI context, counters, and timestamps stay unchanged.
+function isMemorySummaryNoise(msg) {
+  if (!msg) return false;
+  if (msg.type === 'thought_chain_block') return true;
+  if (typeof msg.content !== 'string') return false;
   const content = msg.content;
   return content.includes('我分享了一条情侣空间记录') && content.includes('[情侣空间分享｜');
 }
 
 function filterCoupleSpaceShareMessages(messages) {
   if (!Array.isArray(messages)) return [];
-  return messages.filter(msg => !isCoupleSpaceShareMemoryNoise(msg));
+  return messages.filter(msg => !isMemorySummaryNoise(msg));
 }
 
 // ==================== 向量记忆自动总结 ====================
@@ -1943,7 +1946,7 @@ async function executeVectorExtraction(chat, messages, updateTimestamp = false) 
       }
       await db.chats.put(chat);
     }
-    showToast('本批消息只有情侣空间分享，已跳过变量记忆提取', 'info');
+    showToast('本批消息只有情侣空间分享或思维链，已跳过变量记忆提取', 'info');
     return;
   }
 
@@ -3223,7 +3226,7 @@ async function triggerStructuredMemorySummary(chatId, forceUpdate = false) {
       const originalEndMsg = originalMessagesToSummarizeForCoupleShareFilter[originalMessagesToSummarizeForCoupleShareFilter.length - 1];
       chat.lastStructuredMemoryTimestamp = originalEndMsg.timestamp;
       await db.chats.put(chat);
-      console.log(`[结构化记忆] 本批消息只有情侣空间分享，已跳过并推进时间戳: ${originalEndMsg.timestamp}`);
+      console.log(`[结构化记忆] 本批消息只有情侣空间分享或思维链，已跳过并推进时间戳: ${originalEndMsg.timestamp}`);
     }
     return;
   }
@@ -3581,7 +3584,7 @@ async function executeStructuredSummary(chat, messages, updateTimestamp = false)
       chat.lastStructuredMemoryTimestamp = originalEndMsgForCoupleShareFilter.timestamp;
       await db.chats.put(chat);
     }
-    showToast('本批消息只有情侣空间分享，已跳过结构化记忆提取', 'info');
+    showToast('本批消息只有情侣空间分享或思维链，已跳过结构化记忆提取', 'info');
     return;
   }
 
@@ -4678,9 +4681,9 @@ async function triggerAutoSummary(chatId, force = false, customRange = null) {
     if (!customRange && originalEndMsgForSummary) {
       chat.lastMemorySummaryTimestamp = originalEndMsgForSummary.timestamp;
       await db.chats.put(chat);
-      console.log('[长期记忆总结] 本批消息只有情侣空间分享，已跳过并推进时间戳');
+      console.log('[长期记忆总结] 本批消息只有情侣空间分享或思维链，已跳过并推进时间戳');
     }
-    if (force) alert('本批消息只有情侣空间分享，已跳过总结。');
+    if (force) alert('本批消息只有情侣空间分享或思维链，已跳过总结。');
     return;
   }
 
