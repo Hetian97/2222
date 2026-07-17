@@ -504,7 +504,10 @@
       msg.type !== 'red_packet' && msg.type !== 'transfer' && msg.type !== 'poll' && msg.type !== 'gift' &&
       msg.type !== 'kinship_request' && msg.type !== 'synth_music' && msg.type !== 'naiimag' && msg.type !== 'realimag' && msg.type !== 'googleimag' &&
       msg.type !== 'ai_image' && msg.type !== 'user_photo' && msg.type !== 'couple_invite' && msg.type !== 'couple_invite_response' && msg.type !== 'thought_chain_block') {
-      const contentStr = String(msg.content || '').trim().toLowerCase();
+      const rawContent = msg.type === 'offline_text'
+        ? [msg.content, msg.dialogue, msg.description].filter(Boolean).join(' ')
+        : msg.content;
+      const contentStr = String(rawContent || '').trim().toLowerCase();
       if (contentStr === '' || contentStr === 'undefined') {
         console.log('[QQ Undefined过滤] 已过滤空消息或undefined消息:', msg);
         return null;
