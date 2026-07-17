@@ -1544,24 +1544,24 @@ ${output}`;
 
           <div class="vm-setting-item" style="margin-top:12px;">
             <label>服务器搜索引擎</label>
-            <select id="vm-search-engine" class="vm-input-full">
+            <select id="vm-search-engine" class="vm-input-full" onchange="const is=this.value==='hybrid'||this.value==='chroma-hybrid';const sqlite=document.getElementById('vm-sqlite-candidate-setting');const chroma=document.getElementById('vm-chroma-candidate-setting');const n=document.getElementById('vm-chroma-nresults-setting');if(sqlite)sqlite.style.display=is?'none':'';if(chroma)chroma.style.display=is?'':'none';if(n)n.style.display=is?'':'none';">
               <option value="sqlite" ${(s.searchEngine || 'sqlite') === 'sqlite' ? 'selected' : ''}>SQLite semantic-hybrid（默认稳定）</option>
               <option value="hybrid" ${((s.searchEngine || 'sqlite') === 'hybrid' || (s.searchEngine || 'sqlite') === 'chroma-hybrid') ? 'selected' : ''}>Chroma hybrid rerank（实验）</option>
             </select>
             <div style="font-size:11px;color:#999;margin-top:4px;">SQLite 用 SQLite 候选池；Chroma 会先向量召回，再交给后端 rerank。</div>
           </div>
 
-          <div class="vm-setting-item" style="margin-top:12px;">
+          <div id="vm-sqlite-candidate-setting" class="vm-setting-item" style="margin-top:12px;${((s.searchEngine || 'sqlite') === 'hybrid' || (s.searchEngine || 'sqlite') === 'chroma-hybrid') ? 'display:none;' : ''}">
             <label>SQLite 候选池 candidateLimit</label>
             <input type="number" id="vm-sqlite-candidate-limit" value="${s.sqliteCandidateLimit ?? s.candidateLimit ?? 6000}" min="1" max="20000" step="100" class="vm-input-full">
           </div>
 
-          <div class="vm-setting-item" style="margin-top:12px;">
+          <div id="vm-chroma-candidate-setting" class="vm-setting-item" style="margin-top:12px;${((s.searchEngine || 'sqlite') === 'hybrid' || (s.searchEngine || 'sqlite') === 'chroma-hybrid') ? '' : 'display:none;'}">
             <label>Chroma 候选池 candidateLimit</label>
             <input type="number" id="vm-chroma-candidate-limit" value="${s.chromaCandidateLimit ?? 2000}" min="1" max="20000" step="100" class="vm-input-full">
           </div>
 
-          <div class="vm-setting-item" style="margin-top:12px;">
+          <div id="vm-chroma-nresults-setting" class="vm-setting-item" style="margin-top:12px;${((s.searchEngine || 'sqlite') === 'hybrid' || (s.searchEngine || 'sqlite') === 'chroma-hybrid') ? '' : 'display:none;'}">
             <label>Chroma 召回数 chromaNResults</label>
             <input type="number" id="vm-chroma-nresults" value="${s.chromaNResults ?? 200}" min="1" max="2000" step="10" class="vm-input-full">
           </div>
