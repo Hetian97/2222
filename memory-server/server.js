@@ -6,6 +6,7 @@ const {
   db,
   addMemory,
   listMemories,
+  getMemoryById,
   deleteMemory,
   clearAllMemories,
   getMemoryStats,
@@ -548,9 +549,209 @@ function memoryToSearchText(memory) {
   ].join(' ').toLowerCase();
 }
 
+
+function normalizeMemorySearchQueryText(value) {
+  return String(value || '')
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, ' ')
+    .replace(/<\/?[A-Za-z][A-Za-z0-9_-]*>/g, ' ')
+    .replace(/\`\`\`[\s\S]*?\`\`\`/g, ' ')
+    .replace(/^\s*\(Timestamp:\s*\d+\)\s*/gmi, ' ')
+    .replace(/^\s*\[(系统|旁白|system)[^\]]*\]\s*/gmi, ' ')
+    .replace(/[{}\[\]<>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^[\s"'“”‘’「」『』《》.,，。!?！？;；:：、*]+|[\s"'“”‘’「」『』《》.,，。!?！？;；:：、*]+$/g, '')
+    .trim();
+}
+
+function normalizeMemorySearchQueryList(value) {
+  const raw = [];
+
+  const add = (item) => {
+    const text = normalizeMemorySearchQueryText(item);
+    if (text) raw.push(text);
+  };
+
+  if (Array.isArray(value)) {
+    value.forEach(add);
+  } else if (typeof value === 'string') {
+    const text = value.trim();
+    if (text) {
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) parsed.forEach(add);
+        else add(text);
+      } catch {
+        text.split(/[\n\r]+/).forEach(add);
+      }
+    }
+  }
+
+  const seen = new Set();
+  return raw.filter(item => {
+    const key = item.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 8);
+}
+
+function extractTechnicalMemorySearchTokens(rawQuery) {
+  const text = normalizeMemorySearchQueryText(rawQuery);
+  const tokens = text.match(/[A-Za-z][A-Za-z0-9._-]{3,}|[A-Z]{2,}(?:[._-][A-Z0-9]+)*|\d{3,}/g) || [];
+
+  const seen = new Set();
+  return tokens
+    .map(item => item.trim())
+    .filter(item => item.length >= 2 && item.length <= 48)
+    .filter(item => {
+      const key = item.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 24);
+}
+
+function extractQuotedMemorySearchPhrases(rawQuery) {
+  const text = normalizeMemorySearchQueryText(rawQuery);
+  const phrases = [];
+  const seen = new Set();
+  const quotedRe = /[“"「『《]([^”"」』》]{2,40})[”"」』》]/g;
+  let match;
+
+  while ((match = quotedRe.exec(text))) {
+    const phrase = normalizeMemorySearchQueryText(match[1]);
+    if (!phrase) continue;
+
+    const key = phrase.toLowerCase();
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    phrases.push(phrase);
+  }
+
+  return phrases.slice(0, 8);
+}
+
+function scoreMemorySearchClause(clause) {
+  const text = normalizeMemorySearchQueryText(clause);
+  if (!text) return -1;
+
+  const compact = text.replace(/\s+/g, '');
+  const chars = Array.from(compact);
+  if (chars.length < 2 || chars.length > 48) return -1;
+
+  const cjkCount = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+  const latinDigitCount = (text.match(/[A-Za-z0-9]/g) || []).length;
+
+  if (cjkCount + latinDigitCount < 2) return -1;
+  if (!latinDigitCount && cjkCount < 3) return -1;
+
+  const unique = new Set(chars);
+  if (unique.size <= 1) return -1;
+
+  const counts = new Map();
+  for (const ch of chars) counts.set(ch, (counts.get(ch) || 0) + 1);
+
+  let maxRepeat = 0;
+  for (const n of counts.values()) {
+    if (n > maxRepeat) maxRepeat = n;
+  }
+
+  if (maxRepeat / chars.length > 0.65) return -1;
+
+  let score = 0;
+
+  if (/[A-Za-z0-9]/.test(text)) score += 5;
+  if (/[A-Z]{2,}/.test(text)) score += 2;
+  if (/[A-Za-z][A-Za-z0-9]*(?:[._-][A-Za-z0-9]+)+/.test(text)) score += 3;
+  if (/\d/.test(text)) score += 1;
+
+  if (cjkCount >= 4 && cjkCount <= 24) score += 3;
+  if (chars.length <= 24) score += 2;
+  if (unique.size >= 4) score += 1;
+
+  return score;
+}
+
+function extractStructuredMemorySearchClauses(rawQuery) {
+  const text = normalizeMemorySearchQueryText(rawQuery);
+  if (!text) return [];
+
+  const clauses = text
+    .split(/[\n\r，,。.!?！？；;：:、|\/\\]+/)
+    .map(item => item.trim())
+    .filter(Boolean);
+
+  const items = clauses
+    .map((clause, index) => ({
+      clause: normalizeMemorySearchQueryText(clause),
+      score: scoreMemorySearchClause(clause),
+      index
+    }))
+    .filter(item => item.clause && item.score > 0)
+    .filter(item => /[\u4e00-\u9fff]/.test(item.clause));
+
+  const selected = [];
+  const seen = new Set();
+
+  const add = (item) => {
+    if (!item || !item.clause) return;
+    const key = item.clause.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    selected.push(item.clause);
+  };
+
+  // 长 query 里，尾部通常更接近“当前状态/当前动作”，所以尾部优先。
+  items.slice(-6).forEach(add);
+
+  // 保留少量开头，避免丢失话题起点。
+  items.slice(0, 3).forEach(add);
+
+  // 再用形式分数补充少量中间高信息短句；不使用任何领域关键词清单。
+  [...items]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6)
+    .forEach(add);
+
+  return selected.slice(0, 10);
+}
+
+function buildMemorySearchQueries(primaryQuery, extraQueries = []) {
+  const candidates = [];
+  const seen = new Set();
+
+  const add = (value) => {
+    const text = normalizeMemorySearchQueryText(value);
+    if (!text) return;
+
+    const key = text.toLowerCase();
+    if (seen.has(key)) return;
+
+    seen.add(key);
+    candidates.push(text);
+  };
+
+  add(primaryQuery);
+  normalizeMemorySearchQueryList(extraQueries).forEach(add);
+
+  const technicalTokens = extractTechnicalMemorySearchTokens(primaryQuery);
+  if (technicalTokens.length) {
+    add(technicalTokens.slice(0, 16).join(' '));
+  }
+
+  extractQuotedMemorySearchPhrases(primaryQuery).forEach(add);
+  extractStructuredMemorySearchClauses(primaryQuery).forEach(add);
+
+  return candidates.slice(0, 12);
+}
+
 async function simpleSearch(memories, query, limit = 20, options = {}) {
   const q = String(query || '').trim();
   const safeLimit = clampNumber(limit, 1, 200, 20);
+  const searchQueries = buildMemorySearchQueries(q, options.queryVariants || options.cleanedQueries || options.queries || []);
 
   const rawWeights = options.scoreWeights || options.weights || {};
   const readWeight = (name, fallback) => {
@@ -565,26 +766,32 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
     recency: readWeight('recency', 0.05)
   };
 
-  if (!q) {
+  if (!searchQueries.length) {
     return memories.slice(0, safeLimit);
   }
 
-  let queryEmbedding = null;
+  const queryEmbeddings = [];
 
   if (options.embedding?.endpoint && options.embedding?.apiKey) {
-    try {
-      queryEmbedding = await createQueryEmbedding({
-        endpoint: options.embedding.endpoint,
-        apiKey: options.embedding.apiKey,
-        model: options.embedding.model,
-        input: q
-      });
+    for (const searchQuery of searchQueries.slice(0, 2)) {
+      try {
+        const queryEmbedding = await createQueryEmbedding({
+          endpoint: options.embedding.endpoint,
+          apiKey: options.embedding.apiKey,
+          model: options.embedding.model,
+          input: searchQuery
+        });
 
-      if (queryEmbedding) {
-        console.log('[memory-server] query embedding dim =', queryEmbedding.length);
+        if (queryEmbedding) {
+          console.log('[memory-server] query embedding dim =', queryEmbedding.length, 'query =', searchQuery.slice(0, 80));
+          queryEmbeddings.push({
+            query: searchQuery,
+            embedding: queryEmbedding
+          });
+        }
+      } catch (error) {
+        console.warn('[memory-server] query embedding failed, continue keyword search:', error.message);
       }
-    } catch (error) {
-      console.warn('[memory-server] query embedding failed, fallback to keyword search:', error.message);
     }
   }
 
@@ -592,12 +799,36 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
     .map(memory => {
       const memoryEmbedding = safeParseEmbedding(memory.embedding);
 
-      const vectorScore =
-        queryEmbedding && memoryEmbedding
-          ? cosineSimilarity(queryEmbedding, memoryEmbedding)
-          : 0;
+      let vectorScore = 0;
+      let vectorMatchedQuery = '';
 
-      const textScore = keywordScore(q, memory);
+      if (memoryEmbedding && queryEmbeddings.length) {
+        for (const item of queryEmbeddings) {
+          const currentScore = cosineSimilarity(item.embedding, memoryEmbedding);
+          if (currentScore > vectorScore) {
+            vectorScore = currentScore;
+            vectorMatchedQuery = item.query;
+          }
+        }
+      }
+
+      // Keep the original long query available for vector semantic scoring,
+      // but avoid letting it dominate keyword scoring with too many generic matches.
+      // When cleaned/variant queries exist, keywords are scored against variants only.
+      const keywordQueries = searchQueries.length > 1 ? searchQueries.slice(1) : searchQueries;
+
+      let textScore = 0;
+      let keywordMatchedQuery = '';
+
+      for (const searchQuery of keywordQueries) {
+        const currentScore = keywordScore(searchQuery, memory);
+        if (currentScore > textScore) {
+          textScore = currentScore;
+          keywordMatchedQuery = searchQuery;
+        }
+      }
+
+      const matchedQuery = keywordMatchedQuery || vectorMatchedQuery || searchQueries[0] || q;
 
       const importanceVal = Number(memory.importance) || 5;
       let importanceScore = importanceVal / 10;
@@ -635,6 +866,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
         score: totalScore,
         vectorScore,
         keywordScore: textScore,
+        matchedQuery,
         hasVector,
         scoreParts
       };
@@ -658,6 +890,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
       _searchScore: Number(item.score.toFixed(6)),
       _vectorScore: Number(item.vectorScore.toFixed(6)),
       _keywordScore: Number(item.keywordScore.toFixed(6)),
+      _matchedQuery: item.matchedQuery || q,
       _scoreParts: {
         semantic: Number((item.scoreParts?.semantic || 0).toFixed(6)),
         keyword: Number((item.scoreParts?.keyword || 0).toFixed(6)),
@@ -1956,8 +2189,12 @@ async function handleMcpRequest(body) {
           model: args.embeddingModel || process.env.EMBEDDING_MODEL || 'BAAI/bge-m3'
         };
 
+        const debugQueries = buildMemorySearchQueries(args.query || '', args.queryVariants || args.cleanedQueries || args.queries || []);
+
         const results = await simpleSearch(memories, args.query || '', args.limit || 10, {
-          embedding: embeddingConfig
+          embedding: embeddingConfig,
+          queryVariants: debugQueries.slice(1),
+          scoreWeights: args.scoreWeights || args.weights || {}
         });
 
         const text = memoriesToMcpText(results);
@@ -1972,6 +2209,8 @@ async function handleMcpRequest(body) {
           structuredContent: {
             ok: true,
             query: args.query || '',
+            debugQueries,
+            cleanedQueries: debugQueries.slice(1),
             count: results.length,
             memories: results
           }
@@ -2075,7 +2314,7 @@ async function handleMcpRequest(body) {
           return mcpError(id, -32602, 'id is required');
         }
 
-        const memory = listMemories({ limit: 5000 }).find(item => item.id === idArg);
+        const memory = getMemoryById(idArg);
 
         if (!memory) {
           return mcpError(id, -32004, 'Memory not found');
@@ -2816,8 +3055,9 @@ const server = http.createServer(async (req, res) => {
       const body = await readRequestBody(req);
       const q = String(body.query || '').trim();
       const safeLimit = clampNumber(body.limit || 20, 1, 200, 20);
+      const debugQueries = buildMemorySearchQueries(q, body.queryVariants || body.cleanedQueries || body.queries || []);
 
-      const memories = listMemories({
+      let memories = listMemories({
         chatId: body.chatId || '',
         category: body.category || '',
         minImportance: body.minImportance || '',
@@ -2835,6 +3075,7 @@ const server = http.createServer(async (req, res) => {
       let chromaAttempted = false;
       const memorySearchEngine = String(body.searchEngine || process.env.MEMORY_SEARCH_ENGINE || 'sqlite').trim().toLowerCase();
       const preferChroma = memorySearchEngine === 'chroma';
+      const preferHybrid = memorySearchEngine === 'hybrid' || memorySearchEngine === 'chroma-hybrid';
 
       if (preferChroma && q && embeddingConfig.endpoint && embeddingConfig.apiKey) {
         chromaAttempted = true;
@@ -2936,23 +3177,128 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      let chromaHybridMeta = null;
+
+      if (preferHybrid) {
+        chromaHybridMeta = {
+          attempted: false,
+          hybrid: true,
+          returned: 0,
+          matchedCandidates: 0,
+          addedCandidates: 0,
+          fallback: false,
+          error: null
+        };
+      }
+
+      if (preferHybrid && q && embeddingConfig.endpoint && embeddingConfig.apiKey) {
+        chromaAttempted = true;
+        chromaHybridMeta.attempted = true;
+
+        try {
+          const queryEmbedding = await createQueryEmbedding({
+            endpoint: embeddingConfig.endpoint,
+            apiKey: embeddingConfig.apiKey,
+            model: embeddingConfig.model,
+            input: q
+          });
+
+          if (queryEmbedding) {
+            const chromaNResults = clampNumber(
+              body.chromaNResults || Math.max(safeLimit * 20, 100),
+              safeLimit,
+              1000,
+              Math.max(safeLimit * 20, 100)
+            );
+
+            const chromaResult = await queryChromaByEmbedding(queryEmbedding, {
+              nResults: chromaNResults
+            });
+
+            const ids = chromaResult?.ids?.[0] || [];
+            chromaHybridMeta.returned = ids.length;
+
+            const existingIds = new Set(memories.map(memory => String(memory.id)));
+            const addedMemories = [];
+
+            const matchesFilters = (memory) => {
+              if (!memory) return false;
+
+              if (body.chatId && String(memory.chatId || '') !== String(body.chatId)) {
+                return false;
+              }
+
+              if (body.category && String(memory.category || '').toUpperCase() !== String(body.category).trim().toUpperCase()) {
+                return false;
+              }
+
+              const importance = Number(memory.importance || 0);
+
+              if (body.minImportance !== undefined && body.minImportance !== null && body.minImportance !== '' && importance < Number(body.minImportance)) {
+                return false;
+              }
+
+              if (body.maxImportance !== undefined && body.maxImportance !== null && body.maxImportance !== '' && importance > Number(body.maxImportance)) {
+                return false;
+              }
+
+              return true;
+            };
+
+            for (const rawId of ids) {
+              const memoryId = String(rawId || '').trim();
+              if (!memoryId) continue;
+
+              if (existingIds.has(memoryId)) {
+                chromaHybridMeta.matchedCandidates++;
+                continue;
+              }
+
+              const memory = getMemoryById(memoryId);
+              if (!matchesFilters(memory)) continue;
+
+              existingIds.add(memoryId);
+              addedMemories.push(memory);
+              chromaHybridMeta.addedCandidates++;
+            }
+
+            if (addedMemories.length) {
+              memories = memories.concat(addedMemories);
+            }
+          } else {
+            chromaError = 'query embedding was empty';
+            chromaHybridMeta.error = chromaError;
+          }
+        } catch (error) {
+          chromaError = error.message || String(error);
+          chromaHybridMeta.error = chromaError;
+          chromaHybridMeta.fallback = true;
+          console.warn('[memory-server] chroma hybrid candidate expansion failed, continue sqlite simpleSearch:', chromaError);
+        }
+      }
+
       const results = await simpleSearch(memories, q, safeLimit, {
         embedding: embeddingConfig,
+        queryVariants: debugQueries.slice(1),
         scoreWeights: body.scoreWeights || body.weights || {}
       });
 
       sendJson(res, 200, {
         ok: true,
         query: q,
+        debugQueries,
+        cleanedQueries: debugQueries.slice(1),
         count: results.length,
-        searchMode: chromaAttempted ? 'sqlite-fallback-after-chroma' : (embeddingConfig.endpoint && embeddingConfig.apiKey ? 'semantic-hybrid' : 'keyword-fallback'),
-        chroma: chromaAttempted ? {
+        searchMode: preferHybrid
+          ? (chromaAttempted ? 'chroma-hybrid-rerank' : (embeddingConfig.endpoint && embeddingConfig.apiKey ? 'semantic-hybrid' : 'keyword-fallback'))
+          : (chromaAttempted ? 'sqlite-fallback-after-chroma' : (embeddingConfig.endpoint && embeddingConfig.apiKey ? 'semantic-hybrid' : 'keyword-fallback')),
+        chroma: chromaHybridMeta || (chromaAttempted ? {
           attempted: true,
           fallback: true,
           error: chromaError
         } : {
           attempted: false
-        },
+        }),
         memories: results
       });
     } catch (error) {
