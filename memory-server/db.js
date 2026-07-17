@@ -138,6 +138,11 @@ function addMemory(memory) {
   return normalizeMemory(db.prepare('SELECT * FROM memories WHERE id = ?').get(item.id));
 }
 
+function getMemoryById(id) {
+  if (!id) return null;
+  return normalizeMemory(db.prepare('SELECT * FROM memories WHERE id = ?').get(String(id)));
+}
+
 function listMemories(filters = {}) {
   if (typeof filters === 'string') {
     filters = { chatId: filters };
@@ -361,6 +366,7 @@ module.exports = {
   db,
   addMemory,
   listMemories,
+  getMemoryById,
   deleteMemory,
   clearAllMemories,
   getMemoryStats,

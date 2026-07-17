@@ -6,6 +6,7 @@ const {
   db,
   addMemory,
   listMemories,
+  getMemoryById,
   deleteMemory,
   clearAllMemories,
   getMemoryStats,
@@ -2075,7 +2076,7 @@ async function handleMcpRequest(body) {
           return mcpError(id, -32602, 'id is required');
         }
 
-        const memory = listMemories({ limit: 5000 }).find(item => item.id === idArg);
+        const memory = getMemoryById(idArg);
 
         if (!memory) {
           return mcpError(id, -32004, 'Memory not found');
@@ -2817,7 +2818,7 @@ const server = http.createServer(async (req, res) => {
       const q = String(body.query || '').trim();
       const safeLimit = clampNumber(body.limit || 20, 1, 200, 20);
 
-      const memories = listMemories({
+      let memories = listMemories({
         chatId: body.chatId || '',
         category: body.category || '',
         minImportance: body.minImportance || '',
@@ -2835,6 +2836,7 @@ const server = http.createServer(async (req, res) => {
       let chromaAttempted = false;
       const memorySearchEngine = String(body.searchEngine || process.env.MEMORY_SEARCH_ENGINE || 'sqlite').trim().toLowerCase();
       const preferChroma = memorySearchEngine === 'chroma';
+      const preferHybrid = memorySearchEngine === 'hybrid' || memorySearchEngine === 'chroma-hybrid';
 
       if (preferChroma && q && embeddingConfig.endpoint && embeddingConfig.apiKey) {
         chromaAttempted = true;
@@ -2936,6 +2938,106 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      let chromaHybridMeta = null;
+
+      if (preferHybrid) {
+        chromaHybridMeta = {
+          attempted: false,
+          hybrid: true,
+          returned: 0,
+          matchedCandidates: 0,
+          addedCandidates: 0,
+          fallback: false,
+          error: null
+        };
+      }
+
+      if (preferHybrid && q && embeddingConfig.endpoint && embeddingConfig.apiKey) {
+        chromaAttempted = true;
+        chromaHybridMeta.attempted = true;
+
+        try {
+          const queryEmbedding = await createQueryEmbedding({
+            endpoint: embeddingConfig.endpoint,
+            apiKey: embeddingConfig.apiKey,
+            model: embeddingConfig.model,
+            input: q
+          });
+
+          if (queryEmbedding) {
+            const chromaNResults = clampNumber(
+              body.chromaNResults || Math.max(safeLimit * 20, 100),
+              safeLimit,
+              1000,
+              Math.max(safeLimit * 20, 100)
+            );
+
+            const chromaResult = await queryChromaByEmbedding(queryEmbedding, {
+              nResults: chromaNResults
+            });
+
+            const ids = chromaResult?.ids?.[0] || [];
+            chromaHybridMeta.returned = ids.length;
+
+            const existingIds = new Set(memories.map(memory => String(memory.id)));
+            const addedMemories = [];
+
+            const matchesFilters = (memory) => {
+              if (!memory) return false;
+
+              if (body.chatId && String(memory.chatId || '') !== String(body.chatId)) {
+                return false;
+              }
+
+              if (body.category && String(memory.category || '').toUpperCase() !== String(body.category).trim().toUpperCase()) {
+                return false;
+              }
+
+              const importance = Number(memory.importance || 0);
+
+              if (body.minImportance !== undefined && body.minImportance !== null && body.minImportance !== '' && importance < Number(body.minImportance)) {
+                return false;
+              }
+
+              if (body.maxImportance !== undefined && body.maxImportance !== null && body.maxImportance !== '' && importance > Number(body.maxImportance)) {
+                return false;
+              }
+
+              return true;
+            };
+
+            for (const rawId of ids) {
+              const memoryId = String(rawId || '').trim();
+              if (!memoryId) continue;
+
+              if (existingIds.has(memoryId)) {
+                chromaHybridMeta.matchedCandidates++;
+                continue;
+              }
+
+              const memory = getMemoryById(memoryId);
+              if (!matchesFilters(memory)) continue;
+
+              existingIds.add(memoryId);
+              addedMemories.push(memory);
+              chromaHybridMeta.addedCandidates++;
+            }
+
+            if (addedMemories.length) {
+              memories = memories.concat(addedMemories);
+            }
+          } else {
+            chromaError = 'query embedding was empty';
+            chromaHybridMeta.error = chromaError;
+          }
+        } catch (error) {
+          chromaError = error.message || String(error);
+          chromaHybridMeta.error = chromaError;
+          chromaHybridMeta.fallback = true;
+          console.warn('[memory-server] chroma hybrid candidate expansion failed, continue sqlite simpleSearch:', chromaError);
+        }
+      }
+
       const results = await simpleSearch(memories, q, safeLimit, {
         embedding: embeddingConfig,
         scoreWeights: body.scoreWeights || body.weights || {}
@@ -2945,14 +3047,16 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         query: q,
         count: results.length,
-        searchMode: chromaAttempted ? 'sqlite-fallback-after-chroma' : (embeddingConfig.endpoint && embeddingConfig.apiKey ? 'semantic-hybrid' : 'keyword-fallback'),
-        chroma: chromaAttempted ? {
+        searchMode: preferHybrid
+          ? (chromaAttempted ? 'chroma-hybrid-rerank' : (embeddingConfig.endpoint && embeddingConfig.apiKey ? 'semantic-hybrid' : 'keyword-fallback'))
+          : (chromaAttempted ? 'sqlite-fallback-after-chroma' : (embeddingConfig.endpoint && embeddingConfig.apiKey ? 'semantic-hybrid' : 'keyword-fallback')),
+        chroma: chromaHybridMeta || (chromaAttempted ? {
           attempted: true,
           fallback: true,
           error: chromaError
         } : {
           attempted: false
-        },
+        }),
         memories: results
       });
     } catch (error) {
