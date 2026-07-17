@@ -812,10 +812,15 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
         }
       }
 
+      // Keep the original long query available for vector semantic scoring,
+      // but avoid letting it dominate keyword scoring with too many generic matches.
+      // When cleaned/variant queries exist, keywords are scored against variants only.
+      const keywordQueries = searchQueries.length > 1 ? searchQueries.slice(1) : searchQueries;
+
       let textScore = 0;
       let keywordMatchedQuery = '';
 
-      for (const searchQuery of searchQueries) {
+      for (const searchQuery of keywordQueries) {
         const currentScore = keywordScore(searchQuery, memory);
         if (currentScore > textScore) {
           textScore = currentScore;
@@ -823,7 +828,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
         }
       }
 
-      const matchedQuery = keywordMatchedQuery || vectorMatchedQuery || q;
+      const matchedQuery = keywordMatchedQuery || vectorMatchedQuery || searchQueries[0] || q;
 
       const importanceVal = Number(memory.importance) || 5;
       let importanceScore = importanceVal / 10;
