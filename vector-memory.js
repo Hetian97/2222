@@ -1538,6 +1538,7 @@ ${output}`;
               <div><span>语义(Vector)</span><input type="number" id="vm-w-semantic" value="${s.scoreWeights.semantic}" step="0.1" class="vm-input-sm"></div>
               <div><span>字面(BM25)</span><input type="number" id="vm-w-keyword" value="${s.scoreWeights.keyword}" step="0.1" class="vm-input-sm"></div>
               <div><span>重要度(Importance)</span><input type="number" id="vm-w-importance" value="${s.scoreWeights.importance}" step="0.1" class="vm-input-sm"></div>
+              <div><span>情绪权重(Emotion)</span><input type="number" id="vm-w-emotion" value="${s.scoreWeights.emotion ?? 0.05}" step="0.01" class="vm-input-sm"></div>
               <div><span>时间衰减(Decay)</span><input type="number" id="vm-w-recency" value="${s.scoreWeights.recency}" step="0.1" class="vm-input-sm"></div>
             </div>
             <div style="font-size:11px;color:#999;margin-top:4px;">注意：如果无 Embedding API，系统会自动用 BM25 算法替代，依然精准！核心记忆(C类)永远是满分免疫衰减。</div>
@@ -1655,12 +1656,17 @@ ${output}`;
     const vm = this.getVariableMemory(chat);
     vm.settings.autoExtractionMsgInterval = parseInt(document.getElementById('vm-auto-interval')?.value) || 20;
     vm.settings.topN = parseInt(document.getElementById('vm-topn')?.value) || 10;
+    const readScoreWeight = (id, fallback) => {
+      const value = parseFloat(document.getElementById(id)?.value);
+      return Number.isFinite(value) ? value : fallback;
+    };
+
     vm.settings.scoreWeights = {
-      semantic: parseFloat(document.getElementById('vm-w-semantic')?.value) || 0.4,
-      keyword: parseFloat(document.getElementById('vm-w-keyword')?.value) || 0.3,
-      importance: parseFloat(document.getElementById('vm-w-importance')?.value) || 0.2,
-      recency: parseFloat(document.getElementById('vm-w-recency')?.value) || 0.05,
-      emotion: 0.05
+      semantic: readScoreWeight('vm-w-semantic', 0.4),
+      keyword: readScoreWeight('vm-w-keyword', 0.3),
+      importance: readScoreWeight('vm-w-importance', 0.2),
+      emotion: readScoreWeight('vm-w-emotion', 0.05),
+      recency: readScoreWeight('vm-w-recency', 0.05)
     };
     vm.settings.useCustomEmbedding = document.getElementById('vm-custom-embedding')?.checked || false;
     vm.settings.embeddingEndpoint = document.getElementById('vm-embedding-endpoint')?.value || '';
