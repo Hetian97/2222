@@ -37,6 +37,10 @@ class VariableMemoryManager {
         timelineSummaries: {},
         settings: {
           topN: 10,
+          searchEngine: 'sqlite',
+          sqliteCandidateLimit: 6000,
+          chromaCandidateLimit: 2000,
+          chromaNResults: 200,
           embeddingModel: '',
           embeddingEndpoint: '',
           useCustomEmbedding: false,
@@ -917,7 +921,12 @@ class VariableMemoryManager {
           query,
           limit,
           chatId: chat?.id || chat?.chatId || '',
-          scoreWeights: vm.settings?.scoreWeights || {}
+          scoreWeights: vm.settings?.scoreWeights || {},
+          searchEngine: vm.settings?.searchEngine || 'sqlite',
+          candidateLimit: ((vm.settings?.searchEngine || 'sqlite') === 'hybrid' || (vm.settings?.searchEngine || 'sqlite') === 'chroma-hybrid')
+            ? (parseInt(vm.settings?.chromaCandidateLimit, 10) || 2000)
+            : (parseInt(vm.settings?.sqliteCandidateLimit, 10) || 6000),
+          chromaNResults: parseInt(vm.settings?.chromaNResults, 10) || 200
         }
       });
 
@@ -1532,6 +1541,31 @@ ${output}`;
             <label>每轮注入 AI 脑海的记忆数 (Top N)</label>
             <input type="number" id="vm-topn" value="${s.topN || 10}" min="1" max="30" class="vm-input-full">
           </div>
+
+          <div class="vm-setting-item" style="margin-top:12px;">
+            <label>服务器搜索引擎</label>
+            <select id="vm-search-engine" class="vm-input-full" onchange="const is=this.value==='hybrid'||this.value==='chroma-hybrid';const sqlite=document.getElementById('vm-sqlite-candidate-setting');const chroma=document.getElementById('vm-chroma-candidate-setting');const n=document.getElementById('vm-chroma-nresults-setting');if(sqlite)sqlite.style.display=is?'none':'';if(chroma)chroma.style.display=is?'':'none';if(n)n.style.display=is?'':'none';">
+              <option value="sqlite" ${(s.searchEngine || 'sqlite') === 'sqlite' ? 'selected' : ''}>SQLite semantic-hybrid（默认稳定）</option>
+              <option value="hybrid" ${((s.searchEngine || 'sqlite') === 'hybrid' || (s.searchEngine || 'sqlite') === 'chroma-hybrid') ? 'selected' : ''}>Chroma hybrid rerank（实验）</option>
+            </select>
+            <div style="font-size:11px;color:#999;margin-top:4px;">SQLite 用 SQLite 候选池；Chroma 会先向量召回，再交给后端 rerank。</div>
+          </div>
+
+          <div id="vm-sqlite-candidate-setting" class="vm-setting-item" style="margin-top:12px;${((s.searchEngine || 'sqlite') === 'hybrid' || (s.searchEngine || 'sqlite') === 'chroma-hybrid') ? 'display:none;' : ''}">
+            <label>SQLite 候选池 candidateLimit</label>
+            <input type="number" id="vm-sqlite-candidate-limit" value="${s.sqliteCandidateLimit ?? s.candidateLimit ?? 6000}" min="1" max="20000" step="100" class="vm-input-full">
+          </div>
+
+          <div id="vm-chroma-candidate-setting" class="vm-setting-item" style="margin-top:12px;${((s.searchEngine || 'sqlite') === 'hybrid' || (s.searchEngine || 'sqlite') === 'chroma-hybrid') ? '' : 'display:none;'}">
+            <label>Chroma 候选池 candidateLimit</label>
+            <input type="number" id="vm-chroma-candidate-limit" value="${s.chromaCandidateLimit ?? 2000}" min="1" max="20000" step="100" class="vm-input-full">
+          </div>
+
+          <div id="vm-chroma-nresults-setting" class="vm-setting-item" style="margin-top:12px;${((s.searchEngine || 'sqlite') === 'hybrid' || (s.searchEngine || 'sqlite') === 'chroma-hybrid') ? '' : 'display:none;'}">
+            <label>Chroma 召回数 chromaNResults</label>
+            <input type="number" id="vm-chroma-nresults" value="${s.chromaNResults ?? 200}" min="1" max="2000" step="10" class="vm-input-full">
+          </div>
+
           <div class="vm-setting-item" style="margin-top:12px;">
             <label>多维打分权重分布</label>
             <div class="vm-weights">
@@ -1656,6 +1690,18 @@ ${output}`;
     const vm = this.getVariableMemory(chat);
     vm.settings.autoExtractionMsgInterval = parseInt(document.getElementById('vm-auto-interval')?.value) || 20;
     vm.settings.topN = parseInt(document.getElementById('vm-topn')?.value) || 10;
+
+    const readPositiveInt = (id, fallback) => {
+      const value = parseInt(document.getElementById(id)?.value, 10);
+      return Number.isFinite(value) && value > 0 ? value : fallback;
+    };
+
+    const searchEngine = document.getElementById('vm-search-engine')?.value || 'sqlite';
+    vm.settings.searchEngine = (searchEngine === 'hybrid' || searchEngine === 'chroma-hybrid') ? 'hybrid' : 'sqlite';
+    vm.settings.sqliteCandidateLimit = readPositiveInt('vm-sqlite-candidate-limit', 6000);
+    vm.settings.chromaCandidateLimit = readPositiveInt('vm-chroma-candidate-limit', 2000);
+    vm.settings.chromaNResults = readPositiveInt('vm-chroma-nresults', 200);
+
     const readScoreWeight = (id, fallback) => {
       const value = parseFloat(document.getElementById(id)?.value);
       return Number.isFinite(value) ? value : fallback;
