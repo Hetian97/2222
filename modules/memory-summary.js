@@ -1946,7 +1946,7 @@ async function executeVectorExtraction(chat, messages, updateTimestamp = false) 
       }
       await db.chats.put(chat);
     }
-    showToast('本批消息只有情侣空间分享，已跳过变量记忆提取', 'info');
+    showToast('本批消息只有情侣空间分享或思维链，已跳过变量记忆提取', 'info');
     return;
   }
 
@@ -3584,7 +3584,7 @@ async function executeStructuredSummary(chat, messages, updateTimestamp = false)
       chat.lastStructuredMemoryTimestamp = originalEndMsgForCoupleShareFilter.timestamp;
       await db.chats.put(chat);
     }
-    showToast('本批消息只有情侣空间分享，已跳过结构化记忆提取', 'info');
+    showToast('本批消息只有情侣空间分享或思维链，已跳过结构化记忆提取', 'info');
     return;
   }
 
