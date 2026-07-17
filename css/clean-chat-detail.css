@@ -259,3 +259,87 @@ body:has(#member-management-screen.active) .modal.active .modal-content {
   z-index: 41001 !important;
 }
 
+/* clean mode top-layer fix v5
+   Keep second/third-level screens and modals above compact settings screens.
+   Covers:
+   - 查找聊天记录
+   - 管理所有群成员 / 联系人选择
+   - 清空确认弹窗
+   - 表情包清空弹窗
+   - 查看数据分布
+*/
+#search-history-screen.screen.active,
+#search-history-screen.active,
+#member-management-screen.screen.active,
+#member-management-screen.active,
+#data-distribution-screen.screen.active,
+#data-distribution-screen.active {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 60000 !important;
+}
+
+#search-history-screen.active .header,
+#search-history-screen.active #search-bar,
+#search-history-screen.active #chat-search-results-list,
+#member-management-screen.active .header,
+#member-management-screen.active #member-management-list,
+#member-management-screen.active #member-management-actions,
+#data-distribution-screen.active .header,
+#data-distribution-screen.active .list-container,
+#data-distribution-screen.active .settings-container,
+#data-distribution-screen.active .screen-content,
+#data-distribution-screen.active .data-distribution-content {
+  position: relative !important;
+  z-index: 60001 !important;
+}
+
+#custom-modal-overlay.visible,
+#custom-confirm-overlay.visible,
+#choice-modal.visible,
+#choice-modal.active,
+#custom-choice-modal.visible,
+#custom-choice-modal.active,
+#clear-stickers-modal.visible,
+#clear-stickers-modal.active {
+  position: fixed !important;
+  z-index: 70000 !important;
+}
+
+#custom-modal-overlay.visible #custom-modal,
+#custom-confirm-overlay.visible #custom-modal,
+#choice-modal.visible .modal-content,
+#choice-modal.active .modal-content,
+#custom-choice-modal.visible .modal-content,
+#custom-choice-modal.active .modal-content,
+#clear-stickers-modal.visible .modal-content,
+#clear-stickers-modal.active .modal-content {
+  position: relative !important;
+  z-index: 70001 !important;
+}
+
+/* Third-level screens from member management: contact picker / NPC editor etc. */
+body:has(#member-management-screen.active) #contact-picker-screen.screen.active,
+body:has(#member-management-screen.active) #contact-picker-screen.active,
+body:has(#member-management-screen.active) .screen.active:not(#member-management-screen),
+body:has(#member-management-screen.active) .modal.visible,
+body:has(#member-management-screen.active) .modal.active {
+  position: fixed !important;
+  z-index: 71000 !important;
+}
+
+body:has(#member-management-screen.active) #contact-picker-screen.active .header,
+body:has(#member-management-screen.active) #contact-picker-screen.active .list-container,
+body:has(#member-management-screen.active) .screen.active:not(#member-management-screen) .header,
+body:has(#member-management-screen.active) .screen.active:not(#member-management-screen) .list-container,
+body:has(#member-management-screen.active) .screen.active:not(#member-management-screen) .modal-content,
+body:has(#member-management-screen.active) .modal.visible .modal-content,
+body:has(#member-management-screen.active) .modal.active .modal-content {
+  position: relative !important;
+  z-index: 71001 !important;
+}
