@@ -505,7 +505,19 @@
       msg.type !== 'kinship_request' && msg.type !== 'synth_music' && msg.type !== 'naiimag' && msg.type !== 'realimag' && msg.type !== 'googleimag' &&
       msg.type !== 'ai_image' && msg.type !== 'user_photo' && msg.type !== 'couple_invite' && msg.type !== 'couple_invite_response' && msg.type !== 'thought_chain_block') {
       const contentStr = String(msg.content || '').trim().toLowerCase();
-      if (contentStr === '' || contentStr === 'undefined') {
+      const offlineFallbackStr = msg.type === 'offline_text'
+        ? [msg.dialogue, msg.description]
+            .map(value => String(value || '').trim())
+            .filter(value => value && value.toLowerCase() !== 'undefined')
+            .join(' ')
+            .trim()
+        : '';
+
+      if (msg.type === 'offline_text' && offlineFallbackStr && (contentStr === '' || contentStr === 'undefined')) {
+        msg.content = '';
+      }
+
+      if ((contentStr === '' || contentStr === 'undefined') && !offlineFallbackStr) {
         if (msg.type !== 'offline_text') {
           console.log('[QQ Undefined过滤] 已过滤空消息或undefined消息:', msg);
         }
