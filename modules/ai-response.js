@@ -3581,8 +3581,17 @@ ${enabledEntries}
           let longTermMemoryContextOffline = '';
           const memModeOffline = chat.settings.memoryMode || (chat.settings.enableStructuredMemory ? 'structured' : 'diary');
           if (memModeOffline === 'vector' && window.vectorMemoryManager) {
-            const queryTextForVectorOffline = filteredHistory.slice(-5).map(m => typeof m.content === 'string' ? m.content : '').join(' ');
-            longTermMemoryContextOffline = await window.vectorMemoryManager.serializeForPrompt(chat, queryTextForVectorOffline);
+            const vmOffline = window.vectorMemoryManager.getVariableMemory(chat);
+            const userMsgCountOffline = vmOffline?.settings?.retrievalUserMsgCount || 3;
+            const recentVectorMessagesOffline = filteredHistory.slice(-5);
+            const getOfflineVectorContent = (m) => (m && typeof m.content === 'string') ? m.content.trim() : '';
+            const queryTextForVectorOffline = recentVectorMessagesOffline.map(getOfflineVectorContent).filter(Boolean).join(' ');
+            const userQueryVariantsOffline = recentVectorMessagesOffline
+              .filter(m => m.role === 'user')
+              .slice(-userMsgCountOffline)
+              .map(getOfflineVectorContent)
+              .filter(Boolean);
+            longTermMemoryContextOffline = await window.vectorMemoryManager.serializeForPrompt(chat, queryTextForVectorOffline, userQueryVariantsOffline);
           } else if (memModeOffline === 'structured' && window.structuredMemoryManager) {
             longTermMemoryContextOffline = window.structuredMemoryManager.serializeForPrompt(chat);
           } else {
@@ -8377,22 +8386,35 @@ ${linkedContents}
         const userMsgCount = vm.settings.retrievalUserMsgCount || 3;
         
         let queryText = '';
+        let queryVariantsForVector = [];
+        const getMessageContentForVector = (m) => (m && typeof m.content === 'string') ? m.content.trim() : '';
+        const getUserQueryVariantsForVector = (messages, count = userMsgCount) => messages
+          .filter(m => m.role === 'user')
+          .slice(-count)
+          .map(getMessageContentForVector)
+          .filter(Boolean);
+
         if (retrievalStrategy === 'user-only') {
           // 只用用户的最近N条消息
           const userMessages = filteredHistory.filter(m => m.role === 'user').slice(-userMsgCount);
-          queryText = userMessages.map(m => typeof m.content === 'string' ? m.content : '').join(' ');
+          queryVariantsForVector = userMessages.map(getMessageContentForVector).filter(Boolean);
+          queryText = queryVariantsForVector.join(' ');
         } else if (retrievalStrategy === 'user-weighted') {
           // 用户消息权重高，角色消息权重低
           const recentMsgs = filteredHistory.slice(-10);
-          const userMsgs = recentMsgs.filter(m => m.role === 'user').map(m => typeof m.content === 'string' ? m.content : '').join(' ');
-          const aiMsgs = recentMsgs.filter(m => m.role === 'assistant').slice(-2).map(m => typeof m.content === 'string' ? m.content : '').join(' ');
+          const userMessages = recentMsgs.filter(m => m.role === 'user');
+          queryVariantsForVector = getUserQueryVariantsForVector(recentMsgs);
+          const userMsgs = userMessages.map(getMessageContentForVector).filter(Boolean).join(' ');
+          const aiMsgs = recentMsgs.filter(m => m.role === 'assistant').slice(-2).map(getMessageContentForVector).filter(Boolean).join(' ');
           queryText = userMsgs + ' ' + aiMsgs;
         } else {
           // 混合模式（兼容旧版）
-          queryText = filteredHistory.slice(-5).map(m => typeof m.content === 'string' ? m.content : '').join(' ');
+          const recentMsgs = filteredHistory.slice(-5);
+          queryVariantsForVector = getUserQueryVariantsForVector(recentMsgs);
+          queryText = recentMsgs.map(getMessageContentForVector).filter(Boolean).join(' ');
         }
-        
-        memoryContextForPrompt = await window.vectorMemoryManager.serializeForPrompt(chat, queryText);
+
+        memoryContextForPrompt = await window.vectorMemoryManager.serializeForPrompt(chat, queryText, queryVariantsForVector);
       } else if (memoryMode === 'structured' && window.structuredMemoryManager) {
         memoryContextForPrompt = '# 长期记忆 (必须严格遵守)\n' + window.structuredMemoryManager.serializeForPrompt(chat);
       } else {

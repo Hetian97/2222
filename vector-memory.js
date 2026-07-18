@@ -905,7 +905,7 @@ class VariableMemoryManager {
   }
 
 
-  async retrieveRelevantFromExternalServer(chat, queryText, topN = null) {
+  async retrieveRelevantFromExternalServer(chat, queryText, topN = null, queryVariants = []) {
     if (!this.isExternalMemoryEnabled(chat)) return null;
 
     const query = String(queryText || '').trim();
@@ -913,12 +913,17 @@ class VariableMemoryManager {
 
     const vm = this.getVariableMemory(chat);
     const limit = topN || vm.settings.topN || 10;
+    const safeQueryVariants = Array.isArray(queryVariants)
+      ? queryVariants.map(v => String(v || '').trim()).filter(Boolean).slice(-5)
+      : [];
+
 
     try {
       const result = await this.externalMemoryRequest(chat, '/memory/search', {
         method: 'POST',
         body: {
           query,
+          queryVariants: safeQueryVariants,
           limit,
           chatId: chat?.id || chat?.chatId || '',
           scoreWeights: vm.settings?.scoreWeights || {},
@@ -1043,7 +1048,7 @@ class VariableMemoryManager {
 
   // ==================== 序列化为 Prompt ====================
 
-  async serializeForPrompt(chat, recentMessages = '') {
+  async serializeForPrompt(chat, recentMessages = '', queryVariants = []) {
     const vm = this.getVariableMemory(chat);
     let output = '';
 
@@ -1056,7 +1061,7 @@ class VariableMemoryManager {
       let results = null;
 
       if (this.isExternalMemoryEnabled(chat)) {
-        results = await this.retrieveRelevantFromExternalServer(chat, recentMessages);
+        results = await this.retrieveRelevantFromExternalServer(chat, recentMessages, null, queryVariants);
       }
 
       if (!Array.isArray(results) && vm.fragments.length > 0) {
