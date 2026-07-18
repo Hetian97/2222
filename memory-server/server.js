@@ -186,6 +186,170 @@ function cosineSimilarity(a, b) {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
+
+const GENERIC_MEMORY_SEARCH_TERMS = new Set([
+  '我', '你', '他', '她', '它', '我们', '你们', '他们', '她们',
+  '嗯', '好', '好的', '是吗', '没有啊', '怎么了', '为什么',
+  '这个', '那个', '一下', '一点', '什么', '不是', '没有',
+  '今天', '明天', '昨天', '今晚', '早上', '中午', '下午', '晚上',
+  '上次', '这次', '那次', '今年', '去年', '明年',
+  '春天', '夏天', '秋天', '冬天', '春夏秋冬',
+  '夏以昼', '阿鹤', '夏太太', '老婆', '老公', '哥哥'
+]);
+
+function normalizeExactAnchorTerm(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[“”"‘’'＂＇]/g, '')
+    .replace(/[\[\]（）(){}<>《》]/g, '')
+    .replace(/[。！？!?，,、；;：:\s]+/g, '')
+    .trim();
+}
+
+function isGenericMemorySearchTerm(value) {
+  const term = normalizeExactAnchorTerm(value);
+  if (!term) return true;
+  if (term.length < 2) return true;
+  if (/^\d+$/.test(term)) return true;
+  if (GENERIC_MEMORY_SEARCH_TERMS.has(term)) return true;
+  if (/^(我|你|他|她|它|我们|你们|他们|她们)/.test(term) && term.length <= 5) return true;
+  if (/(怎么了|为什么|怎么办|没事|不是|这个|那个|一下|一点)$/.test(term) && term.length <= 6) return true;
+  return false;
+}
+
+function parseMemorySearchTags(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return value.split(/[，,\s]+/).filter(Boolean);
+    }
+  }
+  return [];
+}
+
+function buildExactAnchorTerms(searchQueries, memories = []) {
+  const queries = Array.isArray(searchQueries) ? searchQueries : [searchQueries];
+  const queryNorm = normalizeExactAnchorTerm(queries.join(' '));
+  if (!queryNorm) return [];
+
+  const total = Math.max(1, Array.isArray(memories) ? memories.length : 0);
+  const maxCommonHits = Math.min(120, Math.max(8, Math.ceil(total * 0.08)));
+
+  const candidates = new Map();
+
+  const addCandidate = (term) => {
+    const normalized = normalizeExactAnchorTerm(term);
+    if (isGenericMemorySearchTerm(normalized)) return;
+    if (normalized.length > 18) return;
+    if (!queryNorm.includes(normalized)) return;
+
+    if (!candidates.has(normalized)) {
+      candidates.set(normalized, {
+        term: normalized,
+        hitCount: 0
+      });
+    }
+  };
+
+  for (const memory of memories || []) {
+    for (const tag of parseMemorySearchTags(memory?.tags)) {
+      addCandidate(tag);
+    }
+  }
+
+  if (!candidates.size) return [];
+
+  for (const memory of memories || []) {
+    const tags = parseMemorySearchTags(memory?.tags)
+      .map(normalizeExactAnchorTerm)
+      .filter(Boolean);
+
+    const contentNorm = normalizeExactAnchorTerm([
+      memory?.content || '',
+      memory?.context || ''
+    ].join(' '));
+
+    for (const candidate of candidates.values()) {
+      const term = candidate.term;
+      const tagHit = tags.some(tag => tag === term || tag.includes(term) || term.includes(tag));
+      const contentHit = contentNorm.includes(term);
+      if (tagHit || contentHit) {
+        candidate.hitCount++;
+      }
+    }
+  }
+
+  return Array.from(candidates.values())
+    .filter(item => item.hitCount > 0 && item.hitCount <= maxCommonHits)
+    .sort((a, b) => {
+      if (a.hitCount !== b.hitCount) return a.hitCount - b.hitCount;
+      return b.term.length - a.term.length;
+    })
+    .slice(0, 16);
+}
+
+function scoreExactAnchorTerms(anchorTerms, memory) {
+  if (!Array.isArray(anchorTerms) || !anchorTerms.length || !memory) {
+    return {
+      score: 0,
+      matchedTerm: ''
+    };
+  }
+
+  const tags = parseMemorySearchTags(memory.tags)
+    .map(normalizeExactAnchorTerm)
+    .filter(Boolean);
+
+  const contentNorm = normalizeExactAnchorTerm([
+    memory.content || '',
+    memory.context || ''
+  ].join(' '));
+
+  let score = 0;
+  let best = 0;
+  let matchedTerm = '';
+  let matchedCount = 0;
+
+  for (const anchor of anchorTerms) {
+    const term = normalizeExactAnchorTerm(anchor?.term || anchor);
+    if (isGenericMemorySearchTerm(term)) continue;
+
+    const tagExact = tags.some(tag => tag === term);
+    const tagPartial = tags.some(tag => tag.includes(term) || term.includes(tag));
+    const contentHit = contentNorm.includes(term);
+
+    let current = 0;
+    if (tagExact) current += 0.72;
+    else if (tagPartial) current += 0.46;
+
+    if (contentHit) current += 0.38;
+    if (tagExact && contentHit) current += 0.15;
+    if (current > 0 && term.length >= 3) current += 0.05;
+
+    if (current > 0) {
+      matchedCount++;
+      score += current;
+
+      if (current > best) {
+        best = current;
+        matchedTerm = term;
+      }
+    }
+  }
+
+  if (matchedCount >= 2) {
+    score += Math.min(0.18, (matchedCount - 1) * 0.06);
+  }
+
+  return {
+    score: Math.min(1, score),
+    matchedTerm
+  };
+}
+
 function keywordScore(query, memory) {
   const rawQuery = String(query || '');
   const q = rawQuery.toLowerCase();
@@ -752,6 +916,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
   const q = String(query || '').trim();
   const safeLimit = clampNumber(limit, 1, 200, 20);
   const searchQueries = buildMemorySearchQueries(q, options.queryVariants || options.cleanedQueries || options.queries || []);
+  const exactAnchorTerms = buildExactAnchorTerms(searchQueries, memories);
 
   const rawWeights = options.scoreWeights || options.weights || {};
   const readWeight = (name, fallback) => {
@@ -828,6 +993,22 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
         }
       }
 
+      // Exact anchor boost:
+      // dynamically detects concrete, relatively rare terms from the current query
+      // and boosts memories whose content/tags contain those terms.
+      const anchorHit = scoreExactAnchorTerms(exactAnchorTerms, memory);
+      if (anchorHit.score > 0) {
+        const boostedTextScore = Math.min(1, Math.max(textScore, anchorHit.score));
+        if (boostedTextScore > textScore) {
+          keywordMatchedQuery = anchorHit.matchedTerm;
+        }
+        textScore = boostedTextScore;
+      } else if (exactAnchorTerms.length && textScore > 0.35) {
+        // When concrete anchors exist, do not let generic relationship words
+        // such as names/titles outrank memories that actually hit the anchor.
+        textScore = 0.35;
+      }
+
       const matchedQuery = keywordMatchedQuery || vectorMatchedQuery || searchQueries[0] || q;
 
       const importanceVal = Number(memory.importance) || 5;
@@ -866,6 +1047,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
         score: totalScore,
         vectorScore,
         keywordScore: textScore,
+        anchorScore: anchorHit?.score || 0,
         matchedQuery,
         hasVector,
         scoreParts
@@ -890,6 +1072,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
       _searchScore: Number(item.score.toFixed(6)),
       _vectorScore: Number(item.vectorScore.toFixed(6)),
       _keywordScore: Number(item.keywordScore.toFixed(6)),
+      _anchorScore: Number((item.anchorScore || 0).toFixed(6)),
       _matchedQuery: item.matchedQuery || q,
       _scoreParts: {
         semantic: Number((item.scoreParts?.semantic || 0).toFixed(6)),
