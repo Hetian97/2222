@@ -343,3 +343,33 @@ body:has(#member-management-screen.active) .modal.active .modal-content {
   position: relative !important;
   z-index: 71001 !important;
 }
+
+/* clean mode shell hide fix v6
+   v5 raised nested screens/modals, but compact shell pages can still stay visible/clickable above them.
+   Hide or disable the compact shell while a nested screen/modal is active.
+*/
+
+/* Full-screen nested pages opened from compact chat/API settings */
+body:has(#search-history-screen.active) #clean-chat-detail-screen,
+body:has(#member-management-screen.active) #clean-chat-detail-screen,
+body:has(#contact-picker-screen.active) #clean-chat-detail-screen,
+body:has(#data-distribution-screen.active) #clean-chat-detail-screen,
+body:has(#data-distribution-screen.active) #clean-api-settings-screen {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Modal-style nested dialogs opened from compact settings */
+body:has(#custom-modal-overlay.visible) #clean-chat-detail-screen,
+body:has(#custom-confirm-overlay.visible) #clean-chat-detail-screen,
+body:has(#choice-modal.visible) #clean-chat-detail-screen,
+body:has(#custom-choice-modal.visible) #clean-chat-detail-screen,
+body:has(#clear-stickers-modal.visible) #clean-chat-detail-screen,
+body:has(#custom-modal-overlay.visible) #clean-api-settings-screen,
+body:has(#custom-confirm-overlay.visible) #clean-api-settings-screen,
+body:has(#choice-modal.visible) #clean-api-settings-screen,
+body:has(#custom-choice-modal.visible) #clean-api-settings-screen,
+body:has(#clear-stickers-modal.visible) #clean-api-settings-screen {
+  pointer-events: none !important;
+}
