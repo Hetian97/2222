@@ -683,7 +683,10 @@
 
         (preset.minimaxGroupId || '') === (currentConfig.minimaxGroupId || '') &&
         (preset.minimaxApiKey || '') === (currentConfig.minimaxApiKey || '') &&
-        (preset.minimaxModel || 'speech-01') === (currentConfig.minimaxModel || 'speech-01')
+        (preset.minimaxModel || 'speech-01') === (currentConfig.minimaxModel || 'speech-01') &&
+        (preset.couplespaceProxyUrl || '') === (currentConfig.couplespaceProxyUrl || '') &&
+        (preset.couplespaceApiKey || '') === (currentConfig.couplespaceApiKey || '') &&
+        (preset.couplespaceModel || '') === (currentConfig.couplespaceModel || '')
       ) {
         matchingPresetId = preset.id;
         break;
@@ -725,7 +728,10 @@
         visionModel: preset.visionModel,
         minimaxGroupId: preset.minimaxGroupId,
         minimaxApiKey: preset.minimaxApiKey,
-        minimaxModel: preset.minimaxModel
+        minimaxModel: preset.minimaxModel,
+        couplespaceProxyUrl: preset.couplespaceProxyUrl || '',
+        couplespaceApiKey: preset.couplespaceApiKey || '',
+        couplespaceModel: preset.couplespaceModel || ''
       };
 
 
@@ -773,6 +779,10 @@
       if (savedGhRepo !== null) state.apiConfig.githubRepo = savedGhRepo;
       if (savedGhToken !== null) state.apiConfig.githubToken = savedGhToken;
       if (savedGhFilename !== null) state.apiConfig.githubFilename = savedGhFilename;
+      localStorage.setItem('couplespace-proxy-url', state.apiConfig.couplespaceProxyUrl || '');
+      localStorage.setItem('couplespace-api-key', state.apiConfig.couplespaceApiKey || '');
+      localStorage.setItem('couplespace-model', state.apiConfig.couplespaceModel || '');
+
       await db.apiConfig.put(state.apiConfig);
 
       renderApiSettings(selectedId);
@@ -782,7 +792,13 @@
       document.getElementById('secondary-model-input').value = preset.secondaryModel || '';
       document.getElementById('background-model-input').value = preset.backgroundModel || '';
       document.getElementById('vision-model-input').value = preset.visionModel || '';
-      document.getElementById('couplespace-model-input').value = preset.couplespaceModel || '';
+      document.getElementById('couplespace-proxy-url').value = state.apiConfig.couplespaceProxyUrl || '';
+      document.getElementById('couplespace-api-key').value = state.apiConfig.couplespaceApiKey || '';
+      document.getElementById('couplespace-model-input').value = state.apiConfig.couplespaceModel || '';
+      const couplespaceModelSelect = document.getElementById('couplespace-model-select');
+      if (couplespaceModelSelect && state.apiConfig.couplespaceModel) {
+        couplespaceModelSelect.value = state.apiConfig.couplespaceModel;
+      }
 
       document.getElementById('fetch-models-btn').click();
       if (preset.secondaryProxyUrl && preset.secondaryApiKey) {
