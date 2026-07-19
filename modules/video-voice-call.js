@@ -403,6 +403,8 @@ ${linkedContents}
       longTermMemoryContent = chat.longTermMemory.map(mem => `- (记录于 ${formatTimeAgo(mem.timestamp)}) ${mem.content}`).join('\n');
     }
     const longTermMemoryContext = longTermMemoryContent ? `\n# 长期记忆 (必须参考)\n${longTermMemoryContent}` : '';
+    const callThoughtChainPrompt = getCallThoughtChainPrompt();
+    const callThoughtChainFormatRule = getCallThoughtChainFormatRule(callThoughtChainPrompt);
 
     if (userInput && videoCallState.isUserParticipating) {
       const userTimestamp = Date.now();
@@ -449,6 +451,8 @@ ${linkedContents}
         2.  **【视角铁律】**: 你的回复【绝对不能】使用第一人称"我"。
         3.  **格式**: 你的回复【必须】是一个JSON数组，每个对象代表一个角色的发言，格式为：\`{"name": "角色名", "speech": "*他笑了笑* 大家好啊！"}\`。
         4.  **角色扮演**: 严格遵守每个角色的设定。
+        ${callThoughtChainPrompt}
+        ${callThoughtChainFormatRule}
         # 当前情景
         你们正在一个群视频通话中。
          ${longTermMemoryContext}
@@ -480,6 +484,8 @@ ${linkedContents}
         3.  **【多句发言】**: 你可以一次说多句话，每句话作为独立的dialogue对象。例如：
            \`[{"type": "narration", "content": "他笑了笑"}, {"type": "dialogue", "content": "你好啊！"}, {"type": "dialogue", "content": "最近怎么样？"}]\`
         ${layoutRule}
+        ${callThoughtChainPrompt}
+        ${callThoughtChainFormatRule}
         # 当前情景
         你正在和用户（${userNickname}，人设: ${chat.settings.myPersona}）进行视频通话。
         ${longTermMemoryContext}
@@ -509,6 +515,8 @@ ${linkedContents}
       });
     }
 
+    appendCallThoughtChainFormatGuard(messagesForApi, videoCallState.isGroupCall ? 'video-group' : 'video-single');
+
     try {
       let isGemini = proxyUrl === GEMINI_API_URL;
       let geminiConfig = toGeminiRequestData(model, apiKey, inCallPrompt, messagesForApi)
@@ -535,12 +543,15 @@ ${linkedContents}
       }
 
       const data = await response.json();
-      const aiResponse = isGemini ? data.candidates[0].content.parts[0].text : data.choices[0].message.content;
+      const aiMessage = !isGemini ? (data.choices?.[0]?.message || {}) : {};
+      const aiResponse = isGemini ? data.candidates[0].content.parts[0].text : (aiMessage.content || '');
+      const callReasoningContent = !isGemini ? (aiMessage.reasoning_content || aiMessage.reasoning || '') : '';
 
       const connectingElement = callFeed.querySelector('em');
       if (connectingElement) connectingElement.remove();
       if (videoCallState.isGroupCall) {
-        const speechArray = parseAiResponse(aiResponse);
+        let speechArray = parseCallAiResponse(aiResponse, callReasoningContent);
+        speechArray = renderCallThoughtChainBlocks(callFeed, speechArray);
         speechArray.forEach(turn => {
           if (!turn.name || turn.name === userNickname || !turn.speech) return;
           const aiTimestamp = Date.now() + Math.random();
@@ -572,7 +583,8 @@ ${linkedContents}
         const interleavedMode = chat.videoOptimization && chat.videoOptimization.interleavedMode;
 
         // 尝试解析为JSON数组
-        const messagesArray = parseAiResponse(aiResponse);
+        let messagesArray = parseCallAiResponse(aiResponse, callReasoningContent);
+        messagesArray = renderCallThoughtChainBlocks(callFeed, messagesArray);
 
         if (interleavedMode) {
           // 穿插模式：按原始顺序逐条渲染
@@ -698,6 +710,191 @@ ${linkedContents}
     // ★ 每次发送后修剪历史
     trimCallHistory(videoCallState);
   }
+
+  function getCallThoughtChainPrompt() {
+    if (typeof ThoughtChainManager === 'undefined' || !ThoughtChainManager.getPayloadChunks) return '';
+
+    const chunks = ThoughtChainManager.getPayloadChunks('call');
+    const contents = [
+      ...((chunks && chunks.head) || []),
+      ...((chunks && chunks.middle) || [])
+    ]
+      .map(item => item && item.content ? String(item.content).trim() : '')
+      .filter(Boolean);
+
+    if (contents.length === 0) return '';
+
+    return `
+# 通话思维链（内部策略，不朗读）
+${contents.join('\n')}
+
+# 通话思维链输出规则（最高优先级）
+- 启用通话思维链时，你的最终回复必须是 JSON 数组，不要返回纯文本，也不要输出 <thinking> 或 </thinking> 标签。
+- JSON 数组第一个对象必须是：{"type":"thought_chain_block","content":"你的本轮内部判断"}。这是前端显示通话思维链的唯一识别格式。
+- thought_chain_block 是前端可识别的显示块，不是平台隐藏推理；不要解释“系统默认不显示思维链”，也不要把这类解释当作台词说出来。
+- thought_chain_block 不是角色真正说出口的话，不属于通话台词，不得写进 text/content/speech 正式台词里。
+- JSON 数组里必须至少还有一个正式通话内容对象，禁止只返回 thought_chain_block。
+- 视频单聊正式内容继续使用 {"type":"narration","content":"..."} 和 {"type":"dialogue","content":"..."}。
+- 语音单聊正式内容必须使用 {"type":"text","content":"真正说出口的话"}，不要返回纯文本。
+- 群视频/群语音正式内容继续使用 {"name":"角色名","speech":"真正说出口的话"}。
+- 语音朗读只会朗读正式 text/content/speech，不会朗读 thought_chain_block。`;
+  }
+
+
+  function getCallThoughtChainFormatRule(callThoughtChainPrompt) {
+    if (!callThoughtChainPrompt) return '';
+
+    return `
+# 通话思维链安全格式（覆盖“只输出对话内容”的例外规则）
+- thought_chain_block 是系统显示块，不是角色台词；它是“只输出对话内容”规则的唯一例外。
+- 禁止把“我不能显示思维链”“思维链属于后台”等说明写成正式台词。
+- 禁止只返回 thought_chain_block；必须至少继续返回一条正式通话内容。
+- 语音单聊启用思维链时，必须返回 JSON 数组，例如：
+  [{"type":"thought_chain_block","content":"内部判断"}, {"type":"text","content":"真正说出口的话"}]
+- 视频单聊启用思维链时，必须返回 JSON 数组，例如：
+  [{"type":"thought_chain_block","content":"内部判断"}, {"type":"narration","content":"动作/神态"}, {"type":"dialogue","content":"真正说出口的话"}]
+- 群通话启用思维链时，必须返回 JSON 数组，例如：
+  [{"type":"thought_chain_block","content":"内部判断"}, {"name":"角色名","speech":"真正说出口的话"}]`;
+  }
+
+
+
+
+  function appendCallThoughtChainFormatGuard(messagesForApi, callMode) {
+    if (typeof ThoughtChainManager === 'undefined' || !ThoughtChainManager.getPayloadChunks) return;
+
+    const chunks = ThoughtChainManager.getPayloadChunks('call');
+    const hasEnabledChunks = [
+      ...((chunks && chunks.head) || []),
+      ...((chunks && chunks.middle) || []),
+      ...((chunks && chunks.bottom) || [])
+    ].some(item => item && item.content && item.enabled !== false);
+
+    if (!hasEnabledChunks) return;
+
+    let formalRule = '';
+    if (callMode === 'video-single') {
+      formalRule = '正式通话内容必须继续使用 {"type":"narration","content":"动作/神态"} 或 {"type":"dialogue","content":"真正说出口的话"}。';
+    } else if (callMode === 'voice-single') {
+      formalRule = '正式通话内容必须使用 {"type":"text","content":"真正说出口的话"}，不要返回纯文本。';
+    } else {
+      formalRule = '正式通话内容必须继续使用 {"name":"角色名","speech":"真正说出口的话"}。';
+    }
+
+    messagesForApi.push({
+      role: 'user',
+      content: `[系统格式约束｜通话思维链]
+下一条回复必须严格返回 JSON 数组。
+JSON 数组第一个对象必须是：
+{"type":"thought_chain_block","content":"本轮通话内部判断"}
+
+然后必须至少继续返回一条正式通话内容。
+${formalRule}
+
+禁止事项：
+- 禁止只返回 thought_chain_block。
+- 禁止省略 thought_chain_block。
+- 禁止输出 <thinking> 或 </thinking> 标签。
+- 禁止把“思维链无法显示”“系统默认不展示思维链”等解释写成台词。
+- thought_chain_block 不是角色说出口的话，不会被朗读。`
+    });
+  }
+
+  function getCallThoughtChainBottomMessages() {
+    if (typeof ThoughtChainManager === 'undefined' || !ThoughtChainManager.getPayloadChunks) return [];
+
+    const chunks = ThoughtChainManager.getPayloadChunks('call');
+    return ((chunks && chunks.bottom) || [])
+      .map(item => {
+        const content = item && item.content ? String(item.content).trim() : '';
+        if (!content) return null;
+        return {
+          role: item.role || 'assistant',
+          content
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function parseCallAiResponse(aiResponse, callReasoningContent) {
+    let responseText = String(aiResponse || '').trim();
+    let reasoningText = String(callReasoningContent || '').trim();
+
+    // 兼容正常完整标签：<thinking>...</thinking>
+    const fullThinkingMatch = responseText.match(/<thinking>([\s\S]*?)<\/thinking>/i);
+    if (fullThinkingMatch) {
+      reasoningText = reasoningText || fullThinkingMatch[1].trim();
+      responseText = responseText.replace(fullThinkingMatch[0], '').trim();
+    } else {
+      // 兼容 assistant 预填充 <thinking> 后，模型只返回“思考内容</thinking> + 正文”
+      const closingTagIndex = responseText.toLowerCase().indexOf('</thinking>');
+      if (closingTagIndex >= 0) {
+        const beforeClose = responseText.slice(0, closingTagIndex).replace(/^<thinking>/i, '').trim();
+        const afterClose = responseText.slice(closingTagIndex + '</thinking>'.length).trim();
+        reasoningText = reasoningText || beforeClose;
+        responseText = afterClose;
+      }
+    }
+
+    const messagesArray = parseAiResponse(responseText || aiResponse);
+
+    if (!reasoningText || !Array.isArray(messagesArray)) return messagesArray;
+
+    const alreadyHasThoughtBlock = messagesArray.some(msg => msg && msg.type === 'thought_chain_block');
+    if (alreadyHasThoughtBlock) return messagesArray;
+
+    return [
+      {
+        type: 'thought_chain_block',
+        content: reasoningText
+      },
+      ...messagesArray
+    ];
+  }
+
+
+  function renderCallThoughtChainBlocks(callFeed, messagesArray) {
+    if (!Array.isArray(messagesArray)) return [];
+
+    const normalMessages = [];
+
+    messagesArray.forEach((msg) => {
+      if (msg && msg.type === 'thought_chain_block') {
+        const content = String(msg.content || '').trim();
+        if (!content) return;
+
+        const thoughtBubble = document.createElement('div');
+        thoughtBubble.className = 'call-message-bubble ai-narration call-thought-chain-block';
+        thoughtBubble.style.color = '#8e8e93';
+        thoughtBubble.style.fontStyle = 'normal';
+        thoughtBubble.style.maxWidth = '92%';
+
+        const details = document.createElement('details');
+        details.className = 'thought-chain-details';
+
+        const summary = document.createElement('summary');
+        summary.className = 'thought-chain-summary';
+        summary.title = '点击展开/折叠思考过程';
+        summary.innerHTML = '<span style="margin-right: 4px;">🧠</span><span style="opacity: 0.7; font-size: 11px;">通话深度思考</span>';
+
+        const contentEl = document.createElement('div');
+        contentEl.className = 'thought-chain-content';
+        contentEl.textContent = content;
+
+        details.appendChild(summary);
+        details.appendChild(contentEl);
+        thoughtBubble.appendChild(details);
+
+        callFeed.appendChild(thoughtBubble);
+        return;
+      }
+
+      normalMessages.push(msg);
+    });
+
+    return normalMessages;
+  }
+
   function trimCallHistory(callState) {
     if (callState.callHistory.length > 100) {
       callState.callHistory = callState.callHistory.slice(-100);
@@ -988,6 +1185,8 @@ ${linkedContents}
       longTermMemoryContent = chat.longTermMemory.map(mem => `- (记录于 ${formatTimeAgo(mem.timestamp)}) ${mem.content}`).join('\n');
     }
     const longTermMemoryContext = longTermMemoryContent ? `\n# 长期记忆 (必须参考)\n${longTermMemoryContent}` : '';
+    const callThoughtChainPrompt = getCallThoughtChainPrompt();
+    const callThoughtChainFormatRule = getCallThoughtChainFormatRule(callThoughtChainPrompt);
 
     if (userInput && voiceCallState.isUserParticipating) {
       const userTimestamp = Date.now();
@@ -1025,6 +1224,8 @@ ${linkedContents}
    - 【绝对禁止】任何视觉相关的描述（如：看起来、表情、动作等）
 3. **格式**: 你的回复【必须】是一个JSON数组，每个对象代表一个角色的发言，格式为：\`{"name": "角色名", "speech": "大家好啊！"}\`。
 4. **角色扮演**: 严格遵守每个角色的设定。
+${callThoughtChainPrompt}
+${callThoughtChainFormatRule}
 
 # 当前情景
 你们正在一个群语音通话中。你们只能通过声音交流，看不到彼此。
@@ -1056,6 +1257,8 @@ ${worldBookContent}
    - 如果只说一句话：直接返回纯文本，如 "喂，你好啊！"
    - 如果要说多句话：返回JSON数组，如 [{"type": "text", "content": "喂，你好啊！"}, {"type": "text", "content": "最近怎么样？"}]
 4. **格式灵活性**: 你可以根据情况选择单句（纯文本）或多句（JSON数组）格式。
+${callThoughtChainPrompt}
+${callThoughtChainFormatRule}
 
 # 当前情景
 你正在和用户（${userNickname}，人设: ${chat.settings.myPersona}）进行语音通话。你们只能通过声音交流，看不到彼此。
@@ -1086,6 +1289,8 @@ ${worldBookContent}
       });
     }
 
+    appendCallThoughtChainFormatGuard(messagesForApi, voiceCallState.isGroupCall ? 'voice-group' : 'voice-single');
+
     try {
       let isGemini = proxyUrl === GEMINI_API_URL;
       let geminiConfig = toGeminiRequestData(model, apiKey, inCallPrompt, messagesForApi)
@@ -1112,13 +1317,16 @@ ${worldBookContent}
       }
 
       const data = await response.json();
-      const aiResponse = isGemini ? data.candidates[0].content.parts[0].text : data.choices[0].message.content;
+      const aiMessage = !isGemini ? (data.choices?.[0]?.message || {}) : {};
+      const aiResponse = isGemini ? data.candidates[0].content.parts[0].text : (aiMessage.content || '');
+      const callReasoningContent = !isGemini ? (aiMessage.reasoning_content || aiMessage.reasoning || '') : '';
 
       const connectingElement = callFeed.querySelector('em');
       if (connectingElement) connectingElement.remove();
 
       if (voiceCallState.isGroupCall) {
-        const speechArray = parseAiResponse(aiResponse);
+        let speechArray = parseCallAiResponse(aiResponse, callReasoningContent);
+        speechArray = renderCallThoughtChainBlocks(callFeed, speechArray);
         speechArray.forEach(turn => {
           if (!turn.name || turn.name === userNickname || !turn.speech) return;
           const aiTimestamp = Date.now() + Math.random();
@@ -1149,7 +1357,8 @@ ${worldBookContent}
         const voiceId = chat.settings.minimaxVoiceId;
 
         // 尝试解析为JSON数组（多条消息）
-        const messagesArray = parseAiResponse(aiResponse);
+        let messagesArray = parseCallAiResponse(aiResponse, callReasoningContent);
+        messagesArray = renderCallThoughtChainBlocks(callFeed, messagesArray);
 
         messagesArray.forEach((msg, index) => {
           const messageContent = msg.content || msg.speech || aiResponse;
