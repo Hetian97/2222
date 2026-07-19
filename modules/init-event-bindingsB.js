@@ -897,6 +897,26 @@ window.initEventBindingsB = function(state, db) {
       await showCustomAlert("成功", "聊天背景URL已保存！");
     });
     setupFileUpload('preset-avatar-input', (base64) => document.getElementById('preset-avatar-preview').src = base64);
+
+    const presetAvatarUrlBtn = document.getElementById('preset-avatar-url-btn');
+    if (presetAvatarUrlBtn) {
+      presetAvatarUrlBtn.addEventListener('click', async () => {
+        const previewEl = document.getElementById('preset-avatar-preview');
+        const currentValue = previewEl && previewEl.src && !previewEl.src.startsWith('data:')
+          ? previewEl.src
+          : '';
+        const url = await showCustomPrompt('设置头像 URL', '请输入头像图片链接', currentValue);
+        if (!url) return;
+
+        const trimmedUrl = url.trim();
+        if (!/^https?:\/\//i.test(trimmedUrl)) {
+          await showCustomAlert('链接格式不正确', '请输入以 http:// 或 https:// 开头的图片链接。');
+          return;
+        }
+
+        previewEl.src = trimmedUrl;
+      });
+    }
     document.getElementById('remove-bg-btn').addEventListener('click', () => {
       if (state.activeChatId) {
         state.chats[state.activeChatId].settings.background = '';
