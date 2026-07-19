@@ -347,3 +347,45 @@ body:has(#custom-choice-modal.visible) #clean-api-settings-screen,
 body:has(#clear-stickers-modal.visible) #clean-api-settings-screen {
   pointer-events: none !important;
 }
+
+/* settings cleanup modals top layer fix */
+#data-clear-wizard-modal.visible,
+#data-clear-wizard-modal.active,
+#clear-chat-images-modal.visible,
+#clear-chat-images-modal.active,
+#clear-chat-html-modal.visible,
+#clear-chat-html-modal.active,
+#clear-stickers-modal.visible,
+#clear-stickers-modal.active,
+#custom-modal-overlay.visible,
+#custom-confirm-overlay.visible {
+  position: fixed !important;
+  z-index: 80000 !important;
+}
+
+#data-clear-wizard-modal.visible .modal-content,
+#data-clear-wizard-modal.active .modal-content,
+#clear-chat-images-modal.visible .modal-content,
+#clear-chat-images-modal.active .modal-content,
+#clear-chat-html-modal.visible .modal-content,
+#clear-chat-html-modal.active .modal-content,
+#clear-stickers-modal.visible .modal-content,
+#clear-stickers-modal.active .modal-content,
+#custom-modal-overlay.visible #custom-modal,
+#custom-confirm-overlay.visible #custom-modal {
+  position: relative !important;
+  z-index: 80001 !important;
+}
+
+body:has(#data-clear-wizard-modal.visible) #clean-api-settings-screen,
+body:has(#data-clear-wizard-modal.active) #clean-api-settings-screen,
+body:has(#clear-chat-images-modal.visible) #clean-api-settings-screen,
+body:has(#clear-chat-images-modal.active) #clean-api-settings-screen,
+body:has(#clear-chat-html-modal.visible) #clean-api-settings-screen,
+body:has(#clear-chat-html-modal.active) #clean-api-settings-screen,
+body:has(#clear-stickers-modal.visible) #clean-api-settings-screen,
+body:has(#clear-stickers-modal.active) #clean-api-settings-screen,
+body:has(#custom-modal-overlay.visible) #clean-api-settings-screen,
+body:has(#custom-confirm-overlay.visible) #clean-api-settings-screen {
+  pointer-events: none !important;
+}
