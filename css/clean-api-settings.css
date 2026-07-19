@@ -389,3 +389,19 @@ body:has(#custom-modal-overlay.visible) #clean-api-settings-screen,
 body:has(#custom-confirm-overlay.visible) #clean-api-settings-screen {
   pointer-events: none !important;
 }
+
+/* settings cleanup modal hide shell fix */
+body:has(#data-clear-wizard-modal.visible) #clean-api-settings-screen,
+body:has(#data-clear-wizard-modal.active) #clean-api-settings-screen,
+body:has(#clear-chat-images-modal.visible) #clean-api-settings-screen,
+body:has(#clear-chat-images-modal.active) #clean-api-settings-screen,
+body:has(#clear-chat-html-modal.visible) #clean-api-settings-screen,
+body:has(#clear-chat-html-modal.active) #clean-api-settings-screen,
+body:has(#clear-stickers-modal.visible) #clean-api-settings-screen,
+body:has(#clear-stickers-modal.active) #clean-api-settings-screen,
+body:has(#custom-modal-overlay.visible) #clean-api-settings-screen,
+body:has(#custom-confirm-overlay.visible) #clean-api-settings-screen {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
