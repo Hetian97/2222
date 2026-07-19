@@ -1990,6 +1990,11 @@ window.initEventBindingsA = async function(state, db) {
       const couplespaceModelInput = document.getElementById('couplespace-model-input').value.trim();
       state.apiConfig.couplespaceModel = couplespaceModelInput || document.getElementById('couplespace-model-select').value;
 
+      // 情侣空间API单独持久化，避免刷新后丢失
+      localStorage.setItem('couplespace-proxy-url', state.apiConfig.couplespaceProxyUrl);
+      localStorage.setItem('couplespace-api-key', state.apiConfig.couplespaceApiKey);
+      localStorage.setItem('couplespace-model', state.apiConfig.couplespaceModel);
+
       const imgbbEnable = document.getElementById('imgbb-enable-switch').checked;
       const imgbbApiKey = document.getElementById('imgbb-api-key').value.trim();
       const catboxEnable = document.getElementById('catbox-enable-switch').checked;

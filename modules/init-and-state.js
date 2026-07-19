@@ -505,6 +505,17 @@ document.addEventListener('DOMContentLoaded', () => {
     if (localStorage.getItem('minimax-model') !== null) {
       state.apiConfig.minimaxModel = localStorage.getItem('minimax-model');
     }
+    // 情侣空间API
+    if (localStorage.getItem('couplespace-proxy-url') !== null) {
+      state.apiConfig.couplespaceProxyUrl = localStorage.getItem('couplespace-proxy-url');
+    }
+    if (localStorage.getItem('couplespace-api-key') !== null) {
+      state.apiConfig.couplespaceApiKey = localStorage.getItem('couplespace-api-key');
+    }
+    if (localStorage.getItem('couplespace-model') !== null) {
+      state.apiConfig.couplespaceModel = localStorage.getItem('couplespace-model');
+    }
+
     if (localStorage.getItem('github-proxy-enabled') !== null) {
       state.apiConfig.githubProxyEnable = localStorage.getItem('github-proxy-enabled') === 'true';
     }
