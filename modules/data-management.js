@@ -3180,3 +3180,82 @@ async function cleanupRedundantData() {
     }
   }
   window.convertLongTermMemoryToStructured = convertLongTermMemoryToStructured;
+
+// ========== 情侣空间相册：上传本地 base64 图片到 ImgBB ==========
+(function () {
+  async function uploadCoupleAlbumPhotosToImgBB() {
+    if (typeof db === "undefined" || !db.coupleAlbumPhotos) {
+      alert("没有找到情侣空间相册数据表 coupleAlbumPhotos。");
+      return;
+    }
+
+    if (typeof uploadImageToImgBB !== "function") {
+      alert("没有找到 ImgBB 上传函数 uploadImageToImgBB。请确认页面已完整加载。");
+      return;
+    }
+
+    if (typeof state === "undefined" || !state.apiConfig || !state.apiConfig.imgbbEnable || !state.apiConfig.imgbbApiKey) {
+      alert("请先在 API 设置里开启 ImgBB 图床，并填写 ImgBB API Key。");
+      return;
+    }
+
+    const records = await db.coupleAlbumPhotos.toArray();
+    const targets = records.filter(record =>
+      record &&
+      record.photo &&
+      typeof record.photo.imageData === "string" &&
+      record.photo.imageData.startsWith("data:image")
+    );
+
+    if (!targets.length) {
+      alert("情侣空间相册里没有需要上传的本地 base64 图片。");
+      return;
+    }
+
+    const totalBytes = targets.reduce((sum, record) => sum + record.photo.imageData.length, 0);
+    const totalMB = (totalBytes / 1024 / 1024).toFixed(2);
+
+    if (!confirm("即将把情侣空间相册中的 " + targets.length + " 张本地图片上传到 ImgBB，并用 URL 替换原来的 base64。\n\n预计可减少约 " + totalMB + " MB。\n\n上传成功的会替换，失败的会保留原图。上传期间请勿关闭页面。继续吗？")) {
+      return;
+    }
+
+    let success = 0;
+    let failed = 0;
+    let savedBytes = 0;
+    const failedIds = [];
+
+    for (let i = 0; i < targets.length; i++) {
+      const record = targets[i];
+      const oldValue = record.photo.imageData;
+
+      try {
+        console.log("[情侣空间相册上传] " + (i + 1) + "/" + targets.length, record.id);
+        const newUrl = await uploadImageToImgBB(oldValue);
+
+        if (typeof newUrl === "string" && /^https?:\/\//i.test(newUrl)) {
+          record.photo.imageData = newUrl;
+          await db.coupleAlbumPhotos.put(record);
+          success++;
+          savedBytes += Math.max(0, oldValue.length - newUrl.length);
+          console.log("[情侣空间相册上传] 成功", record.id, newUrl);
+        } else {
+          failed++;
+          failedIds.push(record.id);
+          console.warn("[情侣空间相册上传] 没有返回 URL，保留原图", record.id);
+        }
+      } catch (error) {
+        failed++;
+        failedIds.push(record.id);
+        console.error("[情侣空间相册上传] 失败，保留原图", record.id, error);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    const savedMB = (savedBytes / 1024 / 1024).toFixed(2);
+    console.log("[情侣空间相册上传] 完成", { success, failed, savedMB, failedIds });
+    alert("情侣空间相册上传完成！\n成功：" + success + " 张\n失败：" + failed + " 张\n预计减少：" + savedMB + " MB\n\n建议刷新页面后检查相册。");
+  }
+
+  window.uploadCoupleAlbumPhotosToImgBB = uploadCoupleAlbumPhotosToImgBB;
+})();
