@@ -1923,6 +1923,36 @@ function filterCoupleSpaceShareMessages(messages) {
   return messages.filter(msg => !isMemorySummaryNoise(msg));
 }
 
+function isMemorySummaryVisibleMessage(msg) {
+  return !!msg && (!msg.isHidden || (msg.role === 'system' && msg.content && msg.content.includes('内心独白')));
+}
+
+function isMemorySummaryCountableMessage(msg) {
+  return isMemorySummaryVisibleMessage(msg) && !isMemorySummaryNoise(msg);
+}
+
+function getMemorySummaryCountableMessages(chatOrMessages) {
+  const messages = Array.isArray(chatOrMessages)
+    ? chatOrMessages
+    : (chatOrMessages && Array.isArray(chatOrMessages.history) ? chatOrMessages.history : []);
+  return messages.filter(isMemorySummaryCountableMessage);
+}
+
+function getMemorySummaryCountableMessagesAfterIndex(chat, rawIndex) {
+  const messages = chat && Array.isArray(chat.history) ? chat.history : [];
+  return messages.slice(rawIndex + 1).filter(isMemorySummaryCountableMessage);
+}
+
+function getMemorySummaryCountableMessagesAfterTimestamp(chat, timestamp) {
+  const messages = chat && Array.isArray(chat.history) ? chat.history : [];
+  return messages.filter(msg => msg && msg.timestamp > timestamp && isMemorySummaryCountableMessage(msg));
+}
+
+window.isMemorySummaryNoise = isMemorySummaryNoise;
+window.getMemorySummaryCountableMessages = getMemorySummaryCountableMessages;
+window.getMemorySummaryCountableMessagesAfterIndex = getMemorySummaryCountableMessagesAfterIndex;
+window.getMemorySummaryCountableMessagesAfterTimestamp = getMemorySummaryCountableMessagesAfterTimestamp;
+
 // ==================== 向量记忆自动总结 ====================
 // ===== 变量记忆提取核心逻辑（公共函数） =====
 async function executeVectorExtraction(chat, messages, updateTimestamp = false) {
@@ -2052,9 +2082,8 @@ async function executeVectorExtraction(chat, messages, updateTimestamp = false) 
 async function openVectorSummaryMenu(chat) {
   const vm = window.vectorMemoryManager.getVariableMemory(chat);
   const lastIdx = vm.settings.lastExtractedMsgIndex !== undefined ? vm.settings.lastExtractedMsgIndex : -1;
-  const historyLen = chat.history ? chat.history.length : 0;
-  const newMessagesCount = Math.max(0, historyLen - 1 - lastIdx);
-  const totalMessages = historyLen;
+  const newMessagesCount = getMemorySummaryCountableMessagesAfterIndex(chat, lastIdx).length;
+  const totalMessages = getMemorySummaryCountableMessages(chat).length;
 
   return new Promise(resolve => {
     window._modalResolve = (result) => { resolve(result); };
@@ -2138,14 +2167,12 @@ async function openVectorSummaryMenu(chat) {
 async function handleVectorNewMessagesSummary(chat) {
   const vm = window.vectorMemoryManager.getVariableMemory(chat);
   const lastIdx = vm.settings.lastExtractedMsgIndex !== undefined ? vm.settings.lastExtractedMsgIndex : -1;
-  const historyLen = chat.history ? chat.history.length : 0;
-  
-  if (lastIdx + 1 >= historyLen) {
+  const newMessages = getMemorySummaryCountableMessagesAfterIndex(chat, lastIdx);
+
+  if (newMessages.length === 0) {
     showToast('暂无新消息需要提取', 'info');
     return;
   }
-
-  const newMessages = chat.history.slice(lastIdx + 1);
 
   if (newMessages.length < 5) {
     const confirmed = await showCustomConfirm(
@@ -2166,7 +2193,8 @@ async function handleVectorNewMessagesSummary(chat) {
 
 // ===== 变量记忆 - 范围提取 =====
 async function handleVectorRangeSummary(chat) {
-  const totalMessages = chat.history.length;
+  const availableMessages = getMemorySummaryCountableMessages(chat);
+  const totalMessages = availableMessages.length;
 
   return new Promise(resolve => {
     window._modalResolve = resolve;
@@ -2222,8 +2250,8 @@ async function handleVectorRangeSummary(chat) {
 
       hideCustomModal();
 
-      const rangeMessages = chat.history.slice(start - 1, end);
-      const validMessages = rangeMessages.filter(m => !m.isHidden || (m.role === 'system' && m.content && m.content.includes('内心独白')));
+      const rangeMessages = availableMessages.slice(start - 1, end);
+      const validMessages = rangeMessages;
 
       if (validMessages.length === 0) {
         showToast('选定范围内没有有效消息', 'info');
@@ -2248,8 +2276,8 @@ async function handleVectorRangeSummary(chat) {
 async function handleVectorResetTimestamp(chat) {
   const vm = window.vectorMemoryManager.getVariableMemory(chat);
   const lastIdx = vm.settings.lastExtractedMsgIndex !== undefined ? vm.settings.lastExtractedMsgIndex : -1;
-  const totalMessages = chat.history.length;
-  const newMessagesCount = Math.max(0, totalMessages - 1 - lastIdx);
+  const totalMessages = getMemorySummaryCountableMessages(chat).length;
+  const newMessagesCount = getMemorySummaryCountableMessagesAfterIndex(chat, lastIdx).length;
 
   const message = `当前状态：
 - 当前进度索引：${lastIdx}
@@ -2275,15 +2303,15 @@ async function triggerVectorMemorySummary(chatId, force = false) {
 
   const vm = window.vectorMemoryManager.getVariableMemory(chat);
   const lastIdx = vm.settings.lastExtractedMsgIndex !== undefined ? vm.settings.lastExtractedMsgIndex : -1;
-  const historyLen = chat.history ? chat.history.length : 0;
+  const newMessagesAfterIndex = getMemorySummaryCountableMessagesAfterIndex(chat, lastIdx);
 
   let messagesToProcess;
   if (force) {
     const autoInterval = vm.settings.autoExtractionMsgInterval || 20;
-    messagesToProcess = chat.history.filter(m => !m.isHidden || (m.role === 'system' && m.content && m.content.includes('内心独白'))).slice(-autoInterval);
+    messagesToProcess = getMemorySummaryCountableMessages(chat).slice(-autoInterval);
   } else {
-    if (lastIdx + 1 >= historyLen) return; // 没有新消息
-    messagesToProcess = chat.history.slice(lastIdx + 1);
+    if (newMessagesAfterIndex.length === 0) return; // 没有可提取的新消息
+    messagesToProcess = newMessagesAfterIndex;
   }
 
   if (messagesToProcess.length === 0) {
@@ -3427,7 +3455,7 @@ async function openStructuredSummaryMenu(chat) {
 // 模式1：新消息总结
 async function handleNewMessagesSummary(chat) {
   const lastTimestamp = chat.lastStructuredMemoryTimestamp || 0;
-  const newMessages = chat.history.filter(m => m.timestamp > lastTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
+  const newMessages = getMemorySummaryCountableMessagesAfterTimestamp(chat, lastTimestamp);
 
   if (newMessages.length === 0) {
     showToast('暂无新消息需要总结', 'info');
@@ -3456,7 +3484,8 @@ async function handleNewMessagesSummary(chat) {
 
 // 模式2：范围总结
 async function handleRangeSummary(chat) {
-  const totalMessages = chat.history.length;
+  const availableMessages = getMemorySummaryCountableMessages(chat);
+  const totalMessages = availableMessages.length;
   
   return new Promise(resolve => {
     window._modalResolve = resolve;
@@ -3519,7 +3548,7 @@ async function handleRangeSummary(chat) {
 
       hideCustomModal();
 
-      const rangeMessages = chat.history.slice(start - 1, end);
+      const rangeMessages = availableMessages.slice(start - 1, end);
       const validMessages = rangeMessages.filter(m => !m.isHidden || (m.role === 'system' && m.content.includes('内心独白')));
 
       if (validMessages.length === 0) {
@@ -3690,7 +3719,7 @@ function openManualSummaryModal() {
   const endInput = document.getElementById('manual-summary-end');
 
   // 计算可用消息总数（排除隐藏消息）
-  const availableMessages = chat.history.filter(m => !m.isHidden || (m.role === 'system' && m.content.includes('内心独白')));
+  const availableMessages = getMemorySummaryCountableMessages(chat);
   const totalMessages = availableMessages.length;
 
   totalCount.textContent = totalMessages;
@@ -3707,7 +3736,7 @@ async function handleDiaryModeSummary() {
   if (!chat) return;
 
   const lastSummaryTimestamp = chat.lastMemorySummaryTimestamp || 0;
-  const unsummarizedMessages = chat.history.filter(m => m.timestamp > lastSummaryTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
+  const unsummarizedMessages = getMemorySummaryCountableMessagesAfterTimestamp(chat, lastSummaryTimestamp);
 
   if (unsummarizedMessages.length < 5) {
     await showCustomAlert('消息太少', `上次总结之后只有 ${unsummarizedMessages.length} 条新消息，至少需要5条才能进行有意义的总结。`);
@@ -3749,7 +3778,7 @@ async function executeManualSummary() {
   }
 
   const chat = state.chats[state.activeChatId];
-  const availableMessages = chat.history.filter(m => !m.isHidden || (m.role === 'system' && m.content.includes('内心独白')));
+  const availableMessages = getMemorySummaryCountableMessages(chat);
 
   if (end > availableMessages.length) {
     await showCustomAlert('范围超出', `结束位置不能超过总消息数（${availableMessages.length}）`);
@@ -3855,9 +3884,7 @@ async function checkAndTriggerAutoSummary(chatId) {
   if (memoryMode === 'vector' && window.vectorMemoryManager) {
     const vm = window.vectorMemoryManager.getVariableMemory(chat);
     const lastIdx = vm.settings.lastExtractedMsgIndex !== undefined ? vm.settings.lastExtractedMsgIndex : -1;
-    const historyLen = chat.history ? chat.history.length : 0;
-    // 排除隐藏消息但包含内心独白（使用与 vector-memory 相同的过滤方式或简单使用总消息索引差）
-    const unextractedMessages = Math.max(0, historyLen - 1 - lastIdx);
+    const unextractedMessages = getMemorySummaryCountableMessagesAfterIndex(chat, lastIdx).length;
     const autoInterval = vm.settings.autoExtractionMsgInterval || 20;
 
     if (unextractedMessages >= autoInterval) {
@@ -3866,7 +3893,7 @@ async function checkAndTriggerAutoSummary(chatId) {
     }
   } else {
     const lastSummaryTimestamp = chat.lastMemorySummaryTimestamp || 0;
-    const messagesSinceLastSummary = chat.history.filter(m => m.timestamp > lastSummaryTimestamp && !m.isHidden);
+    const messagesSinceLastSummary = getMemorySummaryCountableMessagesAfterTimestamp(chat, lastSummaryTimestamp);
 
     if (messagesSinceLastSummary.length >= chat.settings.autoMemoryInterval) {
       console.log(`达到自动总结阈值 (${messagesSinceLastSummary.length}/${chat.settings.autoMemoryInterval})，开始总结...`);
@@ -4659,7 +4686,7 @@ async function triggerAutoSummary(chatId, force = false, customRange = null) {
 
   if (customRange) {
     // 手动总结：使用自定义范围
-    const allMessages = chat.history.filter(m => !m.isHidden || (m.role === 'system' && m.content.includes('内心独白')));
+    const allMessages = getMemorySummaryCountableMessages(chat);
     const startIndex = Math.max(0, customRange.start - 1);
     const endIndex = Math.min(allMessages.length, customRange.end);
     messagesToSummarize = allMessages.slice(startIndex, endIndex);
@@ -4669,7 +4696,7 @@ async function triggerAutoSummary(chatId, force = false, customRange = null) {
   } else {
     // 原有逻辑
     messagesToSummarize = force ?
-      chat.history.filter(m => !m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))).slice(-(chat.settings.autoMemoryInterval || 20)) :
+      getMemorySummaryCountableMessages(chat).slice(-(chat.settings.autoMemoryInterval || 20)) :
       chat.history.filter(m => m.timestamp > lastSummaryTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
   }
 

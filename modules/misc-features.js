@@ -5179,7 +5179,9 @@ ${existingItems || '无'}
     const totalCount = document.getElementById('manual-summary-total-count');
     const startInput = document.getElementById('manual-summary-start');
     const endInput = document.getElementById('manual-summary-end');
-    const availableMessages = chat.history.filter(m => !m.isHidden || (m.role === 'system' && m.content.includes('内心独白')));
+    const availableMessages = typeof window.getMemorySummaryCountableMessages === 'function'
+      ? window.getMemorySummaryCountableMessages(chat)
+      : chat.history.filter(m => (!m.isHidden || (m.role === 'system' && m.content && m.content.includes('内心独白'))) && m.type !== 'thought_chain_block');
     const totalMessages = availableMessages.length;
     totalCount.textContent = totalMessages;
     startInput.max = totalMessages;

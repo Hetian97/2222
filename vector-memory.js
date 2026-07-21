@@ -1263,10 +1263,16 @@ ${output}`;
     const vm = this.getVariableMemory(chat);
     const frags = vm.fragments || [];
     
-    // 基于消息索引计算未提取消息数
-    const historyLen = chat.history ? chat.history.length : 0;
+    // 基于消息索引计算未提取消息数；计数口径排除隐藏消息、情侣空间分享和思维链块
     const lastIdx = vm.settings.lastExtractedMsgIndex !== undefined ? vm.settings.lastExtractedMsgIndex : -1;
-    const unextractedMessages = Math.max(0, historyLen - 1 - lastIdx);
+    const unextractedMessages = typeof window.getMemorySummaryCountableMessagesAfterIndex === 'function'
+      ? window.getMemorySummaryCountableMessagesAfterIndex(chat, lastIdx).length
+      : (chat.history || []).slice(lastIdx + 1).filter(m =>
+          m &&
+          (!m.isHidden || (m.role === 'system' && m.content && m.content.includes('内心独白'))) &&
+          m.type !== 'thought_chain_block' &&
+          !(typeof m.content === 'string' && m.content.includes('我分享了一条情侣空间记录') && m.content.includes('[情侣空间分享｜'))
+        ).length;
     
     const autoInterval = vm.settings.autoExtractionMsgInterval || 20;
     const remainingToAuto = Math.max(0, autoInterval - unextractedMessages);
