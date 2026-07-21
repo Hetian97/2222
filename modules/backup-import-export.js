@@ -666,7 +666,7 @@
           name,
           count: keys.length,
           size,
-          sizeMB: (size / 1024 / 1024).toFixed(2) + ' MB',
+          sizeMB: (size / 1024 / 1024).toFixed(2),
           isLocalStorage: true
         };
       };
