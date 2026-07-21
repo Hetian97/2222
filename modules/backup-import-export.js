@@ -205,6 +205,122 @@
   }
 
   // ============================================================
+
+  const CONTEXT_LOCAL_STORAGE_BACKUP_FIELD = '__ephoneLocalStorageBackup';
+
+  const API_CONTEXT_LOCAL_STORAGE_KEYS = [
+    'pollinations-api-key',
+    'pollinations-model',
+
+    'google-imagen-enabled',
+    'google-imagen-model',
+    'google-imagen-api-key',
+    'google-imagen-settings',
+
+    'novelai-enabled',
+    'novelai-model',
+    'novelai-api-key',
+    'novelai-settings',
+
+    'imgbb-enabled',
+    'imgbb-api-key',
+
+    'catbox-enabled',
+    'catbox-userhash',
+
+    'minimax-api-key',
+    'minimax-domain',
+    'minimax-model',
+    'minimax-group-id',
+
+    'couplespace-api-key',
+    'couplespace-proxy-url',
+
+    'github-proxy-enabled',
+    'github-proxy-url'
+  ];
+
+  const GLOBAL_CONTEXT_LOCAL_STORAGE_KEYS = [
+    'floating-ball-state'
+  ];
+
+  function exportContextLocalStorage(keys, label) {
+    const localStorageData = {};
+
+    keys.forEach(key => {
+      try {
+        const value = localStorage.getItem(key);
+        if (value !== null) {
+          localStorageData[key] = value;
+        }
+      } catch (e) {
+        console.warn(`无法备份 ${label} localStorage 键: ${key}`, e);
+      }
+    });
+
+    return localStorageData;
+  }
+
+  function attachContextLocalStorageToTableData(tableName, tableData) {
+    if (!Array.isArray(tableData)) return tableData;
+
+    let keys = null;
+    let label = '';
+
+    if (tableName === 'apiConfig') {
+      keys = API_CONTEXT_LOCAL_STORAGE_KEYS;
+      label = 'API配置';
+    } else if (tableName === 'globalSettings') {
+      keys = GLOBAL_CONTEXT_LOCAL_STORAGE_KEYS;
+      label = '全局/悬浮球设置';
+    } else {
+      return tableData;
+    }
+
+    const localStorageData = exportContextLocalStorage(keys, label);
+    if (Object.keys(localStorageData).length === 0) return tableData;
+
+    const target = tableData.find(item => item && typeof item === 'object');
+    if (!target) return tableData;
+
+    target[CONTEXT_LOCAL_STORAGE_BACKUP_FIELD] = localStorageData;
+    console.log(`已将 ${Object.keys(localStorageData).length} 个 localStorage 键附加到 ${label} 备份`);
+
+    return tableData;
+  }
+
+  function restoreContextLocalStorageFromBackupData(backupData) {
+    if (!backupData || typeof backupData !== 'object') return;
+
+    restoreContextLocalStorageFromRecords(backupData.apiConfig, 'API配置');
+    restoreContextLocalStorageFromRecords(backupData.globalSettings, '全局/悬浮球设置');
+  }
+
+  function restoreContextLocalStorageFromRecords(records, label) {
+    if (!Array.isArray(records)) return;
+
+    records.forEach(record => {
+      if (!record || typeof record !== 'object') return;
+
+      const localStorageData = record[CONTEXT_LOCAL_STORAGE_BACKUP_FIELD];
+      if (!localStorageData || typeof localStorageData !== 'object') return;
+
+      let restoredCount = 0;
+      Object.keys(localStorageData).forEach(key => {
+        try {
+          localStorage.setItem(key, localStorageData[key]);
+          restoredCount++;
+        } catch (e) {
+          console.warn(`无法恢复 ${label} localStorage 键: ${key}`, e);
+        }
+      });
+
+      delete record[CONTEXT_LOCAL_STORAGE_BACKUP_FIELD];
+      console.log(`已从 ${label} 备份恢复 ${restoredCount} 个 localStorage 键`);
+    });
+  }
+
+
   // 导出函数
   // ============================================================
 
@@ -750,6 +866,8 @@
         }
       });
       
+      restoreContextLocalStorageFromBackupData(backupData.data || backupData);
+
       // 3. 如果备份中有 localStorage 分类数据，则恢复
       if (backupData.localStorage) {
         console.log('正在恢复情侣空间 localStorage 数据...');
@@ -1178,6 +1296,15 @@
         }
       });
 
+      const contextDataToRestore = {};
+      if (typesToMerge.includes('apiConfig')) {
+        contextDataToRestore.apiConfig = dataToMerge.apiConfig;
+      }
+      if (typesToMerge.includes('globalSettings')) {
+        contextDataToRestore.globalSettings = dataToMerge.globalSettings;
+      }
+      restoreContextLocalStorageFromBackupData(contextDataToRestore);
+
       // 处理数据库表
       await db.transaction('rw', db.tables, async () => {
         for (const type of typesToMerge) {
@@ -1310,6 +1437,8 @@
         if (Array.isArray(backupData.coupleAlbumPhotos)) await db.coupleAlbumPhotos.bulkPut(backupData.coupleAlbumPhotos);
       });
       
+      restoreContextLocalStorageFromBackupData(backupData.data || backupData);
+
       // 3. 如果备份中有 localStorage 分类数据，则恢复
       if (backupData.localStorage) {
         console.log('正在恢复情侣空间 localStorage 数据...');
@@ -1383,6 +1512,8 @@
           tableData = removeApiHistoryFromChats(tableData);
           tableData = removeVectorMemoryFromChatsForBackup(tableData);
         }
+
+        tableData = attachContextLocalStorageToTableData(tableName, tableData);
 
         if (tableData.length === 0) continue;
 
@@ -1535,9 +1666,8 @@
         return obj;
       }
 
-      // 彻底移除向量数组和敏感 key
+      // 彻底移除向量数组和检索缓存；保留 embeddingApiKey 便于跨设备恢复
       delete obj.embedding;
-      delete obj.embeddingApiKey;
 
       // 清掉可能持久化下来的检索缓存
       delete obj._retrievalCache;
@@ -1567,7 +1697,6 @@
         }
 
         if (cleanChat.vectorMemory.settings) {
-          delete cleanChat.vectorMemory.settings.embeddingApiKey;
         }
       }
 
@@ -1582,11 +1711,10 @@
         }
 
         if (cleanChat.variableMemory.settings) {
-          delete cleanChat.variableMemory.settings.embeddingApiKey;
         }
       }
 
-      // 最后递归兜底：删掉所有残留 embedding / embeddingApiKey / cache
+      // 最后递归兜底：删掉所有残留 embedding / cache，保留 embeddingApiKey 便于跨设备恢复
       sanitizeObject(cleanChat);
 
       return cleanChat;
@@ -1699,7 +1827,7 @@
           tableData = removeVectorMemoryFromChatsForBackup(tableData);
         }
         
-        backupData.data[tableName] = tableData;
+        backupData.data[tableName] = attachContextLocalStorageToTableData(tableName, tableData);
         console.log(`已打包表: ${tableName}, 记录数: ${tableData.length}`);
       }
       
@@ -2280,7 +2408,7 @@
             tableData = removeVectorMemoryFromChatsForBackup(tableData);
           }
           
-          backupData.data[tableName] = tableData;
+          backupData.data[tableName] = attachContextLocalStorageToTableData(tableName, tableData);
           totalRecords += tableData.length;
           console.log(`已打包表: ${tableName}, 记录数: ${tableData.length}${isFiltered ? ' (已过滤)' : ''}`);
         }
