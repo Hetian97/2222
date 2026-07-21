@@ -298,6 +298,71 @@ async function cleanupRedundantData() {
       }
 
       // 按数据量大小排序
+
+      // 加入 localStorage 分类统计：情侣空间 / MCP服务设置 / 思维链配置
+      const buildLocalStorageStat = (tableName, name, keyFilter) => {
+        const localStorageData = {};
+
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (!key || !keyFilter(key)) continue;
+
+          try {
+            localStorageData[key] = localStorage.getItem(key);
+          } catch (e) {
+            console.warn(`无法读取 localStorage 键: ${key}`, e);
+          }
+        }
+
+        const keys = Object.keys(localStorageData);
+        if (keys.length === 0) return null;
+
+        const size = new Blob([JSON.stringify(localStorageData)]).size;
+
+        return {
+          tableName,
+          name,
+          count: keys.length,
+          size,
+          sizeMB: (size / 1024 / 1024).toFixed(2) + ' MB',
+          isLocalStorage: true
+        };
+      };
+
+      const mcpLocalStorageKeys = [
+        'mcpServiceConfigs',
+        'mcpServiceSelectedId',
+        'externalMcpProxyBaseUrl'
+      ];
+
+      const thoughtChainLocalStorageKeys = [
+        'ephone_thought_chain_enabled',
+        'ephone_thought_chain_items',
+        'ephone_thought_chain_presets'
+      ];
+
+      [
+        buildLocalStorageStat(
+          'localStorage',
+          '情侣空间数据',
+          key => key.startsWith('couple')
+        ),
+        buildLocalStorageStat(
+          'mcpLocalStorage',
+          'MCP服务设置',
+          key => mcpLocalStorageKeys.includes(key)
+        ),
+        buildLocalStorageStat(
+          'thoughtChainLocalStorage',
+          '思维链配置',
+          key => thoughtChainLocalStorageKeys.includes(key)
+        )
+      ].filter(Boolean).forEach(stat => {
+        stats.push(stat);
+        totalSize += stat.size;
+      });
+
+
       stats.sort((a, b) => b.size - a.size);
 
       // 计算总大小
@@ -336,7 +401,7 @@ async function cleanupRedundantData() {
       stats.forEach((stat, index) => {
         const percentage = ((stat.size / totalSize) * 100).toFixed(1);
         const bgColor = index % 2 === 0 ? 'transparent' : 'var(--bg-secondary, #f9f9f9)';
-        const canClean = !['apiConfig', 'globalSettings', 'userWallet'].includes(stat.tableName);
+        const canClean = !stat.isLocalStorage && !['apiConfig', 'globalSettings', 'userWallet'].includes(stat.tableName);
         
         html += `
           <tr class="stat-row" data-table-name="${stat.tableName}" data-table-cn-name="${stat.name}" style="background: ${bgColor};">
