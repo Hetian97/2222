@@ -35,20 +35,6 @@
       }
     }
     
-    // 额外备份 MCP 服务设置
-    [
-      'mcpServiceConfigs',
-      'mcpServiceSelectedId',
-      'externalMcpProxyBaseUrl'
-    ].forEach(key => {
-      try {
-        const value = localStorage.getItem(key);
-        if (value !== null) localStorageData[key] = value;
-      } catch (e) {
-        console.warn(`无法备份 MCP localStorage 键: ${key}`, e);
-      }
-    });
-
     console.log(`已备份 ${Object.keys(localStorageData).length} 个情侣空间相关的 localStorage 键`);
     return localStorageData;
   }
@@ -76,17 +62,6 @@
       }
     });
     
-    // 完全导入前也清理旧的 MCP 服务设置，避免旧配置残留
-    [
-      'mcpServiceConfigs',
-      'mcpServiceSelectedId',
-      'externalMcpProxyBaseUrl'
-    ].forEach(key => {
-      if (!keysToRemove.includes(key) && localStorage.getItem(key) !== null) {
-        keysToRemove.push(key);
-      }
-    });
-
     console.log(`已清理 ${keysToRemove.length} 个情侣空间相关的 localStorage 键`);
   }
   
@@ -142,6 +117,91 @@
     }
 
     return { restoredCount, failedCount, failedKeys, failedSize };
+  }
+
+
+  const MCP_LOCAL_STORAGE_KEYS = [
+    'mcpServiceConfigs',
+    'mcpServiceSelectedId',
+    'externalMcpProxyBaseUrl'
+  ];
+
+  const THOUGHT_CHAIN_LOCAL_STORAGE_KEYS = [
+    'ephone_thought_chain_enabled',
+    'ephone_thought_chain_items',
+    'ephone_thought_chain_presets'
+  ];
+
+  function exportNamedLocalStorage(keys, label) {
+    const localStorageData = {};
+
+    keys.forEach(key => {
+      try {
+        const value = localStorage.getItem(key);
+        if (value !== null) localStorageData[key] = value;
+      } catch (e) {
+        console.warn(`无法备份 ${label} localStorage 键: ${key}`, e);
+      }
+    });
+
+    console.log(`已备份 ${Object.keys(localStorageData).length} 个${label} localStorage 键`);
+    return localStorageData;
+  }
+
+  function clearNamedLocalStorage(keys, label) {
+    let removedCount = 0;
+
+    keys.forEach(key => {
+      try {
+        if (localStorage.getItem(key) !== null) {
+          localStorage.removeItem(key);
+          removedCount++;
+        }
+      } catch (e) {
+        console.warn(`无法删除 ${label} localStorage 键: ${key}`, e);
+      }
+    });
+
+    console.log(`已清理 ${removedCount} 个${label} localStorage 键`);
+  }
+
+  function restoreNamedLocalStorage(localStorageData, label) {
+    if (!localStorageData || typeof localStorageData !== 'object') {
+      console.log(`备份中没有 ${label} localStorage 数据，跳过恢复`);
+      return;
+    }
+
+    Object.keys(localStorageData).forEach(key => {
+      try {
+        localStorage.setItem(key, localStorageData[key]);
+      } catch (e) {
+        console.warn(`无法恢复 ${label} localStorage 键: ${key}`, e);
+      }
+    });
+  }
+
+  function exportMcpLocalStorage() {
+    return exportNamedLocalStorage(MCP_LOCAL_STORAGE_KEYS, 'MCP服务设置');
+  }
+
+  function clearMcpLocalStorage() {
+    clearNamedLocalStorage(MCP_LOCAL_STORAGE_KEYS, 'MCP服务设置');
+  }
+
+  function restoreMcpLocalStorage(localStorageData) {
+    restoreNamedLocalStorage(localStorageData, 'MCP服务设置');
+  }
+
+  function exportThoughtChainLocalStorage() {
+    return exportNamedLocalStorage(THOUGHT_CHAIN_LOCAL_STORAGE_KEYS, '思维链配置');
+  }
+
+  function clearThoughtChainLocalStorage() {
+    clearNamedLocalStorage(THOUGHT_CHAIN_LOCAL_STORAGE_KEYS, '思维链配置');
+  }
+
+  function restoreThoughtChainLocalStorage(localStorageData) {
+    restoreNamedLocalStorage(localStorageData, '思维链配置');
   }
 
   // ============================================================
@@ -250,8 +310,10 @@
         removeApiHistoryFromChats(chats)
       );
 
-      // 导出情侣空间相关的 localStorage 数据
+      // 导出 localStorage 数据
       const coupleSpaceLocalStorage = exportCoupleSpaceLocalStorage();
+      const mcpLocalStorage = exportMcpLocalStorage();
+      const thoughtChainLocalStorage = exportThoughtChainLocalStorage();
 
       Object.assign(backupData, {
         chats: cleanedChats,
@@ -306,7 +368,13 @@
         coupleAlbumPhotos,
         
         // 情侣空间 localStorage 数据
-        localStorage: coupleSpaceLocalStorage
+        localStorage: coupleSpaceLocalStorage,
+
+        // MCP 服务设置
+        mcpLocalStorage,
+
+        // 思维链当前配置
+        thoughtChainLocalStorage
       });
 
       const blob = new Blob(
@@ -456,6 +524,71 @@
       }
 
       // 按数据量大小排序
+
+      // 加入 localStorage 分类统计：情侣空间 / MCP服务设置 / 思维链配置
+      const buildLocalStorageStat = (tableName, name, keyFilter) => {
+        const localStorageData = {};
+
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (!key || !keyFilter(key)) continue;
+
+          try {
+            localStorageData[key] = localStorage.getItem(key);
+          } catch (e) {
+            console.warn(`无法读取 localStorage 键: ${key}`, e);
+          }
+        }
+
+        const keys = Object.keys(localStorageData);
+        if (keys.length === 0) return null;
+
+        const size = new Blob([JSON.stringify(localStorageData)]).size;
+
+        return {
+          tableName,
+          name,
+          count: keys.length,
+          size,
+          sizeMB: (size / 1024 / 1024).toFixed(2) + ' MB',
+          isLocalStorage: true
+        };
+      };
+
+      const mcpLocalStorageKeys = [
+        'mcpServiceConfigs',
+        'mcpServiceSelectedId',
+        'externalMcpProxyBaseUrl'
+      ];
+
+      const thoughtChainLocalStorageKeys = [
+        'ephone_thought_chain_enabled',
+        'ephone_thought_chain_items',
+        'ephone_thought_chain_presets'
+      ];
+
+      [
+        buildLocalStorageStat(
+          'localStorage',
+          '情侣空间数据',
+          key => key.startsWith('couple')
+        ),
+        buildLocalStorageStat(
+          'mcpLocalStorage',
+          'MCP服务设置',
+          key => mcpLocalStorageKeys.includes(key)
+        ),
+        buildLocalStorageStat(
+          'thoughtChainLocalStorage',
+          '思维链配置',
+          key => thoughtChainLocalStorageKeys.includes(key)
+        )
+      ].filter(Boolean).forEach(stat => {
+        stats.push(stat);
+        totalSize += stat.size;
+      });
+
+
       stats.sort((a, b) => b.size - a.size);
 
       // 计算总大小
@@ -494,7 +627,7 @@
       stats.forEach((stat, index) => {
         const percentage = ((stat.size / totalSize) * 100).toFixed(1);
         const bgColor = index % 2 === 0 ? 'transparent' : 'var(--bg-secondary, #f9f9f9)';
-        const canClean = !['apiConfig', 'globalSettings', 'userWallet'].includes(stat.tableName);
+        const canClean = !stat.isLocalStorage && !['apiConfig', 'globalSettings', 'userWallet'].includes(stat.tableName);
         
         html += `
           <tr class="stat-row" data-table-name="${stat.tableName}" data-table-cn-name="${stat.name}" style="background: ${bgColor};">
@@ -583,9 +716,11 @@
 
   async function importStreamedBackup(backupData) {
     try {
-      // 1. 先清理所有情侣空间相关的 localStorage
-      console.log('正在清理情侣空间 localStorage 数据...');
+      // 1. 先清理 localStorage 分类数据
+      console.log('正在清理 localStorage 分类数据...');
       clearCoupleSpaceLocalStorage();
+      clearMcpLocalStorage();
+      clearThoughtChainLocalStorage();
       
       // 2. 导入数据库
       await db.transaction('rw', db.tables, async () => {
@@ -615,12 +750,22 @@
         }
       });
       
-      // 3. 如果备份中有 localStorage 数据，则恢复
+      // 3. 如果备份中有 localStorage 分类数据，则恢复
       if (backupData.localStorage) {
         console.log('正在恢复情侣空间 localStorage 数据...');
         restoreCoupleSpaceLocalStorage(backupData.localStorage);
       } else {
-        console.log('备份中没有 localStorage 数据（可能是旧版备份），已清理情侣空间数据');
+        console.log('备份中没有情侣空间 localStorage 数据');
+      }
+
+      if (backupData.mcpLocalStorage) {
+        console.log('正在恢复 MCP 服务设置 localStorage 数据...');
+        restoreMcpLocalStorage(backupData.mcpLocalStorage);
+      }
+
+      if (backupData.thoughtChainLocalStorage) {
+        console.log('正在恢复思维链配置 localStorage 数据...');
+        restoreThoughtChainLocalStorage(backupData.thoughtChainLocalStorage);
       }
 
     } catch (error) {
@@ -647,14 +792,38 @@
       let backupType;
 
 
-      if (data.data && typeof data.data === 'object' && (data.data.chats || data.data.worldBooks)) {
+      if (data.type === 'slice' && data.data && typeof data.data === 'object') {
+        console.log("检测到分片备份文件...");
+        backupDataContent = data.data;
+        backupType = 'streamed';
+
+      } else if (['localStorage', 'mcpLocalStorage', 'thoughtChainLocalStorage'].includes(data.type) && data.data && typeof data.data === 'object') {
+        console.log(`检测到 ${data.type} 单独备份文件...`);
+        backupDataContent = { [data.type]: data.data };
+        backupType = 'streamed';
+
+      } else if (data.data && typeof data.data === 'object' && (
+        data.data.chats ||
+        data.data.worldBooks ||
+        data.data.localStorage ||
+        data.data.mcpLocalStorage ||
+        data.data.thoughtChainLocalStorage
+      )) {
         console.log("检测到新版流式备份文件...");
         backupDataContent = data.data;
-        backupType = 'streamed'; // 'streamed' or 'legacy'
-      } else if (data.chats || data.worldBooks) {
+        backupType = 'streamed';
+
+      } else if (
+        data.chats ||
+        data.worldBooks ||
+        data.localStorage ||
+        data.mcpLocalStorage ||
+        data.thoughtChainLocalStorage
+      ) {
         console.log("检测到旧版完整备份文件...");
         backupDataContent = data;
         backupType = 'legacy';
+
       } else {
         throw new Error("文件格式无法识别。请确保您选择的是有效的 EPhone 备份文件。");
       }
@@ -724,7 +893,9 @@
       'inventory': '物品清单',
       'emails': '邮件',
       'watchTogetherPlaylist': '观影播放列表',
-      'localStorage': '情侣空间/MCP设置'
+      'localStorage': '情侣空间数据',
+      'mcpLocalStorage': 'MCP服务设置',
+      'thoughtChainLocalStorage': '思维链配置'
     };
 
     let foundData = false;
@@ -734,7 +905,7 @@
         let countText;
         
         // localStorage 是对象，显示键的数量
-        if (key === 'localStorage' && typeof backupDataContent[key] === 'object') {
+        if (['localStorage', 'mcpLocalStorage', 'thoughtChainLocalStorage'].includes(key) && typeof backupDataContent[key] === 'object') {
           count = Object.keys(backupDataContent[key]).length;
           countText = `${count} 个键`;
         } else {
@@ -885,7 +1056,9 @@
       'inventory': '物品清单',
       'emails': '邮件',
       'watchTogetherPlaylist': '观影播放列表',
-      'localStorage': '情侣空间数据'
+      'localStorage': '情侣空间数据',
+      'mcpLocalStorage': 'MCP服务设置',
+      'thoughtChainLocalStorage': '思维链配置'
     };
 
     let hasContent = false;
@@ -896,7 +1069,7 @@
         let isSingleObject = false;
         
         // localStorage 是对象，显示键的数量
-        if (key === 'localStorage' && typeof backupDataContent[key] === 'object') {
+        if (['localStorage', 'mcpLocalStorage', 'thoughtChainLocalStorage'].includes(key) && typeof backupDataContent[key] === 'object') {
           count = Object.keys(backupDataContent[key]).length;
           countText = `${count} 个键`;
           isSingleObject = true; // localStorage 会覆盖现有数据
@@ -975,21 +1148,41 @@
     await showCustomAlert("请稍候...", "正在合并数据，请勿关闭页面...");
 
     try {
-      // 先处理 localStorage（如果选中）
-      if (typesToMerge.includes('localStorage')) {
-        const localStorageData = dataToMerge.localStorage;
-        if (localStorageData && typeof localStorageData === 'object') {
-          console.log('正在清理并恢复情侣空间 localStorage 数据...');
-          clearCoupleSpaceLocalStorage();
-          restoreCoupleSpaceLocalStorage(localStorageData);
+      // 先处理 localStorage 分类数据（如果选中）
+      const localStorageImportHandlers = {
+        localStorage: {
+          label: '情侣空间 localStorage 数据',
+          clear: clearCoupleSpaceLocalStorage,
+          restore: restoreCoupleSpaceLocalStorage
+        },
+        mcpLocalStorage: {
+          label: 'MCP 服务设置 localStorage 数据',
+          clear: clearMcpLocalStorage,
+          restore: restoreMcpLocalStorage
+        },
+        thoughtChainLocalStorage: {
+          label: '思维链配置 localStorage 数据',
+          clear: clearThoughtChainLocalStorage,
+          restore: restoreThoughtChainLocalStorage
         }
-      }
+      };
+
+      Object.entries(localStorageImportHandlers).forEach(([type, handler]) => {
+        if (!typesToMerge.includes(type)) return;
+
+        const localStorageData = dataToMerge[type];
+        if (localStorageData && typeof localStorageData === 'object') {
+          console.log(`正在清理并恢复${handler.label}...`);
+          handler.clear();
+          handler.restore(localStorageData);
+        }
+      });
 
       // 处理数据库表
       await db.transaction('rw', db.tables, async () => {
         for (const type of typesToMerge) {
-          // 跳过 localStorage，它已经在上面处理了
-          if (type === 'localStorage') continue;
+          // 跳过 localStorage 分类数据，它们已经在上面处理了
+          if (['localStorage', 'mcpLocalStorage', 'thoughtChainLocalStorage'].includes(type)) continue;
           
           const data = dataToMerge[type];
           if (!data) continue;
@@ -1052,9 +1245,11 @@
 
   async function importLegacyBackup(backupData) {
     try {
-      // 1. 先清理所有情侣空间相关的 localStorage
-      console.log('正在清理情侣空间 localStorage 数据...');
+      // 1. 先清理 localStorage 分类数据
+      console.log('正在清理 localStorage 分类数据...');
       clearCoupleSpaceLocalStorage();
+      clearMcpLocalStorage();
+      clearThoughtChainLocalStorage();
       
       // 2. 导入数据库
       await db.transaction('rw', db.tables, async () => {
@@ -1115,12 +1310,22 @@
         if (Array.isArray(backupData.coupleAlbumPhotos)) await db.coupleAlbumPhotos.bulkPut(backupData.coupleAlbumPhotos);
       });
       
-      // 3. 如果备份中有 localStorage 数据，则恢复
+      // 3. 如果备份中有 localStorage 分类数据，则恢复
       if (backupData.localStorage) {
         console.log('正在恢复情侣空间 localStorage 数据...');
         restoreCoupleSpaceLocalStorage(backupData.localStorage);
       } else {
-        console.log('备份中没有 localStorage 数据（可能是旧版备份），已清理情侣空间数据');
+        console.log('备份中没有情侣空间 localStorage 数据');
+      }
+
+      if (backupData.mcpLocalStorage) {
+        console.log('正在恢复 MCP 服务设置 localStorage 数据...');
+        restoreMcpLocalStorage(backupData.mcpLocalStorage);
+      }
+
+      if (backupData.thoughtChainLocalStorage) {
+        console.log('正在恢复思维链配置 localStorage 数据...');
+        restoreThoughtChainLocalStorage(backupData.thoughtChainLocalStorage);
       }
       
     } catch (error) {
@@ -1243,14 +1448,35 @@
         }));
       }
       
-      // 导出情侣空间 localStorage 数据到单独的文件
+      // 导出 localStorage 分类数据到单独的文件
       const coupleSpaceLocalStorage = exportCoupleSpaceLocalStorage();
+      const mcpLocalStorage = exportMcpLocalStorage();
+      const thoughtChainLocalStorage = exportThoughtChainLocalStorage();
+
       if (Object.keys(coupleSpaceLocalStorage).length > 0) {
         console.log('正在打包情侣空间 localStorage 数据...');
         zip.file('localStorage.json', JSON.stringify({
           version: 4,
           type: 'localStorage',
           data: coupleSpaceLocalStorage
+        }));
+      }
+
+      if (Object.keys(mcpLocalStorage).length > 0) {
+        console.log('正在打包 MCP 服务设置 localStorage 数据...');
+        zip.file('mcpLocalStorage.json', JSON.stringify({
+          version: 4,
+          type: 'mcpLocalStorage',
+          data: mcpLocalStorage
+        }));
+      }
+
+      if (Object.keys(thoughtChainLocalStorage).length > 0) {
+        console.log('正在打包思维链配置 localStorage 数据...');
+        zip.file('thoughtChainLocalStorage.json', JSON.stringify({
+          version: 4,
+          type: 'thoughtChainLocalStorage',
+          data: thoughtChainLocalStorage
         }));
       }
 
@@ -1426,10 +1652,19 @@
         }
       }
       
-      // 导出情侣空间 localStorage 数据
+      // 导出 localStorage 分类数据
       const coupleSpaceLocalStorage = exportCoupleSpaceLocalStorage();
+      const mcpLocalStorage = exportMcpLocalStorage();
+      const thoughtChainLocalStorage = exportThoughtChainLocalStorage();
+
       await writer.write(encoder.encode(',\n"localStorage": '));
       await writer.write(encoder.encode(JSON.stringify(coupleSpaceLocalStorage)));
+
+      await writer.write(encoder.encode(',\n"mcpLocalStorage": '));
+      await writer.write(encoder.encode(JSON.stringify(mcpLocalStorage)));
+
+      await writer.write(encoder.encode(',\n"thoughtChainLocalStorage": '));
+      await writer.write(encoder.encode(JSON.stringify(thoughtChainLocalStorage)));
 
 
       await writer.write(encoder.encode('\n}\n}'));
@@ -1468,9 +1703,14 @@
         console.log(`已打包表: ${tableName}, 记录数: ${tableData.length}`);
       }
       
-      // 导出情侣空间 localStorage 数据
+      // 导出 localStorage 分类数据
       const coupleSpaceLocalStorage = exportCoupleSpaceLocalStorage();
+      const mcpLocalStorage = exportMcpLocalStorage();
+      const thoughtChainLocalStorage = exportThoughtChainLocalStorage();
+
       backupData.data.localStorage = coupleSpaceLocalStorage;
+      backupData.data.mcpLocalStorage = mcpLocalStorage;
+      backupData.data.thoughtChainLocalStorage = thoughtChainLocalStorage;
 
       const blob = new Blob(
         [JSON.stringify(backupData, null, 2)], {
@@ -2851,8 +3091,18 @@
 
       if (errors.length === 0) {
         const coupleSpaceLocalStorage = exportCoupleSpaceLocalStorage();
+        const mcpLocalStorage = exportMcpLocalStorage();
+        const thoughtChainLocalStorage = exportThoughtChainLocalStorage();
+
         await writeToStream(',\n"localStorage": ');
         await writeToStream(JSON.stringify(coupleSpaceLocalStorage));
+
+        await writeToStream(',\n"mcpLocalStorage": ');
+        await writeToStream(JSON.stringify(mcpLocalStorage));
+
+        await writeToStream(',\n"thoughtChainLocalStorage": ');
+        await writeToStream(JSON.stringify(thoughtChainLocalStorage));
+
         await writeToStream('\n}\n}');
       }
 
