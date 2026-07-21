@@ -405,3 +405,31 @@ body:has(#custom-confirm-overlay.visible) #clean-api-settings-screen {
   visibility: hidden !important;
   pointer-events: none !important;
 }
+
+/* import backup modal clean shell fix
+   Keep backup import modals above clean settings shell.
+*/
+#import-options-modal.visible,
+#import-options-modal.active,
+#selective-import-modal.visible,
+#selective-import-modal.active {
+  position: fixed !important;
+  z-index: 80000 !important;
+}
+
+#import-options-modal.visible .modal-content,
+#import-options-modal.active .modal-content,
+#selective-import-modal.visible .modal-content,
+#selective-import-modal.active .modal-content {
+  position: relative !important;
+  z-index: 80001 !important;
+}
+
+body:has(#import-options-modal.visible) #clean-api-settings-screen,
+body:has(#import-options-modal.active) #clean-api-settings-screen,
+body:has(#selective-import-modal.visible) #clean-api-settings-screen,
+body:has(#selective-import-modal.active) #clean-api-settings-screen {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
