@@ -906,8 +906,10 @@ const updateTokenCountDisplay = debounce(async () => {
   const chat = state.activeChatId ? state.chats[state.activeChatId] : null;
   if (msgValueEl) {
     if (chat && chat.history) {
-      const visibleCount = chat.history.filter(m => !m.isHidden).length;
-      msgValueEl.textContent = `${visibleCount} 条`;
+      const summaryMessageCount = typeof window.getMemorySummaryCountableMessages === 'function'
+        ? window.getMemorySummaryCountableMessages(chat).length
+        : chat.history.filter(m => !m.isHidden && m.type !== 'thought_chain_block').length;
+      msgValueEl.textContent = `${summaryMessageCount} 条`;
       msgValueEl.style.color = "#000000";
     } else {
       msgValueEl.textContent = "--";

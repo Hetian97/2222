@@ -736,10 +736,14 @@ class StructuredMemoryManager {
     if (!chat) return null;
     const lastTimestamp = chat.lastStructuredMemoryTimestamp || 0;
     const lastDate = lastTimestamp ? new Date(lastTimestamp).toLocaleString('zh-CN') : '从未更新';
-    // 只统计非隐藏消息（与聊天详情保持一致）
-    const totalMessages = chat.history ? chat.history.filter(m => !m.isHidden).length : 0;
-    // 统计上次总结后的非隐藏消息（除了内心独白）
-    const messagesAfterTimestamp = chat.history ? chat.history.filter(m => m.timestamp > lastTimestamp && (!m.isHidden || (m.role === 'system' && m.content && m.content.includes('内心独白')))).length : 0;
+    // 只统计可进入总结/提取流程的消息：排除隐藏消息、情侣空间分享和思维链块
+    const countableMessages = chat.history
+      ? (typeof window.getMemorySummaryCountableMessages === 'function'
+        ? window.getMemorySummaryCountableMessages(chat)
+        : chat.history.filter(m => (!m.isHidden || (m.role === 'system' && m.content && m.content.includes('内心独白'))) && m.type !== 'thought_chain_block'))
+      : [];
+    const totalMessages = countableMessages.length;
+    const messagesAfterTimestamp = countableMessages.filter(m => m.timestamp > lastTimestamp).length;
     
     return {
       lastTimestamp,
