@@ -2047,6 +2047,8 @@ async function executeVectorExtraction(chat, messages, updateTimestamp = false) 
   }
 
   const extracted = window.vectorMemoryManager.parseExtractionResult(rawText);
+  const parseFailed = !!window.vectorMemoryManager._lastExtractionParseFailed;
+
   if (extracted.length > 0) {
     // 使用提取的消息段中最后一条消息的时间作为这段记忆的发生时间
     const defaultMemoryTime = dialogueTimeRange.end || Date.now();
@@ -2065,6 +2067,18 @@ async function executeVectorExtraction(chat, messages, updateTimestamp = false) 
       renderVectorMemoryView();
     }
   } else {
+    if (parseFailed) {
+      console.warn('[变量记忆] AI返回格式解析失败，未更新提取进度，保留本批消息供下次重试');
+      if (updateTimestamp) {
+        showToast('变量记忆：AI返回格式解析失败，未更新进度，请稍后重试', 'error');
+      } else if (typeof showCustomAlert === 'function') {
+        await showCustomAlert('提取失败', 'AI返回了内容，但格式解析失败。\n\n系统进度未更新，这批消息可以稍后重试。');
+      } else {
+        alert('提取失败：AI返回了内容，但格式解析失败。\n\n系统进度未更新，这批消息可以稍后重试。');
+      }
+      return;
+    }
+
     if (updateTimestamp) {
       const vm = window.vectorMemoryManager.getVariableMemory(chat);
       if (processedLastIndex !== -1) {

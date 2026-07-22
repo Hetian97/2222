@@ -1198,6 +1198,7 @@ ${output}`;
 
 
   parseExtractionResult(rawText) {
+    this._lastExtractionParseFailed = false;
     const cats = Object.keys(this.DEFAULT_CATEGORIES);
 
     const normalizeArray = (arr) => {
@@ -1280,9 +1281,14 @@ ${output}`;
         if (parsed) return parsed;
       }
 
+      this._lastExtractionParseFailed = true;
+
+
       console.error('[变量记忆] 未能从AI返回中解析JSON数组，原始返回:', rawText);
       return [];
     } catch (e) {
+      this._lastExtractionParseFailed = true;
+
       console.error('[变量记忆] 解析提取结果失败:', e, rawText);
       return [];
     }
