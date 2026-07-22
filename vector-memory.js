@@ -1196,13 +1196,12 @@ ${output}`;
       .replace(/\{\{对话记录\}\}/g, formattedHistory);
   }
 
+
   parseExtractionResult(rawText) {
-    try {
-      const jsonMatch = rawText.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) return [];
-      const arr = JSON.parse(jsonMatch[0]);
+    const cats = Object.keys(this.DEFAULT_CATEGORIES);
+
+    const normalizeArray = (arr) => {
       if (!Array.isArray(arr)) return [];
-      const cats = Object.keys(this.DEFAULT_CATEGORIES);
       return arr.filter(item => item && item.content).map(item => ({
         content: String(item.content).trim(),
         tags: Array.isArray(item.tags) ? item.tags.map(t => String(t).trim()) : [],
@@ -1210,8 +1209,81 @@ ${output}`;
         importance: Math.min(10, Math.max(1, parseInt(item.importance) || 5)),
         emotionalWeight: Math.min(10, Math.max(1, parseInt(item.emotionalWeight) || 3))
       }));
+    };
+
+    const tryParseArray = (text) => {
+      try {
+        const arr = JSON.parse(String(text || '').trim());
+        return Array.isArray(arr) ? normalizeArray(arr) : null;
+      } catch (e) {
+        return null;
+      }
+    };
+
+    const extractBalancedJsonArrays = (text) => {
+      text = String(text || '');
+      const candidates = [];
+
+      for (let start = text.indexOf('['); start !== -1; start = text.indexOf('[', start + 1)) {
+        let depth = 0;
+        let inString = false;
+        let escape = false;
+
+        for (let i = start; i < text.length; i++) {
+          const ch = text[i];
+
+          if (inString) {
+            if (escape) {
+              escape = false;
+            } else if (ch === '\\') {
+              escape = true;
+            } else if (ch === '"') {
+              inString = false;
+            }
+            continue;
+          }
+
+          if (ch === '"') {
+            inString = true;
+          } else if (ch === '[') {
+            depth++;
+          } else if (ch === ']') {
+            depth--;
+            if (depth === 0) {
+              candidates.push(text.slice(start, i + 1));
+              start = i;
+              break;
+            }
+          }
+        }
+      }
+
+      return candidates;
+    };
+
+    try {
+      const text = String(rawText || '').trim();
+
+      const directParsed = tryParseArray(text);
+      if (directParsed) return directParsed;
+
+      const fenceRe = new RegExp('`{3}(?:json)?\\\\s*([\\\\s\\\\S]*?)`{3}', 'gi');
+      const codeBlocks = [...text.matchAll(fenceRe)];
+      for (const block of codeBlocks) {
+        const parsed = tryParseArray(block[1]);
+        if (parsed) return parsed;
+      }
+
+      const candidates = extractBalancedJsonArrays(text);
+      for (const candidate of candidates) {
+        const parsed = tryParseArray(candidate);
+        if (parsed) return parsed;
+      }
+
+      console.error('[变量记忆] 未能从AI返回中解析JSON数组，原始返回:', rawText);
+      return [];
     } catch (e) {
-      console.error('[变量记忆] 解析提取结果失败:', e);
+      console.error('[变量记忆] 解析提取结果失败:', e, rawText);
       return [];
     }
   }
