@@ -1948,10 +1948,21 @@ function getMemorySummaryCountableMessagesAfterTimestamp(chat, timestamp) {
   return messages.filter(msg => msg && msg.timestamp > timestamp && isMemorySummaryCountableMessage(msg));
 }
 
+function getMemorySummaryCountableProgressByRawIndex(chat, rawIndex) {
+  const messages = chat && Array.isArray(chat.history) ? chat.history : [];
+  const n = Number(rawIndex);
+  const idx = Number.isFinite(n) ? Math.floor(n) : -1;
+  if (idx < 0) return 0;
+  return messages
+    .slice(0, Math.min(idx + 1, messages.length))
+    .filter(isMemorySummaryCountableMessage).length;
+}
+
 window.isMemorySummaryNoise = isMemorySummaryNoise;
 window.getMemorySummaryCountableMessages = getMemorySummaryCountableMessages;
 window.getMemorySummaryCountableMessagesAfterIndex = getMemorySummaryCountableMessagesAfterIndex;
 window.getMemorySummaryCountableMessagesAfterTimestamp = getMemorySummaryCountableMessagesAfterTimestamp;
+window.getMemorySummaryCountableProgressByRawIndex = getMemorySummaryCountableProgressByRawIndex;
 
 // ==================== 向量记忆自动总结 ====================
 // ===== 变量记忆提取核心逻辑（公共函数） =====
@@ -2084,6 +2095,7 @@ async function openVectorSummaryMenu(chat) {
   const lastIdx = vm.settings.lastExtractedMsgIndex !== undefined ? vm.settings.lastExtractedMsgIndex : -1;
   const newMessagesCount = getMemorySummaryCountableMessagesAfterIndex(chat, lastIdx).length;
   const totalMessages = getMemorySummaryCountableMessages(chat).length;
+  const progressMessages = getMemorySummaryCountableProgressByRawIndex(chat, lastIdx);
 
   return new Promise(resolve => {
     window._modalResolve = (result) => { resolve(result); };
@@ -2106,7 +2118,7 @@ async function openVectorSummaryMenu(chat) {
         id: 'reset',
         title: '重置提取进度',
         description: '重置后下次对话将从头提取',
-        info: `当前进度索引：${lastIdx}`
+        info: `当前提取进度：${progressMessages} 条`
       }
     ];
 
@@ -2278,9 +2290,10 @@ async function handleVectorResetTimestamp(chat) {
   const lastIdx = vm.settings.lastExtractedMsgIndex !== undefined ? vm.settings.lastExtractedMsgIndex : -1;
   const totalMessages = getMemorySummaryCountableMessages(chat).length;
   const newMessagesCount = getMemorySummaryCountableMessagesAfterIndex(chat, lastIdx).length;
+  const progressMessages = getMemorySummaryCountableProgressByRawIndex(chat, lastIdx);
 
   const message = `当前状态：
-- 当前进度索引：${lastIdx}
+- 当前提取进度：${progressMessages} 条
 - 总消息数：${totalMessages}
 - 待处理消息：${newMessagesCount}
 
