@@ -2038,6 +2038,11 @@ async function executeVectorExtraction(chat, messages, updateTimestamp = false) 
   if (!response.ok) throw new Error(`API返回 ${response.status}`);
   const data = await response.json();
   const rawText = typeof getGeminiResponseText === 'function' ? getGeminiResponseText(data) : (data.choices?.[0]?.message?.content || '');
+  if (!String(rawText || '').trim()) {
+    console.warn('[变量记忆] AI返回空文本，未更新提取进度，保留本批消息供下次重试');
+    showToast('变量记忆：AI返回空文本，进度未更新，请稍后重试', 'error');
+    return;
+  }
 
   // 查找本次处理的最后一条消息在总历史记录中的索引
   let processedLastIndex = -1;
@@ -2069,37 +2074,14 @@ async function executeVectorExtraction(chat, messages, updateTimestamp = false) 
   } else {
     if (parseFailed) {
       console.warn('[变量记忆] AI返回格式解析失败，未更新提取进度，保留本批消息供下次重试');
-      if (updateTimestamp) {
-        showToast('变量记忆：AI返回格式解析失败，未更新进度，请稍后重试', 'error');
-      } else if (typeof showCustomAlert === 'function') {
-        await showCustomAlert('提取失败', 'AI返回了内容，但格式解析失败。\n\n系统进度未更新，这批消息可以稍后重试。');
-      } else {
-        alert('提取失败：AI返回了内容，但格式解析失败。\n\n系统进度未更新，这批消息可以稍后重试。');
-      }
+      showToast('变量记忆：AI返回格式解析失败，进度未更新，请稍后重试', 'error');
       return;
     }
 
-    if (updateTimestamp) {
-      const vm = window.vectorMemoryManager.getVariableMemory(chat);
-      if (processedLastIndex !== -1) {
-        vm.settings.lastExtractedMsgIndex = processedLastIndex;
-      } else if (window.vectorMemoryManager._tempLastMsgIndex !== undefined && window.vectorMemoryManager._tempLastMsgIndex !== -1) {
-        vm.settings.lastExtractedMsgIndex = window.vectorMemoryManager._tempLastMsgIndex;
-      }
-      await db.chats.put(chat);
-      console.log('[变量记忆] 虽未提取到新记忆，但已更新消息索引以避免重复处理');
-    }
-    
-    // 如果没有提取到记忆，仅在手动提取时才弹窗告知，自动提取（后台）仅使用轻量提示
-    if (!updateTimestamp) {
-      if (typeof showCustomAlert === 'function') {
-        await showCustomAlert('提取完成', '当前对话片段中没有发现值得作为长期记忆记录的新内容。\n\n系统进度已更新，后续会继续检查新消息。');
-      } else {
-        alert('提取完成：当前对话片段中没有发现值得作为长期记忆记录的新内容。\n\n系统进度已更新，后续会继续检查新消息。');
-      }
-    } else {
-      showToast('变量记忆：暂无新内容需提取，已更新进度', 'info');
-    }
+    console.warn('[变量记忆] AI未返回有效记忆，未更新提取进度，保留本批消息供下次重试');
+    console.log('[变量记忆] AI原始返回:', rawText);
+    showToast('变量记忆：AI返回空结果，进度未更新，请稍后重试', 'error');
+    return;
   }
 }
 
@@ -2565,7 +2547,6 @@ async function handleManualSummary() {
       // 结构化模式或兼容旧开关
       if ((memoryMode === 'structured' || chat.settings.enableStructuredMemory) && window.structuredMemoryManager) {
         await triggerStructuredMemorySummary(state.activeChatId, true);
-        showToast('结构化记忆已同步更新', 'success');
       }
     }
   }
@@ -3113,7 +3094,7 @@ async function convertLongTermMemoryToStructured(chatId) {
 
   if (!shouldProceed) {
     showToast('已取消转换', 'info');
-    return;
+    return false;
   }
 
   const userNickname = chat.settings.myNickname || (state.qzoneSettings.nickname || '用户');
@@ -3267,7 +3248,7 @@ async function convertLongTermMemoryToStructured(chatId) {
 // ==================== 结构化动态记忆 - 自动总结 ====================
 async function triggerStructuredMemorySummary(chatId, forceUpdate = false) {
   const chat = state.chats[chatId];
-  if (!chat || !window.structuredMemoryManager) return;
+  if (!chat || !window.structuredMemoryManager) return false;
 
   const lastTimestamp = chat.lastStructuredMemoryTimestamp || 0;
   const originalMessagesToSummarizeForCoupleShareFilter = chat.history.filter(m => m.timestamp > lastTimestamp && (!m.isHidden || (m.role === 'system' && m.content.includes('内心独白'))));
@@ -3283,7 +3264,7 @@ async function triggerStructuredMemorySummary(chatId, forceUpdate = false) {
       await db.chats.put(chat);
       console.log(`[结构化记忆] 本批消息只有情侣空间分享或思维链，已跳过并推进时间戳: ${originalEndMsg.timestamp}`);
     }
-    return;
+    return false;
   }
 
   // 如果不是强制更新且消息太少，则跳过
@@ -3354,7 +3335,8 @@ async function triggerStructuredMemorySummary(chatId, forceUpdate = false) {
 
     const data = await response.json();
     let rawContent = isGemini ? getGeminiResponseText(data) : data.choices[0].message.content;
-    rawContent = rawContent.replace(/^```[a-z]*\s*/g, '').replace(/```$/g, '').trim();
+    rawContent = String(rawContent || '').replace(/^```[a-z]*\s*/g, '').replace(/```$/g, '').trim();
+    if (!rawContent) throw new Error('AI返回空文本');
 
     // 解析并合并
     const entries = window.structuredMemoryManager.parseMemoryEntries(rawContent, chat);
@@ -3365,24 +3347,18 @@ async function triggerStructuredMemorySummary(chatId, forceUpdate = false) {
       await db.chats.put(chat);
       console.log(`[结构化记忆] 成功提取并合并 ${entries.length} 条记忆条目`);
       console.log(`[结构化记忆] 时间戳已更新: ${lastTimestamp} -> ${newTimestamp}`);
+      showToast(`结构化记忆：成功提取 ${entries.length} 条`, 'success');
+      return true;
     } else {
       console.warn('[结构化记忆] AI 未返回有效的记忆条目，保持原时间戳不变');
       console.log('[结构化记忆] AI原始返回:', rawContent);
-      // 即使没有新条目，也应该更新时间戳，避免重复处理相同消息
-      if (messagesToSummarize.length > 0) {
-        chat.lastStructuredMemoryTimestamp = endMsg.timestamp;
-        await db.chats.put(chat);
-        console.log(`[结构化记忆] 虽无有效条目，但已更新时间戳避免重复处理`);
-      }
+      showToast('结构化记忆：AI未返回有效条目，进度未更新，请稍后重试', 'error');
+      return false;
     }
   } catch (error) {
     console.error('[结构化记忆] 总结出错:', error);
-    // 即使出错，也更新时间戳，避免一直卡在同一批消息上
-    if (messagesToSummarize.length > 0) {
-      chat.lastStructuredMemoryTimestamp = endMsg.timestamp;
-      await db.chats.put(chat);
-      console.log(`[结构化记忆] 虽然出错，但已更新时间戳以避免死循环`);
-    }
+    showToast('结构化记忆总结失败：' + error.message + '，进度未更新', 'error');
+    return false;
   }
 }
 
@@ -3706,7 +3682,8 @@ async function executeStructuredSummary(chat, messages, updateTimestamp = false)
 
   const data = await response.json();
   let rawContent = isGemini ? getGeminiResponseText(data) : data.choices[0].message.content;
-  rawContent = rawContent.replace(/^```[a-z]*\s*/g, '').replace(/```$/g, '').trim();
+  rawContent = String(rawContent || '').replace(/^```[a-z]*\s*/g, '').replace(/```$/g, '').trim();
+  if (!rawContent) throw new Error('AI返回空文本');
 
   // 解析并合并
   const entries = window.structuredMemoryManager.parseMemoryEntries(rawContent, chat);
@@ -3717,6 +3694,7 @@ async function executeStructuredSummary(chat, messages, updateTimestamp = false)
   } else {
     console.warn('[结构化记忆] AI 未返回有效的记忆条目');
     console.log('[结构化记忆] AI原始返回:', rawContent);
+    throw new Error('AI未返回有效的结构化记忆条目，进度未更新');
   }
 
   // 根据参数决定是否更新时间戳
@@ -4140,7 +4118,8 @@ ${transcriptText}
 
     const data = await response.json();
     let rawContent = isGemini ? getGeminiResponseText(data) : data.choices[0].message.content;
-    rawContent = rawContent.replace(/^```json\s*/, '').replace(/```$/, '').trim();
+    rawContent = String(rawContent || '').replace(/^```json\s*/, '').replace(/```$/, '').trim();
+    if (!rawContent) throw new Error('AI返回空文本');
     const result = JSON.parse(rawContent);
 
     if (result.summary && result.summary.trim()) {
@@ -4737,12 +4716,12 @@ async function triggerAutoSummary(chatId, force = false, customRange = null) {
       await db.chats.put(chat);
       console.log('[长期记忆总结] 本批消息只有情侣空间分享或思维链，已跳过并推进时间戳');
     }
-    if (force) alert('本批消息只有情侣空间分享或思维链，已跳过总结。');
+    if (force) showToast('本批消息只有情侣空间分享或思维链，已跳过总结。', 'info');
     return;
   }
 
   if (messagesToSummarize.length < 5) {
-    if (force) alert("最近的消息太少，无法进行有意义的总结。");
+    if (force) showToast('最近的消息太少，无法进行有意义的总结。', 'info');
     return;
   }
 
@@ -4965,6 +4944,8 @@ ${formattedHistory}
     rawContent = rawContent.replace(/^```json\s*/, '').replace(/```$/, '').trim();
     const result = JSON.parse(rawContent);
 
+    let summaryAddedCount = 0;
+
     if (chat.isGroup) {
       if (result.summaries && typeof result.summaries === 'object') {
         let memoriesAddedCount = 0;
@@ -4987,6 +4968,7 @@ ${formattedHistory}
         }
         if (memoriesAddedCount > 0) {
           console.log(`自动总结成功：为 ${memoriesAddedCount} 位群成员生成并注入了个性化记忆！`);
+          summaryAddedCount = memoriesAddedCount;
         } else {
           throw new Error("AI返回了空的或格式不正确的总结内容。");
         }
@@ -5003,6 +4985,7 @@ ${formattedHistory}
         chat.longTermMemory.push(newMemoryEntry);
         await db.chats.put(chat);
         console.log('自动总结成功：已成功添加 1 条新的长期记忆！');
+        summaryAddedCount = 1;
       } else {
         throw new Error("AI返回了空的或格式不正确的总结内容。");
       }
@@ -5014,9 +4997,10 @@ ${formattedHistory}
     if (document.getElementById('long-term-memory-screen').classList.contains('active')) {
       renderLongTermMemoryList();
     }
+    showToast(`日记式总结成功：已添加 ${summaryAddedCount} 条长期记忆`, 'success');
   } catch (error) {
     console.error("总结长期记忆时出错:", error);
-    await showCustomAlert('总结失败', `操作失败: ${error.message}`);
+    showToast('日记式总结失败：' + error.message, 'error');
   }
 }
 
