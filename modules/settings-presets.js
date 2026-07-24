@@ -1360,9 +1360,14 @@
     const novelaiEnabled = localStorage.getItem('novelai-enabled') === 'true';
     const novelaiModel = localStorage.getItem('novelai-model') || 'nai-diffusion-4-5-full';
     const novelaiApiKey = localStorage.getItem('novelai-api-key') || '';
+    const novelaiConnectionSettings = getNovelAISettings();
+    const novelaiApiUrl = String(novelaiConnectionSettings.api_url || 'https://image.novelai.net')
+      .trim()
+      .replace(/\/+$/, '') || 'https://image.novelai.net';
     document.getElementById('novelai-switch').checked = novelaiEnabled;
     document.getElementById('novelai-model').value = novelaiModel;
     document.getElementById('novelai-api-key').value = novelaiApiKey;
+    document.getElementById('novelai-api-url').value = novelaiApiUrl;
     document.getElementById('novelai-details').style.display = novelaiEnabled ? 'block' : 'none';
 
     // Google Imagen 设置加载
