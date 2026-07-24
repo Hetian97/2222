@@ -6589,15 +6589,14 @@ ${getActiveThoughtsPrompt()}
                   console.log('🚀 发送NAI请求:', requestBody);
 
 
+                  const novelaiApiBaseUrl = String(settings.api_url || 'https://image.novelai.net')
+                    .trim()
+                    .replace(/\/+$/, '') || 'https://image.novelai.net';
                   let apiUrl;
-
-
                   if (model.includes('nai-diffusion-4')) {
-
-                    apiUrl = 'https://image.novelai.net/ai/generate-image-stream';
+                    apiUrl = `${novelaiApiBaseUrl}/ai/generate-image-stream`;
                   } else {
-
-                    apiUrl = 'https://image.novelai.net/ai/generate-image';
+                    apiUrl = `${novelaiApiBaseUrl}/ai/generate-image`;
                   }
 
                   let corsProxy = settings.cors_proxy;
@@ -7800,15 +7799,14 @@ ${getActiveThoughtsPrompt()}
               console.log('🚀 发送NAI请求:', requestBody);
 
 
+              const novelaiApiBaseUrl = String(settings.api_url || 'https://image.novelai.net')
+                .trim()
+                .replace(/\/+$/, '') || 'https://image.novelai.net';
               let apiUrl;
-
-
               if (model.includes('nai-diffusion-4')) {
-
-                apiUrl = 'https://image.novelai.net/ai/generate-image-stream';
+                apiUrl = `${novelaiApiBaseUrl}/ai/generate-image-stream`;
               } else {
-
-                apiUrl = 'https://image.novelai.net/ai/generate-image';
+                apiUrl = `${novelaiApiBaseUrl}/ai/generate-image`;
               }
 
               let corsProxy = settings.cors_proxy;

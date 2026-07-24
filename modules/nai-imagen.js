@@ -228,6 +228,10 @@
 
   function loadNovelAISettings() {
     const settings = getNovelAISettings();
+    const novelaiApiUrlInput = document.getElementById('novelai-api-url');
+    if (novelaiApiUrlInput) {
+      novelaiApiUrlInput.value = settings.api_url || 'https://image.novelai.net';
+    }
     document.getElementById('nai-resolution').value = settings.resolution;
     document.getElementById('nai-steps').value = settings.steps;
     document.getElementById('nai-cfg-scale').value = settings.cfg_scale;
@@ -253,6 +257,11 @@
     const novelaiEnabled = document.getElementById('novelai-switch').checked;
     const novelaiModel = document.getElementById('novelai-model').value;
     const novelaiApiKey = document.getElementById('novelai-api-key').value.trim();
+    const novelaiApiUrlInput = document.getElementById('novelai-api-url');
+    const novelaiApiUrl = String(novelaiApiUrlInput ? novelaiApiUrlInput.value : '')
+      .trim()
+      .replace(/\/+$/, '') || 'https://image.novelai.net';
+    if (novelaiApiUrlInput) novelaiApiUrlInput.value = novelaiApiUrl;
 
     localStorage.setItem('novelai-enabled', novelaiEnabled);
     localStorage.setItem('novelai-model', novelaiModel);
@@ -272,7 +281,8 @@
       default_positive: document.getElementById('nai-default-positive').value,
       default_negative: document.getElementById('nai-default-negative').value,
       cors_proxy: document.getElementById('nai-cors-proxy').value,
-      custom_proxy_url: document.getElementById('nai-custom-proxy-url').value
+      custom_proxy_url: document.getElementById('nai-custom-proxy-url').value,
+      api_url: novelaiApiUrl
     };
 
     localStorage.setItem('novelai-settings', JSON.stringify(settings));
@@ -577,15 +587,20 @@
       default_positive: 'masterpiece, best quality, 1girl, beautiful, detailed face, detailed eyes, long hair, anime style',
       default_negative: 'lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry',
       cors_proxy: 'https://corsproxy.io/?',
-      custom_proxy_url: ''
+      custom_proxy_url: '',
+      api_url: 'https://image.novelai.net'
     };
 
     const saved = localStorage.getItem('novelai-settings');
     if (saved) {
       try {
+        const parsed = JSON.parse(saved);
         return {
           ...defaultSettings,
-          ...JSON.parse(saved)
+          ...parsed,
+          api_url: String(parsed.api_url || defaultSettings.api_url)
+            .trim()
+            .replace(/\/+$/, '') || defaultSettings.api_url
         };
       } catch (e) {
         return defaultSettings;
@@ -730,11 +745,14 @@
       console.log('🚀 发送NAI请求:', requestBody);
 
 
+      const novelaiApiBaseUrl = String(settings.api_url || 'https://image.novelai.net')
+        .trim()
+        .replace(/\/+$/, '') || 'https://image.novelai.net';
       let apiUrl;
       if (model.includes('nai-diffusion-4')) {
-        apiUrl = 'https://image.novelai.net/ai/generate-image-stream';
+        apiUrl = `${novelaiApiBaseUrl}/ai/generate-image-stream`;
       } else {
-        apiUrl = 'https://image.novelai.net/ai/generate-image';
+        apiUrl = `${novelaiApiBaseUrl}/ai/generate-image`;
       }
 
       let corsProxy = settings.cors_proxy;
@@ -1013,15 +1031,14 @@
       console.log('📋 请求体:', JSON.stringify(requestBody, null, 2));
 
 
+      const novelaiApiBaseUrl = String(settings.api_url || 'https://image.novelai.net')
+        .trim()
+        .replace(/\/+$/, '') || 'https://image.novelai.net';
       let apiUrl;
-
-
       if (model.includes('nai-diffusion-4')) {
-
-        apiUrl = 'https://image.novelai.net/ai/generate-image-stream';
+        apiUrl = `${novelaiApiBaseUrl}/ai/generate-image-stream`;
       } else {
-
-        apiUrl = 'https://image.novelai.net/ai/generate-image';
+        apiUrl = `${novelaiApiBaseUrl}/ai/generate-image`;
       }
 
       let corsProxy = settings.cors_proxy;

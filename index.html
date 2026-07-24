@@ -69,7 +69,7 @@
   <script src="modules/chat-interface.js?v=0.0.37" defer></script>
   <script src="modules/chat-input.js?v=0.0.37" defer></script>
   <!-- 第四层：AI 核心 -->
-  <script src="modules/ai-response.js?v=0.0.91" defer></script>
+  <script src="modules/ai-response.js?v=0.0.92" defer></script>
   <script src="modules/ai-group.js?v=0.0.36" defer></script>
   <!-- 第五层：功能模块 -->
   <script src="modules/music-player.js?v=0.0.36" defer></script>
@@ -78,9 +78,9 @@
   <script src="modules/memory-summary.js?v=0.0.36" defer></script>
   <script src="modules/video-voice-call.js?v=0.0.36" defer></script>
   <script src="modules/message-actions.js?v=0.0.36" defer></script>
-  <script src="modules/nai-imagen.js?v=0.0.36" defer></script>
+  <script src="modules/nai-imagen.js?v=0.0.37" defer></script>
   <script src="modules/backup-import-export.js?v=0.0.40" defer></script>
-  <script src="modules/settings-presets.js?v=0.0.37" defer></script>
+  <script src="modules/settings-presets.js?v=0.0.38" defer></script>
   <script src="modules/chat-settings-presets.js?v=0.0.36" defer></script>
   <script src="modules/shopping.js?v=0.0.51" defer></script>
   <script src="modules/rendering-rules.js?v=0.0.36" defer></script>
@@ -117,7 +117,7 @@
   <!-- PIN/城市（依赖 DOM） -->
   <script src="modules/init-pin-city.js?v=0.0.36" defer></script>
   <!-- 事件绑定和功能（依赖 state, db） -->
-  <script src="modules/init-event-bindingsA.js?v=0.0.39" defer></script>
+  <script src="modules/init-event-bindingsA.js?v=0.0.40" defer></script>
   <script src="modules/init-event-bindingsB.js?v=0.0.36" defer></script>
   <script src="modules/init-features.js?v=0.0.36" defer></script>
   <!-- 主入口（最后加载，调用 init） -->
@@ -2672,6 +2672,12 @@
                              <input type="password" id="novelai-api-key" placeholder="pst-...">
                              <span id="novelai-key-toggle" style="position: absolute; right: 0; top: 50%; transform: translateY(-50%); cursor: pointer;">🧐</span>
                         </div>
+                    </div>
+                </div>
+                <div class="settings-item">
+                    <label>API URL</label>
+                    <div class="settings-right">
+                        <input type="text" id="novelai-api-url" value="https://image.novelai.net" placeholder="https://image.novelai.net">
                     </div>
                 </div>
                 <div class="settings-item" style="justify-content: space-around;">

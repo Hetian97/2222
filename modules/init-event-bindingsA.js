@@ -2164,9 +2164,23 @@ window.initEventBindingsA = async function(state, db) {
       const novelaiEnabled = document.getElementById('novelai-switch').checked;
       const novelaiModel = document.getElementById('novelai-model').value;
       const novelaiApiKey = document.getElementById('novelai-api-key').value.trim();
+      const novelaiApiUrlInput = document.getElementById('novelai-api-url');
+      const novelaiApiUrl = String(novelaiApiUrlInput ? novelaiApiUrlInput.value : '')
+        .trim()
+        .replace(/\/+$/, '') || 'https://image.novelai.net';
+      if (novelaiApiUrlInput) novelaiApiUrlInput.value = novelaiApiUrl;
       localStorage.setItem('novelai-enabled', novelaiEnabled);
       localStorage.setItem('novelai-model', novelaiModel);
       localStorage.setItem('novelai-api-key', novelaiApiKey);
+
+      let storedNovelAISettings = {};
+      try {
+        storedNovelAISettings = JSON.parse(localStorage.getItem('novelai-settings') || '{}');
+      } catch (error) {
+        console.warn('NovelAI 设置读取失败，将只保存 API URL:', error);
+      }
+      storedNovelAISettings.api_url = novelaiApiUrl;
+      localStorage.setItem('novelai-settings', JSON.stringify(storedNovelAISettings));
 
       // 保存Google Imagen配置到localStorage
       saveGoogleImagenSettings();
