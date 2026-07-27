@@ -1713,6 +1713,36 @@
                         <button class="settings-button" onclick="refreshMcpManagerStats()">刷新 stats</button>
             <button class="settings-button" onclick="openVectorMemoryFromMcpManager()">打开向量记忆</button>
           </div>
+
+          <div style="margin-top:14px;">
+            <label style="font-size:13px;color:#666;">检索测试 query：</label>
+            <input id="mcp-manager-search-query" value="阁楼 红绸带 洗澡" style="
+              width:100%;
+              box-sizing:border-box;
+              margin-top:6px;
+              padding:8px 10px;
+              border:1px solid #ddd;
+              border-radius:10px;
+              font-size:14px;
+              background:#fff;
+            ">
+            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;">
+              <button class="settings-button" onclick="testMcpManagerSearch('sqlite')">测试 SQLite 检索</button>
+              <button class="settings-button" onclick="testMcpManagerSearch('hybrid')">测试 Chroma 检索</button>
+            </div>
+            <pre id="mcp-manager-search-output" style="
+              white-space:pre-wrap;
+              word-break:break-word;
+              background:rgba(0,0,0,0.04);
+              border-radius:12px;
+              padding:12px;
+              min-height:72px;
+              font-size:12px;
+              line-height:1.5;
+              color:#333;
+              margin-top:10px;
+            ">点击“测试 SQLite 检索”或“测试 Chroma 检索”查看 searchMode / fallback。</pre>
+          </div>
         </div>
         <div style="background:#fff;border-radius:18px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,0.06);margin-bottom:14px;">
           <div style="font-size:18px;font-weight:700;margin-bottom:8px;">记忆库状态</div>
@@ -9544,6 +9574,7 @@
   const MCP_MANAGER_HEALTH_URL = MCP_MANAGER_BASE_URL + '/health';
   const MCP_MANAGER_STATS_URL = MCP_MANAGER_BASE_URL + '/memory/stats';
   const MCP_MANAGER_CHROMA_STATUS_URL = MCP_MANAGER_BASE_URL + '/memory/chroma/status';
+  const MCP_MANAGER_SEARCH_URL = MCP_MANAGER_BASE_URL + '/memory/search';
   const MCP_SERVICE_EXTERNAL_TOOLS_LIST_URL = MCP_MANAGER_BASE_URL + '/external-mcp/tools-list';
   const MCP_SERVICE_EXTERNAL_TOOLS_CALL_URL = MCP_MANAGER_BASE_URL + '/external-mcp/tools-call';
   const MCP_SERVICE_CONFIGS_STORAGE_KEY = 'mcpServiceConfigs';
@@ -9599,6 +9630,128 @@
     if (stats) stats.textContent = text;
   }
 
+
+  function setMcpManagerSearchOutput(text) {
+    const output = document.getElementById('mcp-manager-search-output');
+    if (output) output.textContent = text;
+  }
+
+  function getMcpManagerSearchQuery() {
+    const input = document.getElementById('mcp-manager-search-query');
+    const q = input ? String(input.value || '').trim() : '';
+    return q || '阁楼 红绸带 洗澡';
+  }
+
+  function buildMcpManagerStatsConclusion(stats, chromaData) {
+    const total = Number(stats.total ?? 0);
+    const vectorCount = Number(stats.vectorCount ?? stats.withEmbedding ?? 0);
+    const bm25Count = Number(stats.bm25Count ?? stats.withoutEmbedding ?? 0);
+    const chroma = chromaData?.chroma || null;
+    const chromaOnline = Boolean(chromaData?.ok && chroma?.ok);
+    const chromaCount = chroma && typeof chroma.count !== 'undefined' ? Number(chroma.count || 0) : 0;
+    const issues = [];
+
+    if (!total) {
+      issues.push('SQLite 总数为 0');
+    }
+
+    if (bm25Count > 0) {
+      issues.push('BM25/未向量化：' + bm25Count + ' 条');
+    }
+
+    if (!chromaOnline) {
+      issues.push('Chroma 离线/异常');
+    } else if (chromaCount !== vectorCount) {
+      issues.push('Chroma Count ' + chromaCount + ' 与 SQLite Vector ' + vectorCount + ' 不一致');
+    }
+
+    if (!issues.length) {
+      return '总体结论：✅ 正常（SQLite Vector 与 Chroma 同步，BM25=0）';
+    }
+
+    return '总体结论：⚠ 需要检查：' + issues.join('；');
+  }
+
+  function formatMcpManagerSearchResult(data, engineLabel) {
+    const results = data?.results || data?.memories || data?.items || [];
+    const first = results[0] || null;
+    const chroma = data?.chroma || {};
+    const lines = [];
+
+    lines.push(engineLabel + ' 检索测试结果：');
+    lines.push('- ok：' + Boolean(data?.ok));
+    lines.push('- searchMode：' + (data?.searchMode || ''));
+    lines.push('- resultCount：' + results.length);
+
+    lines.push('');
+    lines.push('Chroma：');
+    lines.push('- attempted：' + (typeof chroma.attempted === 'undefined' ? '未返回' : String(chroma.attempted)));
+    if (typeof chroma.hybrid !== 'undefined') lines.push('- hybrid：' + String(chroma.hybrid));
+    if (typeof chroma.returned !== 'undefined') lines.push('- returned：' + String(chroma.returned));
+    if (typeof chroma.matchedCandidates !== 'undefined') lines.push('- matchedCandidates：' + String(chroma.matchedCandidates));
+    if (typeof chroma.addedCandidates !== 'undefined') lines.push('- addedCandidates：' + String(chroma.addedCandidates));
+    if (typeof chroma.fallback !== 'undefined') lines.push('- fallback：' + String(chroma.fallback));
+    if (chroma.error) lines.push('- error：' + String(chroma.error));
+
+    if (Array.isArray(data?.debugQueries) && data.debugQueries.length) {
+      lines.push('');
+      lines.push('debugQueries：');
+      for (const q of data.debugQueries.slice(0, 3)) {
+        lines.push('- ' + String(q).slice(0, 120));
+      }
+    }
+
+    if (first) {
+      lines.push('');
+      lines.push('第一条结果：');
+      lines.push('- id：' + (first.id || ''));
+      lines.push('- category：' + (first.category || ''));
+      lines.push('- hasEmbedding：' + (first.hasEmbedding === true || first._hasEmbedding === true || Number(first.embeddingDim || first._embeddingDim || 0) > 0 ? 'true' : 'false'));
+      lines.push('- embeddingModel：' + (first.embeddingModel || ''));
+      lines.push('- embeddingDim：' + (first.embeddingDim || first._embeddingDim || 0));
+      lines.push('- content：' + String(first.content || '').slice(0, 120));
+    }
+
+    return lines.join('\n');
+  }
+
+  async function testMcpManagerSearch(engine) {
+    const searchEngine = engine === 'hybrid' ? 'hybrid' : 'sqlite';
+    const engineLabel = engine === 'hybrid' ? 'Chroma hybrid rerank' : 'SQLite semantic-hybrid';
+    const query = getMcpManagerSearchQuery();
+
+    setMcpManagerSearchOutput('正在测试 ' + engineLabel + '...\nquery：' + query);
+    setMcpManagerOutput('正在请求 /memory/search：' + engineLabel);
+
+    try {
+      const response = await fetch(MCP_MANAGER_SEARCH_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          query,
+          limit: 5,
+          debug: true,
+          searchEngine
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || ('HTTP ' + response.status));
+      }
+
+      const text = formatMcpManagerSearchResult(data, engineLabel);
+      setMcpManagerSearchOutput(text);
+      setMcpManagerOutput('/memory/search 完成。\n\n' + text);
+    } catch (error) {
+      const text = engineLabel + ' 检索测试失败：\n' + error.message;
+      setMcpManagerSearchOutput(text);
+      setMcpManagerOutput(text);
+    }
+  }
   function formatMcpManagerStats(data, chromaData) {
     const stats = data?.stats || {};
     const chroma = chromaData?.chroma || null;
@@ -9608,6 +9761,9 @@
     const chromaOnline = Boolean(chromaData?.ok && chroma?.ok);
     const chromaSynced = chromaOnline && chromaCount === vectorCount;
     const lines = [];
+
+    lines.push(buildMcpManagerStatsConclusion(stats, chromaData));
+    lines.push('');
 
     lines.push('SQLite：');
     lines.push('- 总数：' + (stats.total ?? 0));
@@ -9630,7 +9786,9 @@
     }
 
     lines.push('');
-    lines.push('搜索路径：/memory/search 优先 Chroma，失败时自动 fallback 到 SQLite');
+    lines.push('搜索路径：由前端检索模式决定');
+    lines.push('- SQLite semantic-hybrid：使用 SQLite 内嵌向量检索，不请求 Chroma');
+    lines.push('- Chroma hybrid rerank：请求 Chroma 扩展候选，失败时 fallback 到 SQLite');
     lines.push('');
 
     if (Array.isArray(stats.byEmbeddingModel) && stats.byEmbeddingModel.length) {
