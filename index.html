@@ -1743,6 +1743,35 @@
               margin-top:10px;
             ">点击“测试 SQLite 检索”或“测试 Chroma 检索”查看 searchMode / fallback。</pre>
           </div>
+
+          <details style="
+            margin-top:14px;
+            border:1px dashed #ddd;
+            border-radius:12px;
+            padding:10px 12px;
+            background:rgba(0,0,0,0.02);
+          ">
+            <summary style="font-size:13px;font-weight:700;color:#666;cursor:pointer;">高级维护</summary>
+            <div style="font-size:12px;color:#777;line-height:1.6;margin-top:10px;">
+              这些操作会请求 VPS memory-server。备份不会改主库；重建 Chroma 不会删除 SQLite 主库，但可能需要几十秒。
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;">
+              <button class="settings-button" onclick="backupMcpManagerSqlite()">立即备份 SQLite</button>
+              <button class="settings-button" onclick="rebuildMcpManagerChroma()">重建 Chroma</button>
+            </div>
+            <pre id="mcp-manager-maintenance-output" style="
+              white-space:pre-wrap;
+              word-break:break-word;
+              background:rgba(0,0,0,0.04);
+              border-radius:12px;
+              padding:12px;
+              min-height:72px;
+              font-size:12px;
+              line-height:1.5;
+              color:#333;
+              margin-top:10px;
+            ">高级维护结果会显示在这里。</pre>
+          </details>
         </div>
         <div style="background:#fff;border-radius:18px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,0.06);margin-bottom:14px;">
           <div style="font-size:18px;font-weight:700;margin-bottom:8px;">记忆库状态</div>
@@ -9575,6 +9604,8 @@
   const MCP_MANAGER_STATS_URL = MCP_MANAGER_BASE_URL + '/memory/stats';
   const MCP_MANAGER_CHROMA_STATUS_URL = MCP_MANAGER_BASE_URL + '/memory/chroma/status';
   const MCP_MANAGER_SEARCH_URL = MCP_MANAGER_BASE_URL + '/memory/search';
+  const MCP_MANAGER_BACKUP_URL = MCP_MANAGER_BASE_URL + '/memory/backup';
+  const MCP_MANAGER_CHROMA_REBUILD_URL = MCP_MANAGER_BASE_URL + '/memory/chroma/rebuild';
   const MCP_SERVICE_EXTERNAL_TOOLS_LIST_URL = MCP_MANAGER_BASE_URL + '/external-mcp/tools-list';
   const MCP_SERVICE_EXTERNAL_TOOLS_CALL_URL = MCP_MANAGER_BASE_URL + '/external-mcp/tools-call';
   const MCP_SERVICE_CONFIGS_STORAGE_KEY = 'mcpServiceConfigs';
@@ -9752,6 +9783,135 @@
       setMcpManagerOutput(text);
     }
   }
+
+  function setMcpManagerMaintenanceOutput(text) {
+    const output = document.getElementById('mcp-manager-maintenance-output');
+    if (output) output.textContent = text;
+  }
+
+  function formatMcpManagerBackupResult(data) {
+    const lines = [];
+    lines.push('SQLite 备份结果：');
+    lines.push('- ok：' + Boolean(data?.ok));
+    if (data?.backupFile) lines.push('- backupFile：' + data.backupFile);
+    if (data?.latestBackupFile) lines.push('- latestBackupFile：' + data.latestBackupFile);
+    if (typeof data?.keptBackups !== 'undefined') lines.push('- keptBackups：' + data.keptBackups);
+    if (data?.error) lines.push('- error：' + data.error);
+
+    if (!data?.backupFile && !data?.latestBackupFile) {
+      lines.push('');
+      lines.push('原始返回：');
+      lines.push(JSON.stringify(data, null, 2));
+    }
+
+    return lines.join('\n');
+  }
+
+  function formatMcpManagerChromaRebuildResult(data) {
+    const lines = [];
+    const chroma = data?.chroma || data?.result?.chroma || {};
+    const result = data?.result || data || {};
+
+    lines.push('Chroma 重建结果：');
+    lines.push('- ok：' + Boolean(data?.ok));
+
+    for (const key of ['loaded', 'received', 'eligible', 'upserted', 'deleted', 'count']) {
+      if (typeof result[key] !== 'undefined') {
+        lines.push('- ' + key + '：' + result[key]);
+      }
+    }
+
+    if (typeof chroma.count !== 'undefined') {
+      lines.push('- chroma.count：' + chroma.count);
+    }
+    if (chroma.url) lines.push('- chroma.url：' + chroma.url);
+    if (chroma.collection) lines.push('- chroma.collection：' + chroma.collection);
+    if (data?.error || result.error || chroma.error) {
+      lines.push('- error：' + (data.error || result.error || chroma.error));
+    }
+
+    if (!['loaded', 'received', 'eligible', 'upserted', 'deleted', 'count'].some(key => typeof result[key] !== 'undefined') && typeof chroma.count === 'undefined') {
+      lines.push('');
+      lines.push('原始返回：');
+      lines.push(JSON.stringify(data, null, 2));
+    }
+
+    return lines.join('\n');
+  }
+
+  async function backupMcpManagerSqlite() {
+    const ok = confirm('将请求 VPS 创建 SQLite 备份。\n\n不会改动 memory.db 主库。\n确定继续？');
+    if (!ok) return;
+
+    setMcpManagerMaintenanceOutput('正在创建 SQLite 备份...');
+    setMcpManagerOutput('正在请求 /memory/backup...');
+
+    try {
+      const response = await fetch(MCP_MANAGER_BACKUP_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: '{}'
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || ('HTTP ' + response.status));
+      }
+
+      const text = formatMcpManagerBackupResult(data);
+      setMcpManagerMaintenanceOutput(text);
+      setMcpManagerOutput('/memory/backup 完成。\n\n' + text);
+    } catch (error) {
+      const text = 'SQLite 备份失败：\n' + error.message;
+      setMcpManagerMaintenanceOutput(text);
+      setMcpManagerOutput(text);
+    }
+  }
+
+  async function rebuildMcpManagerChroma() {
+    const ok1 = confirm('将根据 SQLite 里的 Vector 记忆重建 Chroma。\n\n不会删除 SQLite 主库，但可能需要几十秒。\n确定继续？');
+    if (!ok1) return;
+
+    const ok2 = confirm('再次确认：现在要重建 Chroma 索引吗？\n\n只有在 Chroma Count 与 SQLite Vector 不一致，或你明确想刷新索引时才需要执行。');
+    if (!ok2) return;
+
+    setMcpManagerMaintenanceOutput('正在重建 Chroma，请等待...');
+    setMcpManagerOutput('正在请求 /memory/chroma/rebuild...');
+
+    try {
+      const response = await fetch(MCP_MANAGER_CHROMA_REBUILD_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          batchSize: 50
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || ('HTTP ' + response.status));
+      }
+
+      const text = formatMcpManagerChromaRebuildResult(data);
+      setMcpManagerMaintenanceOutput(text);
+      setMcpManagerOutput('/memory/chroma/rebuild 完成。\n\n' + text);
+
+      try {
+        await refreshMcpManagerStats();
+      } catch {}
+    } catch (error) {
+      const text = 'Chroma 重建失败：\n' + error.message;
+      setMcpManagerMaintenanceOutput(text);
+      setMcpManagerOutput(text);
+    }
+  }
+
   function formatMcpManagerStats(data, chromaData) {
     const stats = data?.stats || {};
     const chroma = chromaData?.chroma || null;
