@@ -1599,11 +1599,27 @@ window.initEventBindingsA = async function(state, db) {
 
     const chatInput = document.getElementById('chat-input');
 
+    function playChatActionButtonSound(urlKey, volumeKey) {
+      const url = String(state.globalSettings?.[urlKey] || '').trim();
+      if (!url) return;
+
+      try {
+        const audio = new Audio(url);
+        const volume = state.globalSettings?.[volumeKey];
+        audio.volume = typeof volume === 'number' ? Math.max(0, Math.min(1, volume)) : 1.0;
+        audio.play().catch(error => console.log('[chat-action-sound] 播放提示音失败:', error));
+      } catch (error) {
+        console.log('[chat-action-sound] 初始化提示音失败:', error);
+      }
+    }
+
 
     document.getElementById('send-btn').addEventListener('click', () => {
       playSilentAudio();
       const content = chatInput.value.trim();
       if (!content || !state.activeChatId) return;
+
+      playChatActionButtonSound('sendMessageSoundUrl', 'sendMessageSoundVolume');
 
       const chat = state.chats[state.activeChatId];
       if (content.startsWith('/n ') || content.startsWith('/旁白 ')) {
@@ -1654,7 +1670,12 @@ window.initEventBindingsA = async function(state, db) {
       cancelReplyMode();
       document.body.classList.remove('chat-actions-expanded');
     });
-    document.getElementById('wait-reply-btn').addEventListener('click', triggerAiResponse);
+    document.getElementById('wait-reply-btn').addEventListener('click', () => {
+      if (state.activeChatId) {
+        playChatActionButtonSound('waitReplySoundUrl', 'waitReplySoundVolume');
+      }
+      triggerAiResponse();
+    });
     chatInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();

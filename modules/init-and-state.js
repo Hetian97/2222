@@ -148,6 +148,10 @@ document.addEventListener('DOMContentLoaded', () => {
       globalCss: '',
       notificationSoundUrl: '',
       notificationVolume: 1.0, // 消息提示音音量 (0.0-1.0)
+      waitReplySoundUrl: '',
+      waitReplySoundVolume: 1.0, // 等待回复按钮提示音音量 (0.0-1.0)
+      sendMessageSoundUrl: '',
+      sendMessageSoundVolume: 1.0, // 发送消息按钮提示音音量 (0.0-1.0)
       soundPresets: [], // 消息提示音预设列表
       widgetData: {},
       globalChatBackground: '',

@@ -133,15 +133,12 @@
         </div>
       </div>
       <div id="profile-thoughts-history-view">
-        <div class="profile-header"> 
-            <div style="display:flex; align-items:center; gap:10px;">
-                <span>心声记录</span> 
-                <button id="manage-thoughts-btn" style="background:var(--bg-secondary); border:1px solid var(--border-color); color:var(--text-secondary); cursor:pointer; font-size:12px; padding: 4px 10px; border-radius: 12px;">管理</button>
+        <div class="profile-header">            <div style="display:flex; align-items:center; gap:10px;">
+                <span>心声记录</span>                <button id="manage-thoughts-btn" style="background:var(--bg-secondary); border:1px solid var(--border-color); color:var(--text-secondary); cursor:pointer; font-size:12px; padding: 4px 10px; border-radius: 12px;">管理</button>
             </div>
             <button id="history-back-btn" title="返回"> <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="15 18 9 12 15 6"></polyline>
-              </svg> </button> 
-        </div>
+              </svg> </button>        </div>
         <div id="thoughts-action-bar" style="display: none; justify-content: space-between; align-items: center; padding: 10px 20px; background: var(--bg-color); border-bottom: 1px solid var(--border-color);">
             <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; color: var(--text-color);">
                 <input type="checkbox" id="select-all-thoughts-checkbox"> 全选
@@ -465,8 +462,7 @@
 {{longTermMemoryContext}}
 
 {{linkedMemoryContext}}
-- **你们最后的对话摘要**: 
-{{historySliceStr}}
+- **你们最后的对话摘要**:{{historySliceStr}}
 
 {{formatRules}}
 
@@ -603,12 +599,10 @@
         case 'spectator':
           return getDefaultChatPrompt('spectator'); // 旁观模式目前不暴露给用户自定义，直接用默认
       }
-      
       if (customPrompt && customPrompt.trim()) {
         return customPrompt;
       }
     }
-    
     return getDefaultChatPrompt(chatType);
   }
 
@@ -620,33 +614,27 @@
    */
   function processPromptWithSettings(originalPrompt, chatType = 'single') {
     let processedPrompt = originalPrompt;
-    
     // 仅对单聊应用多条回复设置
     if (chatType === 'single') {
       const chat = state.chats[state.activeChatId];
       if (chat && chat.settings.enableMultiReply) {
         const minCount = chat.settings.minReplyCount || 2;
         const maxCount = chat.settings.maxReplyCount || 5;
-        
         // 动态注入回复条数指令
         const multiReplyInstruction = `\n\n# 【回复条数控制】\n你每次回复时，必须发送 ${minCount}-${maxCount} 条消息。根据当前情绪和话题的复杂度，在这个范围内灵活选择具体条数。每条消息保持简短自然，像真人聊天一样。禁止每次都发送相同条数。\n`;
-        
         // 在最高指令后面注入（替换原有的"根据情绪和话题决定发送的消息条数"部分）
         processedPrompt = processedPrompt.replace(
           /每次回复像真实聊天一样,根据情绪和话题决定发送的消息条数，禁止每次回复相同条数，拆分为短句/g,
           `每次回复必须发送${minCount}-${maxCount}条消息，根据情绪和话题在此范围内灵活选择，拆分为短句`
         );
-        
         // 如果没有匹配到，则在开头注入
         if (processedPrompt === originalPrompt) {
           processedPrompt = multiReplyInstruction + processedPrompt;
         }
       }
     }
-    
     return processedPrompt;
   }
-  
   window.getActiveChatPrompt = getActiveChatPrompt;
 
 // ========== 提示词处理函数结束 ==========
@@ -840,7 +828,6 @@
       visionProxyUrl: document.getElementById('vision-proxy-url').value.trim(),
       visionApiKey: document.getElementById('vision-api-key').value.trim(),
       visionModel: document.getElementById('vision-model-input').value.trim() || document.getElementById('vision-model-select').value,
-      
       couplespaceProxyUrl: document.getElementById('couplespace-proxy-url').value.trim(),
       couplespaceApiKey: document.getElementById('couplespace-api-key').value.trim(),
       couplespaceModel: document.getElementById('couplespace-model-input').value.trim() || document.getElementById('couplespace-model-select').value,
@@ -908,7 +895,6 @@
     document.getElementById('background-activity-switch').checked = state.globalSettings.enableBackgroundActivity || false;
     document.getElementById('background-interval-input').value = state.globalSettings.backgroundActivityInterval || 60;
     document.getElementById('block-cooldown-input').value = state.globalSettings.blockCooldownHours || 1;
-    
     // 新增：加载后台查看用户手机设置
     document.getElementById('global-enable-view-myphone-bg-switch').checked = state.globalSettings.enableViewMyPhoneInBackground || false;
     document.getElementById('global-view-myphone-chance-input').value = state.globalSettings.viewMyPhoneChance !== null && state.globalSettings.viewMyPhoneChance !== undefined ? state.globalSettings.viewMyPhoneChance : '';
@@ -988,13 +974,10 @@
     const customThoughtsUIContainer = document.getElementById('custom-thoughts-ui-container');
     const customThoughtsHTMLTextarea = document.getElementById('custom-thoughts-html-textarea');
     const customThoughtsCSSTextarea = document.getElementById('custom-thoughts-css-textarea');
-    
     customThoughtsUISwitch.checked = state.globalSettings.customThoughtsUIEnabled || false;
     customThoughtsUIContainer.style.display = customThoughtsUISwitch.checked ? 'block' : 'none';
-    
     customThoughtsHTMLTextarea.value = state.globalSettings.customThoughtsHTML || getDefaultThoughtsHTML();
     customThoughtsCSSTextarea.value = state.globalSettings.customThoughtsCSS || getDefaultThoughtsCSS();
-    
     customThoughtsUISwitch.addEventListener('change', function() {
       customThoughtsUIContainer.style.display = this.checked ? 'block' : 'none';
       if (this.checked) {
@@ -1031,7 +1014,6 @@
     document.getElementById('import-thoughts-ui-btn').addEventListener('click', function() {
       document.getElementById('import-thoughts-ui-file').click();
     });
-    
     document.getElementById('import-thoughts-ui-file').addEventListener('change', function(e) {
       const file = e.target.files[0];
       if (!file) return;
@@ -1117,16 +1099,13 @@
     const customChatPromptGroupTextarea = document.getElementById('custom-chat-prompt-group-textarea');
     const customChatPromptOfflineTextarea = document.getElementById('custom-chat-prompt-offline-textarea');
     const customChatPromptGroupOfflineTextarea = document.getElementById('custom-chat-prompt-group-offline-textarea');
-    
     customChatPromptSwitch.checked = state.globalSettings.customChatPromptEnabled || false;
     customChatPromptContainer.style.display = customChatPromptSwitch.checked ? 'block' : 'none';
-    
     // 初始化时填充默认提示词（如果用户没有自定义）
     customChatPromptSingleTextarea.value = state.globalSettings.customChatPromptSingle || getDefaultChatPrompt('single');
     customChatPromptGroupTextarea.value = state.globalSettings.customChatPromptGroup || getDefaultChatPrompt('group');
     customChatPromptOfflineTextarea.value = state.globalSettings.customChatPromptOffline || getDefaultChatPrompt('offline');
     customChatPromptGroupOfflineTextarea.value = state.globalSettings.customChatPromptGroupOffline || getDefaultChatPrompt('group_offline');
-    
     customChatPromptSwitch.addEventListener('change', function() {
       customChatPromptContainer.style.display = this.checked ? 'block' : 'none';
       // 开启时，如果文本框为空，填充默认提示词
@@ -1145,32 +1124,27 @@
         }
       }
     });
-    
     // 单聊提示词 - 恢复默认
     document.getElementById('reset-chat-prompt-single-btn').addEventListener('click', function() {
       customChatPromptSingleTextarea.value = getDefaultChatPrompt('single');
       showToast('已恢复单聊默认提示词');
     });
-    
     // 群聊提示词 - 恢复默认
     document.getElementById('reset-chat-prompt-group-btn').addEventListener('click', function() {
       customChatPromptGroupTextarea.value = getDefaultChatPrompt('group');
       showToast('已恢复群聊默认提示词');
     });
-    
     // 线下模式提示词 - 恢复默认
     document.getElementById('reset-chat-prompt-offline-btn').addEventListener('click', function() {
       customChatPromptOfflineTextarea.value = getDefaultChatPrompt('offline');
       showToast('已恢复线下模式默认提示词');
       showToast('已清空线下模式提示词，将使用默认提示词');
     });
-    
     // 群聊线下模式提示词 - 恢复默认
     document.getElementById('reset-chat-prompt-group-offline-btn').addEventListener('click', function() {
       customChatPromptGroupOfflineTextarea.value = getDefaultChatPrompt('group_offline');
       showToast('已恢复群聊线下模式默认提示词');
     });
-    
     // 聊天提示词 - 导出
     document.getElementById('export-chat-prompt-btn').addEventListener('click', function() {
       const data = {
@@ -1189,7 +1163,6 @@
       a.click();
       URL.revokeObjectURL(url);
     });
-    
     // 聊天提示词 - 导入
     document.getElementById('import-chat-prompt-btn').addEventListener('click', function() {
       document.getElementById('import-chat-prompt-file').click();
@@ -1221,11 +1194,9 @@
     // 新增：聊天提示词标签页切换
     const chatPromptTabs = document.querySelectorAll('.custom-chat-prompt-tab');
     const chatPromptContents = document.querySelectorAll('.custom-chat-prompt-tab-content');
-    
     chatPromptTabs.forEach(tab => {
       tab.addEventListener('click', function() {
         const targetTab = this.getAttribute('data-tab');
-        
         // 更新标签样式
         chatPromptTabs.forEach(t => {
           t.classList.remove('active');
@@ -1235,7 +1206,6 @@
         this.classList.add('active');
         this.style.borderBottomColor = 'var(--primary-color, #007aff)';
         this.style.color = 'var(--primary-color, #007aff)';
-        
         // 切换内容
         chatPromptContents.forEach(content => {
           const contentTab = content.getAttribute('data-content');
@@ -1255,49 +1225,41 @@
     const savedTemp = state.globalSettings.apiTemperature || 0.8;
     tempSlider.value = savedTemp;
     tempInput.value = savedTemp;
-    
     const topPSlider = document.getElementById('api-top-p-slider');
     const topPInput = document.getElementById('api-top-p-input');
     const savedTopP = state.globalSettings.apiTopP !== undefined ? state.globalSettings.apiTopP : 1.0;
     topPSlider.value = savedTopP;
     topPInput.value = savedTopP;
-    
     const presenceSlider = document.getElementById('api-presence-penalty-slider');
     const presenceInput = document.getElementById('api-presence-penalty-input');
     const savedPresence = state.globalSettings.apiPresencePenalty !== undefined ? state.globalSettings.apiPresencePenalty : 0.0;
     presenceSlider.value = savedPresence;
     presenceInput.value = savedPresence;
-    
     const frequencySlider = document.getElementById('api-frequency-penalty-slider');
     const frequencyInput = document.getElementById('api-frequency-penalty-input');
     const savedFrequency = state.globalSettings.apiFrequencyPenalty !== undefined ? state.globalSettings.apiFrequencyPenalty : 0.0;
     frequencySlider.value = savedFrequency;
     frequencyInput.value = savedFrequency;
-    
     // 方案4：加载API历史记录开关状态（默认关闭以减小导出文件体积）
     const apiHistorySwitch = document.getElementById('enable-api-history-switch');
     if (apiHistorySwitch) {
       apiHistorySwitch.checked = state.globalSettings.enableApiHistory || false;
     }
-    
     // 加载安全渲染模式开关状态
     const safeRenderSwitch = document.getElementById('safe-render-mode-switch');
     if (safeRenderSwitch) {
       safeRenderSwitch.checked = state.globalSettings.safeRenderMode || false;
     }
-    
     // 加载主对话流式输出开关状态
     const apiStreamSwitch = document.getElementById('enable-api-stream-switch');
     if (apiStreamSwitch) {
       apiStreamSwitch.checked = state.globalSettings.enableApiStream || false;
     }
-    
     // 加载悬浮球开关状态
     const floatingBallSwitch = document.getElementById('floating-ball-switch');
     if (floatingBallSwitch) {
       floatingBallSwitch.checked = state.globalSettings.floatingBallEnabled === true; // 默认关闭
     }
-    
     const savedMinimaxGroupId = localStorage.getItem('minimax-group-id');
     const savedMinimaxApiKey = localStorage.getItem('minimax-api-key');
     const savedMinimaxModel = localStorage.getItem('minimax-model');
@@ -1525,7 +1487,6 @@
       // 检查旧数据是否存在
       if (state.globalSettings.soundPresets && Array.isArray(state.globalSettings.soundPresets) && state.globalSettings.soundPresets.length > 0) {
         console.log('[声音预设迁移] 发现旧数据，开始迁移...', state.globalSettings.soundPresets);
-        
         // 迁移数据到新表
         for (const preset of state.globalSettings.soundPresets) {
           await db.soundPresets.add({
@@ -1533,7 +1494,6 @@
             url: preset.url
           });
         }
-        
         console.log(`[声音预设迁移] 成功迁移 ${state.globalSettings.soundPresets.length} 个预设到数据库表`);
       } else {
         console.log('[声音预设迁移] 未发现旧数据');
@@ -1541,6 +1501,81 @@
     } catch (error) {
       console.error('[声音预设迁移] 迁移失败:', error);
     }
+  }
+
+  // 加载提示音预设下拉框
+  function readSoundFormConfig() {
+    const readUrl = (id) => document.getElementById(id)?.value.trim() || '';
+    const readVolume = (id) => {
+      const raw = parseInt(document.getElementById(id)?.value || '100');
+      const safe = Number.isFinite(raw) ? raw : 100;
+      return Math.max(0, Math.min(1, safe / 100));
+    };
+
+    return {
+      notificationSoundUrl: readUrl('notification-sound-url-input'),
+      notificationVolume: readVolume('notification-volume-slider'),
+      waitReplySoundUrl: readUrl('wait-reply-sound-url-input'),
+      waitReplySoundVolume: readVolume('wait-reply-sound-volume-slider'),
+      sendMessageSoundUrl: readUrl('send-message-sound-url-input'),
+      sendMessageSoundVolume: readVolume('send-message-sound-volume-slider')
+    };
+  }
+
+  function normalizeSoundPresetConfig(preset = {}) {
+    return {
+      notificationSoundUrl: preset.notificationSoundUrl !== undefined ? preset.notificationSoundUrl : (preset.url || ''),
+      notificationVolume: typeof preset.notificationVolume === 'number' ? preset.notificationVolume : 1.0,
+      waitReplySoundUrl: preset.waitReplySoundUrl || '',
+      waitReplySoundVolume: typeof preset.waitReplySoundVolume === 'number' ? preset.waitReplySoundVolume : 1.0,
+      sendMessageSoundUrl: preset.sendMessageSoundUrl || '',
+      sendMessageSoundVolume: typeof preset.sendMessageSoundVolume === 'number' ? preset.sendMessageSoundVolume : 1.0
+    };
+  }
+
+  function setSoundInputValue(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.value = value || '';
+  }
+
+  function setSoundVolumeValue(sliderId, labelId, value) {
+    const percent = Math.round((typeof value === 'number' ? value : 1.0) * 100);
+    const slider = document.getElementById(sliderId);
+    const label = document.getElementById(labelId);
+    if (slider) slider.value = percent;
+    if (label) label.textContent = percent + '%';
+  }
+
+  function applySoundPresetConfig(preset = {}) {
+    const config = normalizeSoundPresetConfig(preset);
+
+    setSoundInputValue('notification-sound-url-input', config.notificationSoundUrl);
+    setSoundInputValue('wait-reply-sound-url-input', config.waitReplySoundUrl);
+    setSoundInputValue('send-message-sound-url-input', config.sendMessageSoundUrl);
+
+    setSoundVolumeValue('notification-volume-slider', 'notification-volume-label', config.notificationVolume);
+    setSoundVolumeValue('wait-reply-sound-volume-slider', 'wait-reply-sound-volume-label', config.waitReplySoundVolume);
+    setSoundVolumeValue('send-message-sound-volume-slider', 'send-message-sound-volume-label', config.sendMessageSoundVolume);
+
+    state.globalSettings.notificationSoundUrl = config.notificationSoundUrl;
+    state.globalSettings.notificationVolume = config.notificationVolume;
+    state.globalSettings.waitReplySoundUrl = config.waitReplySoundUrl;
+    state.globalSettings.waitReplySoundVolume = config.waitReplySoundVolume;
+    state.globalSettings.sendMessageSoundUrl = config.sendMessageSoundUrl;
+    state.globalSettings.sendMessageSoundVolume = config.sendMessageSoundVolume;
+  }
+
+  function isSameSoundPresetConfig(current, preset) {
+    const config = normalizeSoundPresetConfig(preset);
+    const sameText = (a, b) => String(a || '') === String(b || '');
+    const sameVolume = (a, b) => Math.abs((a || 0) - (b || 0)) < 0.001;
+
+    return sameText(current.notificationSoundUrl, config.notificationSoundUrl)
+      && sameVolume(current.notificationVolume, config.notificationVolume)
+      && sameText(current.waitReplySoundUrl, config.waitReplySoundUrl)
+      && sameVolume(current.waitReplySoundVolume, config.waitReplySoundVolume)
+      && sameText(current.sendMessageSoundUrl, config.sendMessageSoundUrl)
+      && sameVolume(current.sendMessageSoundVolume, config.sendMessageSoundVolume);
   }
 
   // 加载提示音预设下拉框
@@ -1557,7 +1592,7 @@
     console.log('[声音预设DEBUG] 开始从数据库读取预设...');
     const presets = await db.soundPresets.toArray();
     console.log('[声音预设DEBUG] 从数据库读取到的预设:', presets);
-    
+
     presets.forEach(preset => {
       const option = document.createElement('option');
       option.value = preset.id;
@@ -1566,29 +1601,24 @@
       console.log('[声音预设DEBUG] 添加预设到下拉框:', preset.name, 'ID:', preset.id);
     });
 
-    // 如果指定了要选中的预设ID
     if (forceSelectedId) {
-      selectEl.value = forceSelectedId;
+      selectEl.value = String(forceSelectedId);
       return;
     }
 
-    // 自动匹配当前配置
-    const currentUrl = document.getElementById('notification-sound-url-input').value.trim();
+    const currentConfig = readSoundFormConfig();
     let matchingPresetId = null;
     for (const preset of presets) {
-      if (preset.url === currentUrl) {
+      if (isSameSoundPresetConfig(currentConfig, preset)) {
         matchingPresetId = preset.id;
         break;
       }
     }
 
-    if (matchingPresetId) {
-      selectEl.value = matchingPresetId;
-    } else {
-      selectEl.value = 'current';
-    }
+    selectEl.value = matchingPresetId ? String(matchingPresetId) : 'current';
   }
 
+  // 处理提示音预设选择变化
   // 处理提示音预设选择变化
   async function handleSoundPresetSelectionChange() {
     const selectEl = document.getElementById('sound-preset-select');
@@ -1606,38 +1636,38 @@
     const preset = await db.soundPresets.get(selectedId);
     if (!preset) return;
 
-    // 直接应用预设
-    document.getElementById('notification-sound-url-input').value = preset.url || '';
-    state.globalSettings.notificationSoundUrl = preset.url || '';
+    applySoundPresetConfig(preset);
     saveState();
 
-    // 刷新下拉框，确保选中状态
     await loadSoundPresetsDropdown(selectedId);
   }
 
   // 保存提示音预设
+  // 保存提示音预设
   async function saveSoundPreset() {
     console.log('[声音预设DEBUG] saveSoundPreset 被调用');
-    const url = document.getElementById('notification-sound-url-input').value.trim();
+    const config = readSoundFormConfig();
 
-    // 请求输入预设名称
-    const name = await showCustomPrompt('保存提示音预设', '请输入预设名称');
+    const name = await showCustomPrompt('保存声音预设', '请输入预设名称');
     if (!name || name.trim() === '') {
       console.log('[声音预设DEBUG] 用户取消输入');
       return;
     }
 
-    state.globalSettings.customThoughtsUIEnabled = document.getElementById('custom-thoughts-ui-switch').checked;
-    state.globalSettings.customThoughtsHTML = document.getElementById('custom-thoughts-html-textarea').value;
-    state.globalSettings.customThoughtsCSS = document.getElementById('custom-thoughts-css-textarea').value;
-
     const presetData = {
       name: name.trim(),
-      url: url
+      // 兼容旧预设字段：旧代码只认识 url
+      url: config.notificationSoundUrl,
+      notificationSoundUrl: config.notificationSoundUrl,
+      notificationVolume: config.notificationVolume,
+      waitReplySoundUrl: config.waitReplySoundUrl,
+      waitReplySoundVolume: config.waitReplySoundVolume,
+      sendMessageSoundUrl: config.sendMessageSoundUrl,
+      sendMessageSoundVolume: config.sendMessageSoundVolume
     };
+
     console.log('[声音预设DEBUG] 准备保存预设:', presetData);
 
-    // 检查是否已存在同名预设
     const existingPreset = await db.soundPresets.where('name').equals(presetData.name).first();
     if (existingPreset) {
       console.log('[声音预设DEBUG] 发现同名预设:', existingPreset);
@@ -1652,14 +1682,13 @@
     }
 
     console.log('[声音预设DEBUG] 开始写入数据库...');
-    await db.soundPresets.put(presetData);
-    console.log('[声音预设DEBUG] 数据库写入完成，返回的ID:', presetData.id);
-    
-    console.log('[声音预设DEBUG] 准备刷新下拉框...');
-    await loadSoundPresetsDropdown(presetData.id);
+    const savedId = await db.soundPresets.put(presetData);
+    console.log('[声音预设DEBUG] 数据库写入完成，返回的ID:', savedId);
+
+    await loadSoundPresetsDropdown(savedId);
     console.log('[声音预设DEBUG] 下拉框刷新完成');
-    
-    alert('预设已保存！');
+
+    alert('声音预设已保存！');
   }
 
   // 删除提示音预设（从下拉框删除选中的预设）
@@ -1766,10 +1795,32 @@
     document.getElementById('global-css-input').value = state.globalSettings.globalCss || '';
     document.getElementById('notification-sound-url-input').value = state.globalSettings.notificationSoundUrl || '';
 
+    const waitReplySoundUrlInput = document.getElementById('wait-reply-sound-url-input');
+    if (waitReplySoundUrlInput) {
+      waitReplySoundUrlInput.value = state.globalSettings.waitReplySoundUrl || '';
+    }
+
+    const sendMessageSoundUrlInput = document.getElementById('send-message-sound-url-input');
+    if (sendMessageSoundUrlInput) {
+      sendMessageSoundUrlInput.value = state.globalSettings.sendMessageSoundUrl || '';
+    }
+
     // 初始化音量滑动条
     const volumeValue = (state.globalSettings.notificationVolume !== undefined ? state.globalSettings.notificationVolume : 1.0) * 100;
     document.getElementById('notification-volume-slider').value = volumeValue;
     document.getElementById('notification-volume-label').textContent = Math.round(volumeValue) + '%';
+
+    const waitReplyVolumeValue = (state.globalSettings.waitReplySoundVolume !== undefined ? state.globalSettings.waitReplySoundVolume : 1.0) * 100;
+    const waitReplyVolumeSlider = document.getElementById('wait-reply-sound-volume-slider');
+    const waitReplyVolumeLabel = document.getElementById('wait-reply-sound-volume-label');
+    if (waitReplyVolumeSlider) waitReplyVolumeSlider.value = waitReplyVolumeValue;
+    if (waitReplyVolumeLabel) waitReplyVolumeLabel.textContent = Math.round(waitReplyVolumeValue) + '%';
+
+    const sendMessageVolumeValue = (state.globalSettings.sendMessageSoundVolume !== undefined ? state.globalSettings.sendMessageSoundVolume : 1.0) * 100;
+    const sendMessageVolumeSlider = document.getElementById('send-message-sound-volume-slider');
+    const sendMessageVolumeLabel = document.getElementById('send-message-sound-volume-label');
+    if (sendMessageVolumeSlider) sendMessageVolumeSlider.value = sendMessageVolumeValue;
+    if (sendMessageVolumeLabel) sendMessageVolumeLabel.textContent = Math.round(sendMessageVolumeValue) + '%';
 
     if (typeof renderSoundPresets === 'function') {
       console.log('[声音预设DEBUG] 准备调用 renderSoundPresets');
@@ -2243,7 +2294,6 @@
 
       // 找到重置按钮
       const resetBtn = document.getElementById('reset-theme-btn');
-      
       try {
           // 从 localStorage 读取保存的自定义主题
           const savedThemesStr = localStorage.getItem('custom_bubble_themes');
@@ -2271,7 +2321,6 @@
               label.style.display = 'inline-flex';
               label.style.alignItems = 'center';
               label.innerHTML = `<input type="radio" name="theme-select" value="${theme.id}" id="theme-${theme.id}"> <span style="display:inline-block; width:12px; height:12px; border-radius:50%; margin-right:4px; background: linear-gradient(135deg, ${theme.userColor} 50%, ${theme.aiColor} 50%); border: 1px solid #ddd;"></span> ${theme.name}`;
-              
               // 绑定事件，点击时应用 CSS 变量并保存配置
               const radio = label.querySelector('input');
               radio.addEventListener('change', () => {
@@ -2292,7 +2341,6 @@
       if (themeId && themeId.startsWith('custom_')) {
           const chatMessages = document.getElementById('chat-messages');
           const settingsPreview = document.getElementById('settings-preview-area');
-          
           if (chatMessages) {
               chatMessages.style.setProperty('--custom-user-bg', userColor);
               chatMessages.style.setProperty('--custom-ai-bg', aiColor);
@@ -2303,7 +2351,6 @@
           }
       }
   }
-  
   // 确保全局挂载
   window.loadCustomBubbleThemes = loadCustomBubbleThemes;
   window.applyCustomBubbleTheme = applyCustomBubbleTheme;
@@ -2860,14 +2907,7 @@
 
     const previewLyricsBar = document.createElement('div');
     previewLyricsBar.style.cssText = `
-                position: absolute; 
-                font-size: 11px; 
-                padding: 2px 6px; 
-                border-radius: 8px; 
-                background-color: rgba(0, 0, 0, 0.1); 
-                color: var(--text-secondary); 
-                white-space: nowrap; 
-                transition: all 0.3s ease;
+                position: absolute;                font-size: 11px;                padding: 2px 6px;                border-radius: 8px;                background-color: rgba(0, 0, 0, 0.1);                color: var(--text-secondary);                white-space: nowrap;                transition: all 0.3s ease;
             `;
     previewLyricsBar.textContent = '♪ 歌词位置预览 ♪';
     previewArea.appendChild(previewLyricsBar);
@@ -2908,7 +2948,6 @@
   async function loadSecondaryApiPresetsDropdown(forceSelectedId = null) {
     const selectEl = document.getElementById('secondary-api-preset-select');
     if (!selectEl) return;
-    
     selectEl.innerHTML = '<option value="current">当前配置 (未保存)</option>';
 
     const presets = await db.secondaryApiPresets.toArray();
@@ -2923,7 +2962,6 @@
       selectEl.value = forceSelectedId;
       return;
     }
-    
     const currentConfig = state.apiConfig;
     let matchingPresetId = null;
     for (const preset of presets) {
@@ -2957,7 +2995,6 @@
       state.apiConfig.secondaryProxyUrl = preset.secondaryProxyUrl || '';
       state.apiConfig.secondaryApiKey = preset.secondaryApiKey || '';
       state.apiConfig.secondaryModel = preset.secondaryModel || '';
-      
       await db.apiConfig.put(state.apiConfig);
 
       document.getElementById('secondary-proxy-url').value = state.apiConfig.secondaryProxyUrl;

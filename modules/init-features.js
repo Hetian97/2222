@@ -60,6 +60,92 @@ window.initFeatures = function(state, db) {
       db.globalSettings.put(state.globalSettings);
     });
 
+    function playAppearanceSoundPreview(urlInputId, volumeSliderId, fallbackUrl = '') {
+      const urlInput = document.getElementById(urlInputId);
+      const volumeSlider = document.getElementById(volumeSliderId);
+      const player = document.getElementById('notification-sound-player');
+
+      if (!urlInput || !volumeSlider || !player) return;
+
+      const url = urlInput.value.trim() || fallbackUrl;
+      if (!url) {
+        alert('当前没有填写提示音 URL。');
+        return;
+      }
+
+      player.src = url;
+      player.currentTime = 0;
+      player.volume = Math.max(0, Math.min(1, parseInt(volumeSlider.value || '100') / 100));
+      player.play().catch(() => alert('播放失败，请检查 URL 是否正确或浏览器是否支持该格式。'));
+    }
+
+    async function saveAppearanceSoundSetting(urlInputId, volumeSliderId, urlKey, volumeKey, label) {
+      const urlInput = document.getElementById(urlInputId);
+      const volumeSlider = document.getElementById(volumeSliderId);
+      if (!urlInput || !volumeSlider) return;
+
+      state.globalSettings[urlKey] = urlInput.value.trim();
+      state.globalSettings[volumeKey] = Math.max(0, Math.min(1, parseInt(volumeSlider.value || '100') / 100));
+      await db.globalSettings.put(state.globalSettings);
+      alert(label + '已保存。');
+    }
+
+    function resetAppearanceSoundSetting(urlInputId, volumeSliderId, volumeLabelId, label) {
+      const urlInput = document.getElementById(urlInputId);
+      const volumeSlider = document.getElementById(volumeSliderId);
+      const volumeLabel = document.getElementById(volumeLabelId);
+
+      if (urlInput) urlInput.value = '';
+      if (volumeSlider) volumeSlider.value = 100;
+      if (volumeLabel) volumeLabel.textContent = '100%';
+
+      alert(label + '已重置为空，点击“保存”后生效。');
+    }
+
+    function bindAppearanceSoundVolume(sliderId, labelId, volumeKey) {
+      const slider = document.getElementById(sliderId);
+      const label = document.getElementById(labelId);
+      if (!slider || !label) return;
+
+      slider.addEventListener('input', (e) => {
+        const volumePercent = parseInt(e.target.value || '100');
+        label.textContent = volumePercent + '%';
+        state.globalSettings[volumeKey] = volumePercent / 100;
+        db.globalSettings.put(state.globalSettings);
+      });
+    }
+
+    document.getElementById('save-notification-sound-btn')?.addEventListener('click', () => {
+      saveAppearanceSoundSetting('notification-sound-url-input', 'notification-volume-slider', 'notificationSoundUrl', 'notificationVolume', '消息提示音');
+    });
+
+    document.getElementById('test-wait-reply-sound-btn')?.addEventListener('click', () => {
+      playAppearanceSoundPreview('wait-reply-sound-url-input', 'wait-reply-sound-volume-slider');
+    });
+
+    document.getElementById('reset-wait-reply-sound-btn')?.addEventListener('click', () => {
+      resetAppearanceSoundSetting('wait-reply-sound-url-input', 'wait-reply-sound-volume-slider', 'wait-reply-sound-volume-label', '等待回复提示音');
+    });
+
+    document.getElementById('save-wait-reply-sound-btn')?.addEventListener('click', () => {
+      saveAppearanceSoundSetting('wait-reply-sound-url-input', 'wait-reply-sound-volume-slider', 'waitReplySoundUrl', 'waitReplySoundVolume', '等待回复提示音');
+    });
+
+    document.getElementById('test-send-message-sound-btn')?.addEventListener('click', () => {
+      playAppearanceSoundPreview('send-message-sound-url-input', 'send-message-sound-volume-slider');
+    });
+
+    document.getElementById('reset-send-message-sound-btn')?.addEventListener('click', () => {
+      resetAppearanceSoundSetting('send-message-sound-url-input', 'send-message-sound-volume-slider', 'send-message-sound-volume-label', '发送消息提示音');
+    });
+
+    document.getElementById('save-send-message-sound-btn')?.addEventListener('click', () => {
+      saveAppearanceSoundSetting('send-message-sound-url-input', 'send-message-sound-volume-slider', 'sendMessageSoundUrl', 'sendMessageSoundVolume', '发送消息提示音');
+    });
+
+    bindAppearanceSoundVolume('wait-reply-sound-volume-slider', 'wait-reply-sound-volume-label', 'waitReplySoundVolume');
+    bindAppearanceSoundVolume('send-message-sound-volume-slider', 'send-message-sound-volume-label', 'sendMessageSoundVolume');
+
     document.getElementById('add-song-search-btn').addEventListener('click', addSongFromSearch);
 
     document.getElementById('cancel-music-search-btn').addEventListener('click', () => {
