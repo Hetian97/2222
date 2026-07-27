@@ -9705,7 +9705,6 @@
 
   function formatMcpManagerSearchResult(data, engineLabel) {
     const results = data?.results || data?.memories || data?.items || [];
-    const first = results[0] || null;
     const chroma = data?.chroma || {};
     const lines = [];
 
@@ -9732,15 +9731,35 @@
       }
     }
 
-    if (first) {
-      lines.push('');
-      lines.push('第一条结果：');
-      lines.push('- id：' + (first.id || ''));
-      lines.push('- category：' + (first.category || ''));
-      lines.push('- hasEmbedding：' + (first.hasEmbedding === true || first._hasEmbedding === true || Number(first.embeddingDim || first._embeddingDim || 0) > 0 ? 'true' : 'false'));
-      lines.push('- embeddingModel：' + (first.embeddingModel || ''));
-      lines.push('- embeddingDim：' + (first.embeddingDim || first._embeddingDim || 0));
-      lines.push('- content：' + String(first.content || '').slice(0, 120));
+    const previewResults = results.slice(0, 5);
+
+    lines.push('');
+    if (previewResults.length) {
+      lines.push('返回结果 Top ' + previewResults.length + '：');
+
+      previewResults.forEach((item, index) => {
+        const dim = Number(item.embeddingDim || item._embeddingDim || 0);
+        const hasEmbedding = item.hasEmbedding === true || item._hasEmbedding === true || dim > 0;
+        const category = item.category || '?';
+        const id = item.id || '';
+        const content = String(item.content || '').replace(/\s+/g, ' ').slice(0, 140);
+
+        lines.push('');
+        lines.push(String(index + 1) + '. [' + category + '] ' + id);
+        lines.push('   Vector：' + (hasEmbedding ? ('✓ ' + dim + 'd') : '✗'));
+        if (item.embeddingModel) {
+          lines.push('   Model：' + item.embeddingModel);
+        }
+        if (typeof item._searchScore !== 'undefined') {
+          lines.push('   Score：' + item._searchScore);
+        }
+        if (typeof item._searchMode !== 'undefined') {
+          lines.push('   Mode：' + item._searchMode);
+        }
+        lines.push('   ' + content);
+      });
+    } else {
+      lines.push('返回结果 Top 5：无');
     }
 
     return lines.join('\n');
