@@ -1744,6 +1744,23 @@
             ">点击“测试 SQLite 检索”或“测试 Chroma 检索”查看 searchMode / fallback。</pre>
           </div>
 
+          <div style="margin-top:14px;">
+            <div style="font-size:13px;font-weight:700;color:#666;margin-bottom:8px;">最近一次真实检索</div>
+            <button class="settings-button" onclick="refreshMcpManagerLastSearch()">刷新最近检索</button>
+            <pre id="mcp-manager-last-search-output" style="
+              white-space:pre-wrap;
+              word-break:break-word;
+              background:rgba(0,0,0,0.04);
+              border-radius:12px;
+              padding:12px;
+              min-height:72px;
+              font-size:12px;
+              line-height:1.5;
+              color:#333;
+              margin-top:10px;
+            ">聊天触发检索后，点击“刷新最近检索”查看 searchMode / fallback / Top 3。</pre>
+          </div>
+
           <details style="
             margin-top:14px;
             border:1px dashed #ddd;
@@ -9606,6 +9623,7 @@
   const MCP_MANAGER_SEARCH_URL = MCP_MANAGER_BASE_URL + '/memory/search';
   const MCP_MANAGER_BACKUP_URL = MCP_MANAGER_BASE_URL + '/memory/backup';
   const MCP_MANAGER_CHROMA_REBUILD_URL = MCP_MANAGER_BASE_URL + '/memory/chroma/rebuild';
+  const MCP_MANAGER_LAST_SEARCH_URL = MCP_MANAGER_BASE_URL + '/memory/search/last';
   const MCP_SERVICE_EXTERNAL_TOOLS_LIST_URL = MCP_MANAGER_BASE_URL + '/external-mcp/tools-list';
   const MCP_SERVICE_EXTERNAL_TOOLS_CALL_URL = MCP_MANAGER_BASE_URL + '/external-mcp/tools-call';
   const MCP_SERVICE_CONFIGS_STORAGE_KEY = 'mcpServiceConfigs';
@@ -9783,7 +9801,8 @@
           query,
           limit: 5,
           debug: true,
-          searchEngine
+          searchEngine,
+          diagnostic: true
         })
       });
 
@@ -9799,6 +9818,97 @@
     } catch (error) {
       const text = engineLabel + ' 检索测试失败：\n' + error.message;
       setMcpManagerSearchOutput(text);
+      setMcpManagerOutput(text);
+    }
+  }
+
+  function setMcpManagerLastSearchOutput(text) {
+    const output = document.getElementById('mcp-manager-last-search-output');
+    if (output) output.textContent = text;
+  }
+
+  function formatMcpManagerLastSearchResult(data) {
+    const last = data?.lastSearch || null;
+    const lines = [];
+
+    if (!last) {
+      return '还没有最近一次真实检索记录。\n请先在聊天界面发一条消息，再回来刷新。';
+    }
+
+    const chroma = last.chroma || {};
+    const top = Array.isArray(last.resultsTop) ? last.resultsTop.slice(0, 3) : [];
+    const timeText = last.atISO ? new Date(last.atISO).toLocaleString() : '';
+
+    lines.push('最近一次真实检索：');
+    lines.push('- time：' + timeText);
+    lines.push('- source：' + (last.source || ''));
+    lines.push('- searchMode：' + (last.searchMode || ''));
+    lines.push('- requestedSearchEngine：' + (last.requestedSearchEngine || ''));
+    lines.push('- resultCount：' + (last.resultCount ?? 0));
+    lines.push('- limit：' + (last.limit ?? 0));
+    if (last.candidateLimit !== null && typeof last.candidateLimit !== 'undefined') {
+      lines.push('- candidateLimit：' + last.candidateLimit);
+    }
+
+    lines.push('');
+    lines.push('Chroma：');
+    lines.push('- attempted：' + (typeof chroma.attempted === 'undefined' ? '未返回' : String(chroma.attempted)));
+    if (typeof chroma.hybrid !== 'undefined' && chroma.hybrid !== null) lines.push('- hybrid：' + String(chroma.hybrid));
+    if (typeof chroma.returned !== 'undefined' && chroma.returned !== null) lines.push('- returned：' + String(chroma.returned));
+    if (typeof chroma.matchedCandidates !== 'undefined' && chroma.matchedCandidates !== null) lines.push('- matchedCandidates：' + String(chroma.matchedCandidates));
+    if (typeof chroma.addedCandidates !== 'undefined' && chroma.addedCandidates !== null) lines.push('- addedCandidates：' + String(chroma.addedCandidates));
+    if (typeof chroma.fallback !== 'undefined') lines.push('- fallback：' + String(chroma.fallback));
+    if (chroma.error) lines.push('- error：' + chroma.error);
+
+    lines.push('');
+    lines.push('query：' + (last.queryPreview || ''));
+
+    lines.push('');
+    if (top.length) {
+      lines.push('返回结果 Top ' + top.length + '：');
+
+      top.forEach((item, index) => {
+        const dim = Number(item.embeddingDim || 0);
+        const hasEmbedding = item.hasEmbedding === true || dim > 0;
+        const category = item.category || '?';
+        const content = String(item.content || '').replace(/\s+/g, ' ').slice(0, 140);
+
+        lines.push('');
+        lines.push(String(index + 1) + '. [' + category + '] ' + (item.id || ''));
+        lines.push('   Vector：' + (hasEmbedding ? ('✓ ' + dim + 'd') : '✗'));
+        if (typeof item.searchScore !== 'undefined' && item.searchScore !== null) {
+          lines.push('   Score：' + item.searchScore);
+        }
+        if (item.searchMode) {
+          lines.push('   Mode：' + item.searchMode);
+        }
+        lines.push('   ' + content);
+      });
+    } else {
+      lines.push('返回结果 Top 3：无');
+    }
+
+    return lines.join('\n');
+  }
+
+  async function refreshMcpManagerLastSearch() {
+    setMcpManagerLastSearchOutput('正在读取最近一次真实检索...');
+    setMcpManagerOutput('正在请求 /memory/search/last...');
+
+    try {
+      const response = await fetch(MCP_MANAGER_LAST_SEARCH_URL);
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || ('HTTP ' + response.status));
+      }
+
+      const text = formatMcpManagerLastSearchResult(data);
+      setMcpManagerLastSearchOutput(text);
+      setMcpManagerOutput('/memory/search/last 完成。\n\n' + text);
+    } catch (error) {
+      const text = '读取最近一次真实检索失败：\n' + error.message;
+      setMcpManagerLastSearchOutput(text);
       setMcpManagerOutput(text);
     }
   }

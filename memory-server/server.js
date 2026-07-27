@@ -24,6 +24,59 @@ const {
 const PORT = 8765;
 const BACKUP_DIR = path.join(__dirname, 'backups');
 
+let lastMemorySearchState = null;
+
+function compactMemorySearchPreview(memory) {
+  if (!memory) return null;
+
+  const dim = Number(memory.embeddingDim || memory._embeddingDim || 0);
+  const hasEmbedding = memory.hasEmbedding === true ||
+    memory._hasEmbedding === true ||
+    dim > 0 ||
+    Boolean(memory.embeddingModel);
+
+  return {
+    id: String(memory.id || ''),
+    category: String(memory.category || ''),
+    importance: Number(memory.importance || 0),
+    emotionalWeight: Number(memory.emotionalWeight || 0),
+    hasEmbedding,
+    embeddingDim: dim,
+    searchScore: typeof memory._searchScore === 'undefined' ? null : memory._searchScore,
+    searchMode: memory._searchMode || '',
+    content: String(memory.content || '').replace(/\s+/g, ' ').slice(0, 180)
+  };
+}
+
+function updateLastMemorySearchState(info = {}) {
+  const results = Array.isArray(info.results) ? info.results : [];
+  const chroma = info.chroma || { attempted: false };
+  const query = String(info.query || '');
+
+  lastMemorySearchState = {
+    at: Date.now(),
+    atISO: new Date().toISOString(),
+    source: String(info.source || ''),
+    query: query.slice(0, 500),
+    queryPreview: query.replace(/\s+/g, ' ').slice(0, 80),
+    searchMode: String(info.searchMode || ''),
+    requestedSearchEngine: String(info.requestedSearchEngine || ''),
+    limit: Number(info.limit || 0),
+    candidateLimit: typeof info.candidateLimit === 'undefined' ? null : Number(info.candidateLimit || 0),
+    resultCount: typeof info.resultCount === 'undefined' ? results.length : Number(info.resultCount || 0),
+    chroma: {
+      attempted: Boolean(chroma.attempted),
+      hybrid: typeof chroma.hybrid === 'undefined' ? null : Boolean(chroma.hybrid),
+      returned: typeof chroma.returned === 'undefined' ? null : Number(chroma.returned || 0),
+      matchedCandidates: typeof chroma.matchedCandidates === 'undefined' ? null : Number(chroma.matchedCandidates || 0),
+      addedCandidates: typeof chroma.addedCandidates === 'undefined' ? null : Number(chroma.addedCandidates || 0),
+      fallback: typeof chroma.fallback === 'undefined' ? false : Boolean(chroma.fallback),
+      error: chroma.error || null
+    },
+    resultsTop: results.slice(0, 3).map(compactMemorySearchPreview).filter(Boolean)
+  };
+}
+
 const VALID_CATEGORIES = ['U', 'A', 'R', 'E', 'I', 'L', 'P', 'T', 'M', 'C'];
 
 function now() {
@@ -2374,11 +2427,31 @@ async function handleMcpRequest(body) {
 
         const debugQueries = buildMemorySearchQueries(args.query || '', args.queryVariants || args.cleanedQueries || args.queries || []);
 
-        const results = await simpleSearch(memories, args.query || '', args.limit || 10, {
+        const safeMcpLimit = clampNumber(args.limit || 10, 1, 200, 10);
+        const results = await simpleSearch(memories, args.query || '', safeMcpLimit, {
           embedding: embeddingConfig,
           queryVariants: debugQueries.slice(1),
           scoreWeights: args.scoreWeights || args.weights || {}
         });
+
+        const mcpSearchMode = embeddingConfig.endpoint && embeddingConfig.apiKey ? 'semantic-hybrid' : 'keyword-fallback';
+
+        if (!args.diagnostic) {
+          updateLastMemorySearchState({
+            source: 'mcp:search_memory',
+            query: args.query || '',
+            searchMode: mcpSearchMode,
+            requestedSearchEngine: 'mcp-simpleSearch',
+            limit: safeMcpLimit,
+            candidateLimit: memories.length,
+            resultCount: results.length,
+            chroma: {
+              attempted: false,
+              fallback: false
+            },
+            results
+          });
+        }
 
         const text = memoriesToMcpText(results);
 
@@ -3233,6 +3306,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/memory/search/last' && req.method === 'GET') {
+    sendJson(res, 200, {
+      ok: true,
+      lastSearch: lastMemorySearchState
+    });
+    return;
+  }
+
   if (pathname === '/memory/search' && req.method === 'POST') {
     try {
       const body = await readRequestBody(req);
@@ -3334,21 +3415,37 @@ const server = http.createServer(async (req, res) => {
               if (chromaMemories.length >= safeLimit) break;
             }
 
-            if (chromaMemories.length > 0) {
-              sendJson(res, 200, {
-                ok: true,
-                query: q,
-                count: chromaMemories.length,
-                searchMode: 'chroma-vector',
-                chroma: {
-                  attempted: true,
-                  returned: ids.length,
-                  matchedCandidates: chromaMemories.length
-                },
-                memories: chromaMemories
-              });
-              return;
-            }
+              if (chromaMemories.length > 0) {
+                const responsePayload = {
+                  ok: true,
+                  query: q,
+                  count: chromaMemories.length,
+                  searchMode: 'chroma-vector',
+                  chroma: {
+                    attempted: true,
+                    returned: ids.length,
+                    matchedCandidates: chromaMemories.length
+                  },
+                  memories: chromaMemories
+                };
+
+                if (!body.diagnostic) {
+                  updateLastMemorySearchState({
+                    source: '/memory/search',
+                    query: q,
+                    searchMode: responsePayload.searchMode,
+                    requestedSearchEngine: memorySearchEngine,
+                    limit: safeLimit,
+                    candidateLimit: memories.length,
+                    resultCount: chromaMemories.length,
+                    chroma: responsePayload.chroma,
+                    results: chromaMemories
+                  });
+                }
+
+                sendJson(res, 200, responsePayload);
+                return;
+              }
 
             chromaError = 'chroma returned no matching memories after local filters';
           } else {
@@ -3466,7 +3563,7 @@ const server = http.createServer(async (req, res) => {
         scoreWeights: body.scoreWeights || body.weights || {}
       });
 
-      sendJson(res, 200, {
+      const responsePayload = {
         ok: true,
         query: q,
         debugQueries,
@@ -3483,7 +3580,23 @@ const server = http.createServer(async (req, res) => {
           attempted: false
         }),
         memories: results
-      });
+      };
+
+      if (!body.diagnostic) {
+        updateLastMemorySearchState({
+          source: '/memory/search',
+          query: q,
+          searchMode: responsePayload.searchMode,
+          requestedSearchEngine: memorySearchEngine,
+          limit: safeLimit,
+          candidateLimit: memories.length,
+          resultCount: results.length,
+          chroma: responsePayload.chroma,
+          results
+        });
+      }
+
+      sendJson(res, 200, responsePayload);
     } catch (error) {
       sendJson(res, 400, {
         ok: false,
