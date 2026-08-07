@@ -24,9 +24,21 @@ const {
 
 const PORT = 8765;
 const BACKUP_DIR = path.join(__dirname, 'backups');
+const API_TOKEN_FILE = path.join(__dirname, '.memory-api-token');
+
+function getConfiguredApiToken() {
+  const environmentToken = String(process.env.MEMORY_API_TOKEN || '').trim();
+  if (environmentToken) return environmentToken;
+
+  try {
+    return fs.readFileSync(API_TOKEN_FILE, 'utf8').trim();
+  } catch (error) {
+    return '';
+  }
+}
 
 function hasValidApiToken(req) {
-  const expected = String(process.env.MEMORY_API_TOKEN || '').trim();
+  const expected = getConfiguredApiToken();
   if (!expected) return true;
 
   const authorization = String(req.headers.authorization || '');

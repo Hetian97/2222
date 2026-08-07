@@ -2,3 +2,4 @@
 chroma-data/
 *.bak-chroma-routes
 patch-*.js
+.memory-api-token

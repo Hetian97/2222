@@ -1,11 +1,11 @@
 
 const EXTERNAL_MCP_PROXY_BASE_STORAGE_KEY = 'externalMcpProxyBaseUrl';
-const MEMORY_SERVER_BEARER_TOKEN_STORAGE_KEY = 'vm_external_memory_bearer_token';
+const EXTERNAL_MCP_PROXY_BEARER_TOKEN_STORAGE_KEY = 'vm_external_memory_bearer_token';
 
-function getMemoryServerRequestHeaders(extraHeaders = {}) {
+function getExternalMcpProxyRequestHeaders(extraHeaders = {}) {
   let token = '';
   try {
-    token = String(localStorage.getItem(MEMORY_SERVER_BEARER_TOKEN_STORAGE_KEY) || '').trim();
+    token = String(localStorage.getItem(EXTERNAL_MCP_PROXY_BEARER_TOKEN_STORAGE_KEY) || '').trim();
   } catch (error) {}
 
   return {
@@ -723,7 +723,7 @@ function buildExternalMcpProxyUrl(path) {
 
     const response = await fetch(buildExternalMcpProxyUrl('/external-mcp/tools-call'), {
       method: "POST",
-      headers: getMemoryServerRequestHeaders({ "Content-Type": "application/json" }),
+      headers: getExternalMcpProxyRequestHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         url: service.url,
         ...authPayload,
@@ -958,7 +958,7 @@ function buildExternalMcpProxyUrl(path) {
         } else {
           response = await fetch(buildExternalMcpProxyUrl('/external-mcp/tools-call'), {
             method: "POST",
-            headers: getMemoryServerRequestHeaders({
+            headers: getExternalMcpProxyRequestHeaders({
               "Content-Type": "application/json"
             }),
             body: JSON.stringify({
