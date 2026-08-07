@@ -9665,6 +9665,26 @@
   const MCP_SERVICE_EXTERNAL_TOOLS_CALL_URL = MCP_MANAGER_BASE_URL + '/external-mcp/tools-call';
   const MCP_SERVICE_CONFIGS_STORAGE_KEY = 'mcpServiceConfigs';
   const MCP_SERVICE_SELECTED_STORAGE_KEY = 'mcpServiceSelectedId';
+  const MEMORY_SERVER_BEARER_TOKEN_STORAGE_KEY = 'vm_external_memory_bearer_token';
+
+  function getMemoryServerRequestHeaders(extraHeaders = {}) {
+    let token = '';
+    try {
+      token = String(localStorage.getItem(MEMORY_SERVER_BEARER_TOKEN_STORAGE_KEY) || '').trim();
+    } catch (error) {}
+
+    return {
+      ...extraHeaders,
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    };
+  }
+
+  function memoryServerFetch(url, options = {}) {
+    return fetch(url, {
+      ...options,
+      headers: getMemoryServerRequestHeaders(options.headers || {})
+    });
+  }
 
   function setMcpManagerOutput(text) {
     const output = document.getElementById('mcp-manager-output');
@@ -9690,7 +9710,7 @@
     setMcpManagerOutput('正在连接 memory-server...');
 
     try {
-      const response = await fetch(MCP_MANAGER_HEALTH_URL);
+      const response = await memoryServerFetch(MCP_MANAGER_HEALTH_URL);
       const data = await response.json();
 
       if (!response.ok) {
@@ -9829,11 +9849,11 @@
     setMcpManagerOutput('正在请求 /memory/search：' + engineLabel);
 
     try {
-      const response = await fetch(MCP_MANAGER_SEARCH_URL, {
+      const response = await memoryServerFetch(MCP_MANAGER_SEARCH_URL, {
         method: 'POST',
-        headers: {
+        headers: getMemoryServerRequestHeaders({
           'Content-Type': 'application/json'
-        },
+        }),
         body: JSON.stringify({
           query,
           limit: 5,
@@ -9933,7 +9953,7 @@
     setMcpManagerOutput('正在请求 /memory/search/last...');
 
     try {
-      const response = await fetch(MCP_MANAGER_LAST_SEARCH_URL);
+      const response = await memoryServerFetch(MCP_MANAGER_LAST_SEARCH_URL);
       const data = await response.json();
 
       if (!response.ok || !data.ok) {
@@ -10013,11 +10033,11 @@
     setMcpManagerOutput('正在请求 /memory/backup...');
 
     try {
-      const response = await fetch(MCP_MANAGER_BACKUP_URL, {
+      const response = await memoryServerFetch(MCP_MANAGER_BACKUP_URL, {
         method: 'POST',
-        headers: {
+        headers: getMemoryServerRequestHeaders({
           'Content-Type': 'application/json'
-        },
+        }),
         body: '{}'
       });
 
@@ -10048,11 +10068,11 @@
     setMcpManagerOutput('正在请求 /memory/chroma/rebuild...');
 
     try {
-      const response = await fetch(MCP_MANAGER_CHROMA_REBUILD_URL, {
+      const response = await memoryServerFetch(MCP_MANAGER_CHROMA_REBUILD_URL, {
         method: 'POST',
-        headers: {
+        headers: getMemoryServerRequestHeaders({
           'Content-Type': 'application/json'
-        },
+        }),
         body: JSON.stringify({
           batchSize: 50
         })
@@ -10171,7 +10191,7 @@
     setMcpManagerOutput('正在请求 SQLite stats 和 Chroma status...');
 
     try {
-      const response = await fetch(MCP_MANAGER_STATS_URL);
+      const response = await memoryServerFetch(MCP_MANAGER_STATS_URL);
       const data = await response.json();
 
       if (!response.ok || !data.ok) {
@@ -10184,7 +10204,7 @@
       };
 
       try {
-        const chromaResponse = await fetch(MCP_MANAGER_CHROMA_STATUS_URL);
+        const chromaResponse = await memoryServerFetch(MCP_MANAGER_CHROMA_STATUS_URL);
         chromaData = await chromaResponse.json();
 
         if (!chromaResponse.ok || !chromaData.ok) {
@@ -11079,7 +11099,7 @@
     setMcpServiceOutput('正在请求外部 MCP tools/list...');
 
     try {
-      const response = await fetch(MCP_SERVICE_EXTERNAL_TOOLS_LIST_URL, {
+      const response = await memoryServerFetch(MCP_SERVICE_EXTERNAL_TOOLS_LIST_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -11150,7 +11170,7 @@
     setMcpServiceOutput('正在调用外部 MCP tools/call：' + toolName + '...');
 
     try {
-      const response = await fetch(MCP_SERVICE_EXTERNAL_TOOLS_CALL_URL, {
+      const response = await memoryServerFetch(MCP_SERVICE_EXTERNAL_TOOLS_CALL_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -11186,7 +11206,7 @@
     setMcpManagerOutput('正在请求 tools/list...');
 
     try {
-      const response = await fetch(MCP_MANAGER_MCP_URL, {
+      const response = await memoryServerFetch(MCP_MANAGER_MCP_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -1,6 +1,7 @@
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const {
   db,
@@ -23,6 +24,20 @@ const {
 
 const PORT = 8765;
 const BACKUP_DIR = path.join(__dirname, 'backups');
+
+function hasValidApiToken(req) {
+  const expected = String(process.env.MEMORY_API_TOKEN || '').trim();
+  if (!expected) return true;
+
+  const authorization = String(req.headers.authorization || '');
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  if (!match) return false;
+
+  const supplied = Buffer.from(match[1].trim());
+  const expectedBuffer = Buffer.from(expected);
+  return supplied.length === expectedBuffer.length &&
+    crypto.timingSafeEqual(supplied, expectedBuffer);
+}
 
 let lastMemorySearchState = null;
 
@@ -2986,6 +3001,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (!hasValidApiToken(req)) {
+    sendJson(res, 401, {
+      ok: false,
+      error: 'Unauthorized'
+    });
+    return;
+  }
+
 
   if (pathname === '/hotlist-mcp' && req.method === 'GET') {
     sendJson(res, 200, {
@@ -3684,8 +3707,8 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Aion Memory Server running at http://0.0.0.0:${PORT}`);
+server.listen(PORT, '127.0.0.1', () => {
+  console.log(`Aion Memory Server running at http://127.0.0.1:${PORT}`);
   console.log(`Local health check: http://127.0.0.1:${PORT}/health`);
   console.log(`Tailscale access: http://100.81.84.121:${PORT}/health`);
   console.log('Storage: SQLite memory.db');

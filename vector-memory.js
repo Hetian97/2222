@@ -59,7 +59,8 @@ class VariableMemoryManager {
           autoExtractionMsgInterval: 20,
           lastExtractedMsgIndex: -1, // 基于消息索引，解决每轮都提取的Bug
           externalMemoryEnabled: localStorage.getItem('vm_external_memory_enabled') === 'true',
-          externalMemoryEndpoint: localStorage.getItem('vm_external_memory_endpoint') || 'http://127.0.0.1:8765'
+          externalMemoryEndpoint: localStorage.getItem('vm_external_memory_endpoint') || 'http://127.0.0.1:8765',
+          externalMemoryBearerToken: localStorage.getItem('vm_external_memory_bearer_token') || ''
         },
         _customCategories: {},
         stats: { totalFragments: 0, totalRecalls: 0, lastUpdated: 0 },
@@ -78,6 +79,9 @@ class VariableMemoryManager {
 
     if (vm.settings.externalMemoryEndpoint === undefined) {
       vm.settings.externalMemoryEndpoint = localStorage.getItem('vm_external_memory_endpoint') || 'http://127.0.0.1:8765';
+    }
+    if (vm.settings.externalMemoryBearerToken === undefined) {
+      vm.settings.externalMemoryBearerToken = localStorage.getItem('vm_external_memory_bearer_token') || '';
     }
 
     // 无损迁移旧版 VectorMemory 数据
@@ -176,16 +180,24 @@ class VariableMemoryManager {
     ).replace(/\/$/, '');
   }
 
+  getExternalMemoryRequestHeaders(chat, extraHeaders = {}) {
+    const token = String(this.getVariableMemory(chat).settings?.externalMemoryBearerToken || '').trim();
+    return {
+      ...extraHeaders,
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    };
+  }
+
   async externalMemoryRequest(chat, path, options = {}) {
     const endpoint = this.getExternalMemoryEndpoint(chat);
     const url = endpoint + path;
 
     const response = await fetch(url, {
       method: options.method || 'GET',
-      headers: {
+      headers: this.getExternalMemoryRequestHeaders(chat, {
         'Content-Type': 'application/json',
         ...(options.headers || {})
-      },
+      }),
       body: options.body ? JSON.stringify(options.body) : undefined
     });
 
@@ -212,6 +224,7 @@ class VariableMemoryManager {
 
     const enabledEl = document.getElementById('vm-external-memory-enabled');
     const endpointEl = document.getElementById('vm-external-memory-endpoint');
+    const tokenEl = document.getElementById('vm-external-memory-bearer-token');
 
     if (enabledEl) {
       vm.settings.externalMemoryEnabled = enabledEl.checked;
@@ -222,6 +235,12 @@ class VariableMemoryManager {
       const endpoint = endpointEl.value.trim() || 'http://127.0.0.1:8765';
       vm.settings.externalMemoryEndpoint = endpoint;
       localStorage.setItem('vm_external_memory_endpoint', endpoint);
+    }
+
+    if (tokenEl) {
+      const token = tokenEl.value.trim();
+      vm.settings.externalMemoryBearerToken = token;
+      localStorage.setItem('vm_external_memory_bearer_token', token);
     }
 
     return vm.settings;
@@ -245,7 +264,9 @@ class VariableMemoryManager {
     }
 
     try {
-      const res = await fetch(`${endpoint}/health`);
+      const res = await fetch(`${endpoint}/health`, {
+        headers: this.getExternalMemoryRequestHeaders(chat)
+      });
       const data = await res.json();
 
       if (data?.ok) {
@@ -1745,6 +1766,17 @@ ${output}`;
             >
           </div>
 
+          <div style="margin-top:8px;">
+            <input
+              type="password"
+              id="vm-external-memory-bearer-token"
+              value="${this._escapeHtml(s.externalMemoryBearerToken || '')}"
+              placeholder="Memory Server Bearer Token（启用鉴权后填写）"
+              autocomplete="off"
+              class="vm-input-full"
+            >
+          </div>
+
           <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
             <button
               id="vm-test-external-memory-btn"
@@ -1766,7 +1798,7 @@ ${output}`;
           ></div>
 
           <div style="font-size:11px;color:#999;margin-top:6px;line-height:1.5;">
-            开启后，后续可连接本地 SQLite memory-server。电脑端通常使用 http://127.0.0.1:8765，手机端可使用 Tailscale 地址。
+            使用 VPS 时填写 https://mcp.htw1.uk；启用鉴权后，在本设备填写 Bearer Token。Token 不会提交到 GitHub。
           </div>
         </div>
 
@@ -1809,6 +1841,13 @@ ${output}`;
     const modelInput = document.getElementById('vm-embedding-model-input')?.value.trim();
     const modelSelect = document.getElementById('vm-embedding-model-select')?.value;
     vm.settings.embeddingModel = modelInput || modelSelect || 'text-embedding-3-small';
+
+    const externalEndpoint = document.getElementById('vm-external-memory-endpoint')?.value.trim() || 'http://127.0.0.1:8765';
+    const externalBearerToken = document.getElementById('vm-external-memory-bearer-token')?.value.trim() || '';
+    vm.settings.externalMemoryEndpoint = externalEndpoint;
+    vm.settings.externalMemoryBearerToken = externalBearerToken;
+    localStorage.setItem('vm_external_memory_endpoint', externalEndpoint);
+    localStorage.setItem('vm_external_memory_bearer_token', externalBearerToken);
     
       vm.settings.useCustomExtractionPrompt = document.getElementById('vm-custom-prompt')?.checked || false;
       vm.settings.customExtractionPrompt = document.getElementById('vm-custom-prompt-text')?.value || '';
