@@ -114,4 +114,8 @@ db.version(59).stores({
   livingSpaceMemories: '&id, spaceId, cornerId, characterId, createdAt'
 });
 
+db.version(60).stores({
+  livingSpaceTraces: '&id, spaceId, cornerId, characterId, createdAt'
+});
+
 window.db = db;
