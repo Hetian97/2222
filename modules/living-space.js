@@ -85,7 +85,8 @@
   }
 
   function showCaptureForm(space, corners, noteOnly) {
-    const recent = (chat()?.history || []).filter(message => !message.isHidden && text(message).trim()).slice(-30).reverse();
+    // 思维链虽可在聊天页显示，但它是模型内部推理，不属于可收藏的剧情/生活片段。
+    const recent = (chat()?.history || []).filter(message => !message.isHidden && !message.isExcluded && message.type !== 'thought_chain_block' && text(message).trim()).slice(-30).reverse();
     const target = document.getElementById('living-memory-list');
     target.innerHTML = `<div class="living-space-form"><strong>${noteOnly ? '写一条地点备注' : '收录一段最近聊天'}</strong><label>归属角落</label><select id="living-memory-corner">${corners.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('')}</select>${noteOnly ? '<label>内容</label><textarea id="living-memory-note" rows="4" placeholder="写下地点相关的事实、旧物或重要片段…"></textarea>' : `<label>聊天片段</label><select id="living-memory-source">${recent.map((message, index) => `<option value="${index}">${esc(message.role === 'user' ? '我' : (chat().name || '角色'))}：${esc(text(message).slice(0, 80))}</option>`).join('')}</select>`}<label>标签（可选，以逗号分隔）</label><input id="living-memory-tags" placeholder="共同晚餐, 物件"><div class="living-space-actions"><button id="living-save-memory">保存</button><button class="secondary" id="living-cancel-memory">取消</button></div></div>`;
     document.getElementById('living-cancel-memory').onclick = renderSpace;
