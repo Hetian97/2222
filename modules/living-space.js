@@ -25,26 +25,35 @@
   }
 
   function renderOrigin(space, container) {
-    const book = (state.worldBooks || []).find(item => item.id === space.originWorldBookId);
-    if (!book) return;
-    const section = document.createElement('section');
-    section.className = 'living-space-origin';
+    const ids = space.originWorldBookIds || (space.originWorldBookId ? [space.originWorldBookId] : []);
+    const books = (state.worldBooks || []).filter(item => ids.includes(item.id));
+    if (!books.length) return;
+    const wrapper = document.createElement('section');
+    wrapper.className = 'living-space-origin';
     const heading = document.createElement('h4');
-    heading.textContent = '地点原典 · ' + book.name;
+    heading.textContent = '地点原典';
     const hint = document.createElement('p');
     hint.className = 'living-space-note';
     hint.textContent = '只读参考；不会写入聊天提示词，也不会覆盖生活空间内容。';
-    section.append(heading, hint);
-    (book.content || []).filter(entry => entry.enabled !== false).forEach(entry => {
-      const details = document.createElement('details');
-      const summary = document.createElement('summary');
-      summary.textContent = entry.comment || (entry.keys || []).join('、') || '世界书条目';
-      const body = document.createElement('div');
-      body.textContent = entry.content || '';
-      details.append(summary, body);
-      section.appendChild(details);
+    wrapper.append(heading, hint);
+    books.forEach(book => {
+      const group = document.createElement('div');
+      group.className = 'living-space-origin-book';
+      const name = document.createElement('strong');
+      name.textContent = book.name;
+      group.appendChild(name);
+      (book.content || []).filter(entry => entry.enabled !== false).forEach(entry => {
+        const details = document.createElement('details');
+        const summary = document.createElement('summary');
+        summary.textContent = entry.comment || (entry.keys || []).join('、') || '世界书条目';
+        const body = document.createElement('div');
+        body.textContent = entry.content || '';
+        details.append(summary, body);
+        group.appendChild(details);
+      });
+      wrapper.appendChild(group);
     });
-    container.before(section);
+    container.before(wrapper);
   }
 
   function showOriginPicker(space) {
@@ -59,13 +68,19 @@
     const hint = document.createElement('p');
     hint.className = 'living-space-note';
     hint.textContent = '只建立生活空间内的只读关联，不会改变聊天当前绑定的世界书。';
-    const select = document.createElement('select');
+    const selectedIds = new Set(space.originWorldBookIds || (space.originWorldBookId ? [space.originWorldBookId] : []));
+    const choices = document.createElement('div');
+    choices.className = 'living-space-origin-choices';
     books.forEach(book => {
-      const option = document.createElement('option');
-      option.value = book.id;
-      option.textContent = book.name;
-      option.selected = book.id === space.originWorldBookId;
-      select.appendChild(option);
+      const label = document.createElement('label');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = book.id;
+      checkbox.checked = selectedIds.has(book.id);
+      const name = document.createElement('span');
+      name.textContent = book.name;
+      label.append(checkbox, name);
+      choices.appendChild(label);
     });
     const actions = document.createElement('div');
     actions.className = 'living-space-actions';
@@ -78,14 +93,15 @@
     cancel.className = 'secondary';
     cancel.textContent = '取消';
     actions.append(save, unlink, cancel);
-    form.append(title, hint, select, actions);
+    form.append(title, hint, choices, actions);
     target.appendChild(form);
     save.onclick = async () => {
-      await db.livingSpaces.update(space.id, { originWorldBookId: select.value, updatedAt: Date.now() });
+      const ids = [...choices.querySelectorAll('input:checked')].map(input => input.value);
+      await db.livingSpaces.update(space.id, { originWorldBookIds: ids, originWorldBookId: null, updatedAt: Date.now() });
       renderSpace();
     };
     unlink.onclick = async () => {
-      await db.livingSpaces.update(space.id, { originWorldBookId: null, updatedAt: Date.now() });
+      await db.livingSpaces.update(space.id, { originWorldBookIds: [], originWorldBookId: null, updatedAt: Date.now() });
       renderSpace();
     };
     cancel.onclick = renderSpace;
