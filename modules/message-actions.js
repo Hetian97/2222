@@ -17,6 +17,16 @@
 
     activeMessageTimestamp = timestamp;
 
+    const message = chat.history.find(m => m.timestamp === timestamp);
+    const livingSpaceExtractBtn = document.getElementById('living-space-extract-btn');
+    const nonTextTypes = ['thought_chain_block', 'ai_image', 'user_photo', 'voice_message', 'sticker', 'transfer', 'red_packet', 'recalled_message'];
+    const canExtractToLivingSpace = message &&
+      (message.role === 'user' || message.role === 'assistant') &&
+      !message.isHidden && !message.isExcluded &&
+      !nonTextTypes.includes(message.type) &&
+      typeof message.content === 'string' && message.content.trim();
+    if (livingSpaceExtractBtn) livingSpaceExtractBtn.style.display = canExtractToLivingSpace ? 'block' : 'none';
+
     // 检查此消息前面是否有被隐藏的思考过程
     const msgIndex = chat.history.findIndex(m => m.timestamp === timestamp);
     const viewThoughtChainBtn = document.getElementById('view-thought-chain-btn');
@@ -54,6 +64,15 @@
   function hideMessageActions() {
     document.getElementById('message-actions-modal').classList.remove('visible');
     activeMessageTimestamp = null;
+  }
+
+  function extractMessageToLivingSpace() {
+    if (!activeMessageTimestamp) return;
+    const chat = state.chats[state.activeChatId];
+    const message = chat?.history.find(m => m.timestamp === activeMessageTimestamp);
+    if (!message || typeof window.openLivingSpaceExtract !== 'function') return;
+    hideMessageActions();
+    window.openLivingSpaceExtract(chat, message);
   }
 
   // ========== 排除/恢复消息 (省Token) ==========
@@ -1895,6 +1914,7 @@
   // ========== 导出到全局作用域 ==========
   window.showMessageActions = showMessageActions;
   window.hideMessageActions = hideMessageActions;
+  window.extractMessageToLivingSpace = extractMessageToLivingSpace;
   window.toggleExcludeMessage = toggleExcludeMessage;
   window.toggleExcludeSelectedMessages = toggleExcludeSelectedMessages;
   window.openBatchExcludeManager = openBatchExcludeManager;

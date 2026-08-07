@@ -2566,6 +2566,8 @@ window.initEventBindingsB = function(state, db) {
 
     document.getElementById('copy-message-btn').addEventListener('click', copyMessageContent);
 
+    document.getElementById('living-space-extract-btn').addEventListener('click', () => window.extractMessageToLivingSpace?.());
+
 
     document.getElementById('recall-message-btn').addEventListener('click', handleRecallClick);
 

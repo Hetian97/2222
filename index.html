@@ -7584,8 +7584,21 @@
   </div>
   <div id="message-actions-modal" class="modal">
     <div id="custom-modal" style="width: 250px;">
-      <div class="custom-modal-footer"> <button id="view-thought-chain-btn" style="display: none; color: var(--accent-color);">查看深度思考</button> <button id="edit-message-btn" data-lang-key="edit">编辑消息</button> <button id="copy-message-btn">复制文本</button> <button id="copy-timestamp-btn">复制时间戳</button> <button id="recall-message-btn">撤回</button> <button id="publish-to-announcement-btn" style="display: none;">发布到公告板</button>
+      <div class="custom-modal-footer"> <button id="view-thought-chain-btn" style="display: none; color: var(--accent-color);">查看深度思考</button> <button id="edit-message-btn" data-lang-key="edit">编辑消息</button> <button id="copy-message-btn">复制文本</button> <button id="living-space-extract-btn" style="display:none;">摘录到生活空间</button> <button id="copy-timestamp-btn">复制时间戳</button> <button id="recall-message-btn">撤回</button> <button id="publish-to-announcement-btn" style="display: none;">发布到公告板</button>
         <button id="translate-message-btn">翻译</button> <button id="quote-message-btn">引用</button> <button id="forward-message-btn">转发</button> <button id="select-message-btn">进入多选</button> <button id="cancel-message-action-btn" style="margin-top: 8px; border-radius: 8px; background-color: #f0f0f0;"data-lang-key="cancel">取消</button> </div>
+    </div>
+  </div>
+  <div id="living-space-extract-modal" class="modal">
+    <div class="modal-content" style="width:min(420px, calc(100vw - 36px));">
+      <div class="modal-header"><span>摘录到生活空间</span></div>
+      <div class="modal-body">
+        <p style="margin:0 0 12px;color:#777;font-size:12px;line-height:1.5;">先保留与地点有关的部分。此摘录仅会存入生活空间，不会写入长期记忆。</p>
+        <div class="form-group"><label>摘录内容</label><textarea id="living-extract-content" rows="5" style="width:100%;box-sizing:border-box;"></textarea></div>
+        <div class="form-group"><label>居所</label><select id="living-extract-space" style="width:100%;"></select></div>
+        <div class="form-group"><label>角落</label><select id="living-extract-corner" style="width:100%;"></select></div>
+        <div class="form-group"><label>标签（可选，以逗号分隔）</label><input id="living-extract-tags" type="text" style="width:100%;box-sizing:border-box;" placeholder="共同晚餐, 物件"></div>
+      </div>
+      <div class="modal-footer"><button class="cancel" id="living-extract-cancel">取消</button><button class="save" id="living-extract-save">保存摘录</button></div>
     </div>
   </div>
   <div id="post-actions-modal" class="modal">

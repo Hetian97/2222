@@ -3,6 +3,7 @@
 (function () {
   let characterId = null;
   let spaceId = null;
+  let extractSource = null;
   const uid = () => crypto.randomUUID ? crypto.randomUUID() : `living-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
   const text = message => typeof message?.content === 'string' ? message.content : (message?.content?.text || '');
@@ -156,6 +157,52 @@
     showCornerMemories(space, corners, item.cornerId);
   }
 
+  async function openLivingSpaceExtract(sourceChat, message) {
+    const availableSpaces = (await db.livingSpaces.where('characterId').equals(sourceChat.id).toArray()).filter(item => (item.corners || []).length > 0);
+    if (!availableSpaces.length) {
+      alert('请先在这个角色的生活空间中创建至少一个居所和角落，再从聊天中摘录。');
+      return;
+    }
+    extractSource = { chat: sourceChat, message, spaces: availableSpaces };
+    document.getElementById('living-extract-content').value = text(message);
+    document.getElementById('living-extract-tags').value = '';
+    const spaceSelect = document.getElementById('living-extract-space');
+    spaceSelect.innerHTML = availableSpaces.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
+    renderExtractCorners();
+    document.getElementById('living-space-extract-modal').classList.add('visible');
+  }
+
+  function renderExtractCorners() {
+    if (!extractSource) return;
+    const selectedId = document.getElementById('living-extract-space').value;
+    const selectedSpace = extractSource.spaces.find(item => item.id === selectedId);
+    const cornerSelect = document.getElementById('living-extract-corner');
+    cornerSelect.innerHTML = (selectedSpace?.corners || []).map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('');
+  }
+
+  function closeLivingSpaceExtract() {
+    document.getElementById('living-space-extract-modal').classList.remove('visible');
+    extractSource = null;
+  }
+
+  async function saveLivingSpaceExtract() {
+    if (!extractSource) return;
+    const extractedContent = document.getElementById('living-extract-content').value.trim();
+    const selectedSpaceId = document.getElementById('living-extract-space').value;
+    const selectedCornerId = document.getElementById('living-extract-corner').value;
+    if (!extractedContent || !selectedSpaceId || !selectedCornerId) return;
+    const tags = document.getElementById('living-extract-tags').value.split(/[,，]/).map(tag => tag.trim()).filter(Boolean);
+    const { chat: sourceChat, message } = extractSource;
+    await db.livingSpaceMemories.add({
+      id: uid(), spaceId: selectedSpaceId, cornerId: selectedCornerId, characterId: sourceChat.id,
+      content: extractedContent, sourceChatId: sourceChat.id, sourceMessageTimestamp: message.timestamp || null,
+      sourceLabel: message.role === 'user' ? '我说' : `${sourceChat.name}说`, tags, createdAt: Date.now()
+    });
+    await db.livingSpaces.update(selectedSpaceId, { updatedAt: Date.now() });
+    closeLivingSpaceExtract();
+    if (typeof showToast === 'function') showToast('已摘录到生活空间');
+  }
+
   function showCaptureForm(space, corners, noteOnly) {
     // 思维链虽可在聊天页显示，但它是模型内部推理，不属于可收藏的剧情/生活片段。
     const recent = (chat()?.history || []).filter(message => !message.isHidden && !message.isExcluded && message.type !== 'thought_chain_block' && text(message).trim()).slice(-30).reverse();
@@ -175,4 +222,9 @@
   }
 
   window.openLivingSpace = () => { characterId = null; spaceId = null; window.showScreen('living-space-screen'); renderCharacters(); };
+  window.openLivingSpaceExtract = openLivingSpaceExtract;
+
+  document.getElementById('living-extract-space')?.addEventListener('change', renderExtractCorners);
+  document.getElementById('living-extract-cancel')?.addEventListener('click', closeLivingSpaceExtract);
+  document.getElementById('living-extract-save')?.addEventListener('click', saveLivingSpaceExtract);
 })();
