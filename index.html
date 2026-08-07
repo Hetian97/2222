@@ -26,6 +26,7 @@
   <link rel="stylesheet" href="online-app.css?v=0.0.36">
   <link rel="stylesheet" href="period-tracker.css?v=0.0.37">
   <link rel="stylesheet" href="focus-timer.css?v=0.0.36">
+  <link rel="stylesheet" href="css/living-space.css?v=0.0.1">
   <link rel="stylesheet" href="extra.css?v=0.0.36">
   <link rel="apple-touch-icon" href="https://i.postimg.cc/nMbyyt1t/D7CD735A73F5FD1D7B8407E0EB8BBAC0.png">
   <link rel="manifest" href="manifest.json?v=0.0.36">
@@ -97,6 +98,7 @@
   <script src="modules/werewolf.js?v=0.0.36" defer></script>
   <script src="modules/reading-room.js?v=0.0.36" defer></script>
   <script src="modules/douban.js?v=0.0.36" defer></script>
+  <script src="modules/living-space.js?v=0.0.1" defer></script>
   <!-- 第七层：其余功能 -->
   <script src="modules/tts-audio.js?v=0.0.36" defer></script>
   <script src="modules/appearance-theme.js?v=0.0.36" defer></script>
@@ -500,9 +502,9 @@
                   <span class="label">联机</span>
                 </div>
                 <!-- 第二行 -->
-                <div class="desktop-app-icon">
-                  <div class="icon-bg-desktop"><img id="icon-img-forum" src="https://i.postimg.cc/MTC3Tkw8/IMG-6436.jpg" alt="论坛"></div>
-                  <span class="label">论坛</span>
+                <div class="desktop-app-icon" onclick="openLivingSpace()">
+                  <div class="icon-bg-desktop"><img id="icon-img-forum" src="https://i.postimg.cc/MTC3Tkw8/IMG-6436.jpg" alt="生活空间"></div>
+                  <span class="label">生活空间</span>
                 </div>
                 <div class="desktop-app-icon" onclick="openPeriodTracker()">
                   <div class="icon-bg-desktop"><img id="icon-img-period-tracker" src="https://i.postimg.cc/RVGt0yMN/calendar-pink.png" alt="月经记录"></div>
@@ -741,6 +743,15 @@
         <span style="width: 30px;"></span>
       </div>
       <div id="couple-space-select-content" class="list-container"></div>
+    </div>
+
+    <div id="living-space-screen" class="screen">
+      <div class="header">
+        <span class="back-btn" onclick="showScreen('home-screen')">‹</span>
+        <span>生活空间</span>
+        <span style="width:30px;"></span>
+      </div>
+      <div id="living-space-content" class="list-container"></div>
     </div>
 
     <div id="character-selection-screen" class="screen">

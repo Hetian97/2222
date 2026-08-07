@@ -108,4 +108,10 @@ db.version(58).stores({
   coupleAlbumPhotos: '++id, chatId, timestamp'
 });
 
+// 生活空间数据独立于现有长期记忆模式。
+db.version(59).stores({
+  livingSpaces: '&id, characterId, updatedAt',
+  livingSpaceMemories: '&id, spaceId, cornerId, characterId, createdAt'
+});
+
 window.db = db;

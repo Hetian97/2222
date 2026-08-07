@@ -1,0 +1,22 @@
+.living-space-shell { padding: 16px; color: var(--text-primary, #222); }
+.living-space-note { margin: 0 0 14px; font-size: 12px; line-height: 1.55; color: var(--text-secondary, #777); }
+.living-space-character-list, .living-space-space-list { display: grid; gap: 10px; }
+.living-space-character, .living-space-space, .living-space-corner, .living-space-memory { background: rgba(255,255,255,.9); border: 1px solid rgba(0,0,0,.08); border-radius: 14px; box-sizing: border-box; }
+.living-space-character, .living-space-space { width: 100%; padding: 13px; text-align: left; color: inherit; cursor: pointer; }
+.living-space-character { display: flex; gap: 10px; align-items: center; }
+.living-space-character img { width: 38px; height: 38px; object-fit: cover; border-radius: 50%; background:#eee; }
+.living-space-space { min-height: 86px; }
+.living-space-space strong, .living-space-corner strong { display:block; font-size: 15px; }
+.living-space-space span, .living-space-corner small { display:block; margin-top:5px; color: var(--text-secondary, #777); font-size: 12px; line-height: 1.45; }
+.living-space-actions { display:flex; gap:8px; margin: 12px 0; flex-wrap:wrap; }
+.living-space-actions button { border: 0; border-radius: 10px; padding: 9px 12px; color:#fff; background:#4b6b8f; cursor:pointer; font-size:13px; }
+.living-space-actions .secondary { color:#4b6b8f; background:#edf2f7; }
+.living-space-corner-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top: 10px; }
+.living-space-corner { padding: 12px; min-height: 82px; cursor:pointer; }
+.living-space-memory { margin-top:10px; padding:12px; border-left:3px solid #8ca9c6; }
+.living-space-memory p { margin:6px 0 0; font-size:13px; line-height:1.55; white-space:pre-wrap; }
+.living-space-memory-meta { color: var(--text-secondary, #888); font-size:11px; }
+.living-space-form { margin-top:14px; padding:13px; border-radius:14px; background:#f4f7fa; }
+.living-space-form label { display:block; margin:10px 0 5px; font-size:12px; color:#555; }
+.living-space-form select, .living-space-form textarea, .living-space-form input { width:100%; box-sizing:border-box; border:1px solid #d4dce5; border-radius:9px; padding:9px; font:inherit; background:#fff; }
+.living-space-empty { margin: 34px 12px; text-align:center; color:var(--text-secondary,#888); line-height:1.7; }
