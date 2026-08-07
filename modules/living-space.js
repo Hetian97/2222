@@ -24,6 +24,73 @@
     return cornerId ? all.filter(item => item.cornerId === cornerId) : all;
   }
 
+  function renderOrigin(space, container) {
+    const book = (state.worldBooks || []).find(item => item.id === space.originWorldBookId);
+    if (!book) return;
+    const section = document.createElement('section');
+    section.className = 'living-space-origin';
+    const heading = document.createElement('h4');
+    heading.textContent = '地点原典 · ' + book.name;
+    const hint = document.createElement('p');
+    hint.className = 'living-space-note';
+    hint.textContent = '只读参考；不会写入聊天提示词，也不会覆盖生活空间内容。';
+    section.append(heading, hint);
+    (book.content || []).filter(entry => entry.enabled !== false).forEach(entry => {
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = entry.comment || (entry.keys || []).join('、') || '世界书条目';
+      const body = document.createElement('div');
+      body.textContent = entry.content || '';
+      details.append(summary, body);
+      section.appendChild(details);
+    });
+    container.before(section);
+  }
+
+  function showOriginPicker(space) {
+    const books = state.worldBooks || [];
+    if (!books.length) return alert('还没有可关联的世界书。');
+    const target = document.getElementById('living-memory-list');
+    target.innerHTML = '';
+    const form = document.createElement('div');
+    form.className = 'living-space-form';
+    const title = document.createElement('strong');
+    title.textContent = '关联地点原典';
+    const hint = document.createElement('p');
+    hint.className = 'living-space-note';
+    hint.textContent = '只建立生活空间内的只读关联，不会改变聊天当前绑定的世界书。';
+    const select = document.createElement('select');
+    books.forEach(book => {
+      const option = document.createElement('option');
+      option.value = book.id;
+      option.textContent = book.name;
+      option.selected = book.id === space.originWorldBookId;
+      select.appendChild(option);
+    });
+    const actions = document.createElement('div');
+    actions.className = 'living-space-actions';
+    const save = document.createElement('button');
+    save.textContent = '保存关联';
+    const unlink = document.createElement('button');
+    unlink.className = 'secondary';
+    unlink.textContent = '解除关联';
+    const cancel = document.createElement('button');
+    cancel.className = 'secondary';
+    cancel.textContent = '取消';
+    actions.append(save, unlink, cancel);
+    form.append(title, hint, select, actions);
+    target.appendChild(form);
+    save.onclick = async () => {
+      await db.livingSpaces.update(space.id, { originWorldBookId: select.value, updatedAt: Date.now() });
+      renderSpace();
+    };
+    unlink.onclick = async () => {
+      await db.livingSpaces.update(space.id, { originWorldBookId: null, updatedAt: Date.now() });
+      renderSpace();
+    };
+    cancel.onclick = renderSpace;
+  }
+
   async function renderCharacters() {
     const el = content();
     if (!el) return;
@@ -93,6 +160,12 @@
     const cornerList = item.corners || [];
     el.innerHTML = `<div class="living-space-shell"><div class="living-space-actions"><button class="secondary" id="living-spaces">居所列表</button><button class="secondary" id="living-edit-space">编辑居所</button><button class="danger" id="living-delete-space">删除居所</button><button id="living-add-corner">添加角落</button></div><h3 style="margin:8px 0 4px;">${esc(item.name)}</h3><p class="living-space-note">${esc(item.description || '尚未填写地点档案。')}</p><div class="living-space-corner-grid">${cornerList.map(corner => `<div class="living-space-corner" data-corner="${esc(corner.id)}"><strong>${esc(corner.name)}</strong><small>${esc(corner.description || '尚未填写角落备注')}</small><div class="living-space-card-actions"><button class="secondary" data-organize-corner="${esc(corner.id)}">整理</button><button class="secondary" data-edit-corner="${esc(corner.id)}">编辑</button><button class="danger" data-delete-corner="${esc(corner.id)}">删除</button></div></div>`).join('')}</div>${cornerList.length ? '<div class="living-space-actions"><button id="living-capture-chat">收录一段聊天</button><button class="secondary" id="living-add-note">写一条角落备注</button></div>' : '<p class="living-space-empty">先添加一个角落，例如厨房、窗边或旧钢琴旁。</p>'}<div id="living-memory-list">${memoryMarkup(await memories(item.id), cornerList)}</div><div id="living-trace-list">${traceMarkup(await traces(item.id), cornerList)}</div></div>`;
     document.getElementById('living-spaces').onclick = renderSpaces;
+    const originButton = document.createElement('button');
+    originButton.className = 'secondary';
+    originButton.textContent = '关联地点原典';
+    originButton.onclick = () => showOriginPicker(item);
+    document.getElementById('living-edit-space').after(originButton);
+    renderOrigin(item, el.querySelector('.living-space-corner-grid'));
     document.getElementById('living-edit-space').onclick = () => editSpace(item);
     document.getElementById('living-delete-space').onclick = () => deleteSpace(item);
     document.getElementById('living-add-corner').onclick = () => addCorner(item);

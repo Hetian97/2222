@@ -29,3 +29,8 @@
 .living-space-form label { display:block; margin:10px 0 5px; font-size:12px; color:#555; }
 .living-space-form select, .living-space-form textarea, .living-space-form input { width:100%; box-sizing:border-box; border:1px solid #d4dce5; border-radius:9px; padding:9px; font:inherit; background:#fff; }
 .living-space-empty { margin: 34px 12px; text-align:center; color:var(--text-secondary,#888); line-height:1.7; }
+.living-space-origin { margin:16px 0; padding:13px; border-radius:14px; background:#f4f7fa; border-left:3px solid #8ca9c6; }
+.living-space-origin h4 { margin:0 0 6px; font-size:14px; }
+.living-space-origin details { margin-top:8px; }
+.living-space-origin summary { cursor:pointer; font-size:13px; font-weight:600; }
+.living-space-origin details div { margin-top:7px; white-space:pre-wrap; font-size:12px; line-height:1.6; color:#555; }
