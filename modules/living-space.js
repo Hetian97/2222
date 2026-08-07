@@ -69,11 +69,12 @@
   function traceMarkup(list, corners) {
     if (!list.length) return '';
     const cornerNames = Object.fromEntries(corners.map(item => [item.id, item.name]));
-    return `<h4 class="living-space-section-title">近期生活痕迹</h4>${list.map(item => `<article class="living-space-trace"><div class="living-space-memory-meta">${esc(cornerNames[item.cornerId] || '未分类')} · 依据 ${item.sourceMemoryIds?.length || 0} 条摘录</div><p>${esc(item.content)}</p><div class="living-space-card-actions"><button class="secondary" data-edit-trace="${esc(item.id)}">编辑</button><button class="danger" data-delete-trace="${esc(item.id)}">删除</button></div></article>`).join('')}`;
+    return `<h4 class="living-space-section-title">近期生活痕迹</h4>${list.map(item => `<article class="living-space-trace"><div class="living-space-memory-meta">${esc(cornerNames[item.cornerId] || '未分类')} · 依据 ${item.sourceMemoryIds?.length || 0} 条摘录</div><p>${esc(item.content)}</p><div class="living-space-card-actions"><button class="secondary" data-view-trace-sources="${esc(item.id)}">查看依据</button><button class="secondary" data-edit-trace="${esc(item.id)}">编辑</button><button class="danger" data-delete-trace="${esc(item.id)}">删除</button></div></article>`).join('')}`;
   }
   function bindTraceActions(space, corners) {
     const list = document.getElementById('living-trace-list');
     if (!list) return;
+    list.querySelectorAll('[data-view-trace-sources]').forEach(button => button.onclick = () => viewTraceSources(button.dataset.viewTraceSources));
     list.querySelectorAll('[data-edit-trace]').forEach(button => button.onclick = () => editTrace(button.dataset.editTrace));
     list.querySelectorAll('[data-delete-trace]').forEach(button => button.onclick = () => deleteTrace(button.dataset.deleteTrace, space, corners));
   }
@@ -263,6 +264,19 @@
     if (!value?.trim()) return;
     await db.livingSpaceTraces.update(traceId, { content: value.trim() });
     renderSpace();
+  }
+
+  async function viewTraceSources(traceId) {
+    const trace = await db.livingSpaceTraces.get(traceId);
+    if (!trace) return;
+    const records = await db.livingSpaceMemories.bulkGet(trace.sourceMemoryIds || []);
+    const lines = (trace.sourceMemoryIds || []).map((id, index) => {
+      const item = records[index];
+      if (!item) return (index + 1) + '. （这条原始摘录已被删除）';
+      const tags = item.tags?.length ? '\n标签：' + item.tags.join('、') : '';
+      return (index + 1) + '. ' + (item.sourceLabel || '摘录') + '\n' + item.content + tags;
+    });
+    showCustomAlert('本次整理依据', esc(lines.join('\n\n')));
   }
 
   async function deleteTrace(traceId, space) {
