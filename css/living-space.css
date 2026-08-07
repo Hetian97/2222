@@ -11,11 +11,15 @@
 .living-space-actions { display:flex; gap:8px; margin: 12px 0; flex-wrap:wrap; }
 .living-space-actions button { border: 0; border-radius: 10px; padding: 9px 12px; color:#fff; background:#4b6b8f; cursor:pointer; font-size:13px; }
 .living-space-actions .secondary { color:#4b6b8f; background:#edf2f7; }
+.living-space-actions .danger, .living-space-card-actions .danger { color:#c63b3b; background:#fff0f0; }
 .living-space-corner-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top: 10px; }
 .living-space-corner { padding: 12px; min-height: 82px; cursor:pointer; }
 .living-space-memory { margin-top:10px; padding:12px; border-left:3px solid #8ca9c6; }
 .living-space-memory p { margin:6px 0 0; font-size:13px; line-height:1.55; white-space:pre-wrap; }
 .living-space-memory-meta { color: var(--text-secondary, #888); font-size:11px; }
+.living-space-card-actions { display:flex; gap:6px; justify-content:flex-end; margin-top:10px; }
+.living-space-card-actions button { border:0; border-radius:8px; padding:5px 8px; cursor:pointer; font-size:11px; }
+.living-space-card-actions .secondary { color:#4b6b8f; background:#edf2f7; }
 .living-space-form { margin-top:14px; padding:13px; border-radius:14px; background:#f4f7fa; }
 .living-space-form label { display:block; margin:10px 0 5px; font-size:12px; color:#555; }
 .living-space-form select, .living-space-form textarea, .living-space-form input { width:100%; box-sizing:border-box; border:1px solid #d4dce5; border-radius:9px; padding:9px; font:inherit; background:#fff; }
