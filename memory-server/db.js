@@ -1,7 +1,10 @@
 const Database = require('better-sqlite3');
 const path = require('path');
+const crypto = require('crypto');
 
-const dbPath = path.join(__dirname, 'memory.db');
+const dbPath = process.env.MEMORY_DB_PATH
+  ? path.resolve(process.env.MEMORY_DB_PATH)
+  : path.join(__dirname, 'memory.db');
 const db = new Database(dbPath);
 
 db.pragma('journal_mode = WAL');
@@ -33,6 +36,22 @@ CREATE INDEX IF NOT EXISTS idx_memories_chatId ON memories(chatId);
 CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
 CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance);
 CREATE INDEX IF NOT EXISTS idx_memories_memoryTime ON memories(memoryTime);
+
+CREATE TABLE IF NOT EXISTS garden_wake_events (
+  id TEXT PRIMARY KEY,
+  reason TEXT NOT NULL,
+  message TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  createdAt INTEGER NOT NULL,
+  claimedAt INTEGER,
+  claimedBy TEXT,
+  claimToken TEXT,
+  completedAt INTEGER,
+  lastError TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_garden_wake_status_created
+ON garden_wake_events(status, createdAt);
 `);
 
 function ensureColumn(table, column, definition) {
@@ -362,6 +381,87 @@ function importFromJsonArray(memories) {
   return memories.filter(item => item && item.content).length;
 }
 
+function addGardenWakeEvent(event) {
+  const now = Date.now();
+  const item = {
+    id: String(event.id || `garden_wake_${now}_${Math.random().toString(36).slice(2, 10)}`),
+    reason: String(event.reason || '').trim(),
+    message: String(event.message || '').trim(),
+    status: 'pending',
+    createdAt: now
+  };
+
+  if (!item.reason || !item.message) {
+    throw new Error('Garden wake reason and message are required.');
+  }
+
+  db.prepare(`
+    INSERT INTO garden_wake_events (id, reason, message, status, createdAt)
+    VALUES (@id, @reason, @message, @status, @createdAt)
+  `).run(item);
+
+  return db.prepare('SELECT * FROM garden_wake_events WHERE id = ?').get(item.id);
+}
+
+function claimGardenWakeEvent(clientId, leaseMs = 5 * 60 * 1000) {
+  const safeClientId = String(clientId || '').trim();
+  if (!safeClientId) throw new Error('Garden wake clientId is required.');
+
+  const now = Date.now();
+  const safeLeaseMs = Math.min(30 * 60 * 1000, Math.max(30 * 1000, Number(leaseMs) || 5 * 60 * 1000));
+  const claimToken = crypto.randomUUID();
+
+  return db.transaction(() => {
+    db.prepare(`
+      UPDATE garden_wake_events
+      SET status = 'pending', claimedAt = NULL, claimedBy = NULL, claimToken = NULL
+      WHERE status = 'processing' AND claimedAt < ?
+    `).run(now - safeLeaseMs);
+
+    const row = db.prepare(`
+      SELECT * FROM garden_wake_events
+      WHERE status = 'pending'
+      ORDER BY createdAt ASC
+      LIMIT 1
+    `).get();
+
+    if (!row) return null;
+
+    const updated = db.prepare(`
+      UPDATE garden_wake_events
+      SET status = 'processing', claimedAt = ?, claimedBy = ?, claimToken = ?
+      WHERE id = ? AND status = 'pending'
+    `).run(now, safeClientId, claimToken, row.id);
+
+    if (!updated.changes) return null;
+    return db.prepare('SELECT * FROM garden_wake_events WHERE id = ?').get(row.id);
+  })();
+}
+
+function finishGardenWakeEvent(id, claimToken, status, errorMessage = '') {
+  const safeId = String(id || '').trim();
+  const safeClaimToken = String(claimToken || '').trim();
+  const safeStatus = status === 'completed' ? 'completed' : 'failed';
+  if (!safeId || !safeClaimToken) return false;
+
+  const result = db.prepare(`
+    UPDATE garden_wake_events
+    SET status = ?, completedAt = ?, lastError = ?
+    WHERE id = ? AND status = 'processing' AND claimToken = ?
+  `).run(safeStatus, Date.now(), String(errorMessage || '').slice(0, 1000), safeId, safeClaimToken);
+
+  return result.changes > 0;
+}
+
+function getGardenWakeStats() {
+  const rows = db.prepare(`
+    SELECT status, COUNT(*) AS count
+    FROM garden_wake_events
+    GROUP BY status
+  `).all();
+  return Object.fromEntries(rows.map(row => [row.status, row.count]));
+}
+
 module.exports = {
   db,
   addMemory,
@@ -371,5 +471,9 @@ module.exports = {
   clearAllMemories,
   getMemoryStats,
   listUnembeddedMemories,
-  importFromJsonArray
+  importFromJsonArray,
+  addGardenWakeEvent,
+  claimGardenWakeEvent,
+  finishGardenWakeEvent,
+  getGardenWakeStats
 };

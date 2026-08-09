@@ -103,6 +103,7 @@
   <script src="modules/tts-audio.js?v=0.0.36" defer></script>
   <script src="modules/appearance-theme.js?v=0.0.36" defer></script>
   <script src="modules/notification-battery.js?v=0.0.36" defer></script>
+  <script src="modules/garden-wake.js?v=0.0.1" defer></script>
   <script src="modules/background-activity.js?v=0.0.36" defer></script>
   <script src="modules/card-import.js?v=0.0.36" defer></script>
   <script src="modules/character-export.js?v=0.0.36" defer></script>
@@ -3480,6 +3481,45 @@
         </div>
         <div class="settings-desc">
             系统级通知会在设备通知中心显示，支持横幅弹窗。需要授予通知权限。
+        </div>
+
+        <div class="settings-header">Galatea Garden 自动唤醒</div>
+        <div class="settings-section">
+            <div class="settings-item">
+                <label>网页在线时自动处理</label>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="garden-wake-enabled-switch">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="settings-item">
+                <label>指定 Char</label>
+                <div class="settings-right">
+                    <select id="garden-wake-chat-select">
+                        <option value="">请选择角色</option>
+                    </select>
+                </div>
+            </div>
+            <div class="settings-item">
+                <label>检查间隔</label>
+                <div class="settings-right">
+                    <select id="garden-wake-poll-seconds">
+                        <option value="10">10 秒</option>
+                        <option value="15">15 秒</option>
+                        <option value="30">30 秒</option>
+                    </select>
+                </div>
+            </div>
+            <button class="settings-full-btn" id="garden-wake-test-btn">查看 VPS 队列状态</button>
+            <div class="settings-item">
+                <label>状态</label>
+                <div class="settings-right">
+                    <span id="garden-wake-status" style="color: var(--text-secondary);">未启用</span>
+                </div>
+            </div>
+        </div>
+        <div class="settings-desc">
+            网页保持打开时，Garden 的新事件会交给指定 Char 处理。仅当本开关、上方“后台角色活动”总开关和该 Char 的“独立后台活动”都开启时才会领取事件；暂停期间事件保留在 VPS 队列。网页关闭后的系统推送将在下一阶段启用。
         </div>
 
         <!-- 数据管理 (危险区域) -->

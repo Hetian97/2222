@@ -190,6 +190,12 @@ document.addEventListener('DOMContentLoaded', () => {
           customSoundUrl: ''
         }
       },
+      gardenWake: {
+        enabled: false,
+        targetChatId: '',
+        pollSeconds: 15,
+        showWakeMessage: true
+      },
     };
     state.globalSettings = {
       ...defaultGlobalSettings,
@@ -217,6 +223,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       };
     }
+
+    state.globalSettings.gardenWake = {
+      ...defaultGlobalSettings.gardenWake,
+      ...(state.globalSettings.gardenWake || {})
+    };
 
     state.globalSettings.appIcons = {
       ...defaultGlobalSettings.appIcons,
@@ -574,6 +585,9 @@ document.addEventListener('DOMContentLoaded', () => {
     checkForUpdates();
     updateLockedFeatureUI();
     initSystemNotification();
+    if (typeof window.initGardenWakeClient === 'function') {
+      window.initGardenWakeClient(state, db);
+    }
     initializeBackgroundKeepAlive();
     bindBackgroundKeepAliveEvents();
     loadBackgroundKeepAliveSettings();

@@ -2136,10 +2136,11 @@ ${linkedContents}
     }
   }
 
-  async function triggerAiResponse() {
-    if (!state.activeChatId) return;
-    const chatId = state.activeChatId;
-    const chat = state.chats[state.activeChatId];
+  async function triggerAiResponse(targetChatId = '') {
+    const chatId = targetChatId || state.activeChatId;
+    if (!chatId) return;
+    const chat = state.chats[chatId];
+    if (!chat) return;
 
       // role reply sanitizer v1: sanitize new assistant replies before saving/rendering.
       function escapeReplySanitizerRegExp(text) {

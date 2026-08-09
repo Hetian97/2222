@@ -11,7 +11,11 @@ const {
   deleteMemory,
   clearAllMemories,
   getMemoryStats,
-  listUnembeddedMemories
+  listUnembeddedMemories,
+  addGardenWakeEvent,
+  claimGardenWakeEvent,
+  finishGardenWakeEvent,
+  getGardenWakeStats
 } = require('./db');
 
 const {
@@ -22,7 +26,7 @@ const {
   resetChromaCollection
 } = require('./chroma-client');
 
-const PORT = 8765;
+const PORT = Number(process.env.PORT || 8765);
 const BACKUP_DIR = path.join(__dirname, 'backups');
 const API_TOKEN_FILE = path.join(__dirname, '.memory-api-token');
 
@@ -3208,6 +3212,91 @@ const server = http.createServer(async (req, res) => {
       format: '111/2222-compatible-sqlite',
       storage: 'sqlite',
       count: memories.length
+    });
+    return;
+  }
+
+  if (pathname === '/garden-wake/events' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      if (body?.version !== 1 || body?.type !== 'garden_wake') {
+        throw new Error('Invalid Garden wake envelope.');
+      }
+
+      const event = addGardenWakeEvent({
+        reason: body.reason,
+        message: body.message
+      });
+
+      sendJson(res, 201, {
+        ok: true,
+        eventId: event.id,
+        queuedAt: event.createdAt
+      });
+    } catch (error) {
+      sendJson(res, 400, {
+        ok: false,
+        error: error.message || String(error)
+      });
+    }
+    return;
+  }
+
+  if (pathname === '/garden-wake/claim' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      const event = claimGardenWakeEvent(body.clientId, body.leaseMs);
+      sendJson(res, 200, {
+        ok: true,
+        event: event ? {
+          id: event.id,
+          reason: event.reason,
+          message: event.message,
+          createdAt: event.createdAt,
+          claimToken: event.claimToken
+        } : null
+      });
+    } catch (error) {
+      sendJson(res, 400, {
+        ok: false,
+        error: error.message || String(error)
+      });
+    }
+    return;
+  }
+
+  if (pathname === '/garden-wake/ack' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      const updated = finishGardenWakeEvent(
+        body.eventId,
+        body.claimToken,
+        body.status,
+        body.error || ''
+      );
+
+      if (!updated) {
+        sendJson(res, 409, {
+          ok: false,
+          error: 'Garden wake event is no longer owned by this claim.'
+        });
+        return;
+      }
+
+      sendJson(res, 200, { ok: true });
+    } catch (error) {
+      sendJson(res, 400, {
+        ok: false,
+        error: error.message || String(error)
+      });
+    }
+    return;
+  }
+
+  if (pathname === '/garden-wake/status' && req.method === 'GET') {
+    sendJson(res, 200, {
+      ok: true,
+      stats: getGardenWakeStats()
     });
     return;
   }
