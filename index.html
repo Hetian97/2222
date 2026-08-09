@@ -11167,6 +11167,31 @@
     }
   }
 
+  function getMcpServiceToolResultError(data) {
+    const result = data && data.result;
+    if (!result || typeof result !== 'object' || result.isError !== true) return '';
+
+    const contentMessages = Array.isArray(result.content)
+      ? result.content
+        .filter(item => item && item.type === 'text' && typeof item.text === 'string')
+        .map(item => item.text.trim())
+        .filter(Boolean)
+      : [];
+
+    if (contentMessages.length) return contentMessages.join('\n');
+
+    const structured = result.structuredContent;
+    if (structured && typeof structured === 'object') {
+      for (const key of ['error', 'message', 'detail', 'reason']) {
+        if (typeof structured[key] === 'string' && structured[key].trim()) {
+          return structured[key].trim();
+        }
+      }
+    }
+
+    return '外部 MCP 工具返回了 isError=true。';
+  }
+
   async function testMcpServiceToolsCall() {
     const url = getMcpServiceUrl();
     const authPayload = getMcpServiceAuthPayload();
@@ -11209,8 +11234,9 @@
 
       const data = await response.json();
 
-      if (!response.ok || !data.ok) {
-        throw new Error(data.error || ('HTTP ' + response.status));
+      const toolError = getMcpServiceToolResultError(data);
+      if (!response.ok || !data.ok || toolError) {
+        throw new Error(data.error || toolError || ('HTTP ' + response.status));
       }
 
       setMcpServiceStatus('在线 · tools/call ✓', '#34c759');

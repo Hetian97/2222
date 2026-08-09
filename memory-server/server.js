@@ -1291,6 +1291,61 @@ async function callInternalHotlistMcp(method, params = {}) {
   return response;
 }
 
+function getExternalMcpToolErrorMessage(result) {
+  if (!result || typeof result !== 'object') {
+    return 'External MCP tool returned isError=true.';
+  }
+
+  const contentMessages = Array.isArray(result.content)
+    ? result.content
+      .filter(item => item && item.type === 'text' && typeof item.text === 'string')
+      .map(item => item.text.trim())
+      .filter(Boolean)
+    : [];
+
+  if (contentMessages.length) {
+    return contentMessages.join('\n');
+  }
+
+  const structured = result.structuredContent;
+  if (structured && typeof structured === 'object') {
+    for (const key of ['error', 'message', 'detail', 'reason']) {
+      if (typeof structured[key] === 'string' && structured[key].trim()) {
+        return structured[key].trim();
+      }
+    }
+  }
+
+  return 'External MCP tool returned isError=true.';
+}
+
+function buildExternalMcpToolCallResponse({
+  url,
+  sessionId,
+  toolName,
+  toolArguments,
+  result,
+  raw,
+  initialize
+}) {
+  const toolFailed = !!(result && typeof result === 'object' && result.isError === true);
+
+  return {
+    ok: !toolFailed,
+    ...(toolFailed ? {
+      toolError: true,
+      error: getExternalMcpToolErrorMessage(result)
+    } : {}),
+    url,
+    sessionId,
+    toolName,
+    arguments: toolArguments,
+    result,
+    raw,
+    initialize
+  };
+}
+
 async function callExternalMcpTool(serviceUrl, toolName, toolArguments = {}, options = {}) {
   const urlText = String(serviceUrl || '').trim();
   const safeToolName = String(toolName || '').trim();
@@ -1325,16 +1380,15 @@ async function callExternalMcpTool(serviceUrl, toolName, toolArguments = {}, opt
         : {}
     });
 
-    return {
-      ok: true,
+    return buildExternalMcpToolCallResponse({
       url: urlText,
       sessionId: 'ephone-hotlist-session',
       toolName: safeToolName,
-      arguments: toolArguments,
+      toolArguments,
       result: call.result,
       raw: call,
       initialize
-    };
+    });
   }
 
   const baseHeaders = {
@@ -1472,16 +1526,15 @@ async function callExternalMcpTool(serviceUrl, toolName, toolArguments = {}, opt
     throw new Error('tools/call error: ' + JSON.stringify(call.data.error));
   }
 
-  return {
-    ok: true,
+  return buildExternalMcpToolCallResponse({
     url: urlText,
     sessionId: session.sessionId,
     toolName: safeToolName,
-    arguments: toolArguments,
+    toolArguments,
     result: call.data.result,
     raw: call.data,
     initialize: session.initialize
-  };
+  });
 }
 
 async function callExternalMcpToolsList(serviceUrl, options = {}) {

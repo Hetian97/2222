@@ -14,6 +14,31 @@ function getExternalMcpProxyRequestHeaders(extraHeaders = {}) {
   };
 }
 
+function getExternalMcpToolResultError(data) {
+  const result = data && data.result;
+  if (!result || typeof result !== "object" || result.isError !== true) return "";
+
+  const contentMessages = Array.isArray(result.content)
+    ? result.content
+      .filter(item => item && item.type === "text" && typeof item.text === "string")
+      .map(item => item.text.trim())
+      .filter(Boolean)
+    : [];
+
+  if (contentMessages.length) return contentMessages.join("\n");
+
+  const structured = result.structuredContent;
+  if (structured && typeof structured === "object") {
+    for (const key of ["error", "message", "detail", "reason"]) {
+      if (typeof structured[key] === "string" && structured[key].trim()) {
+        return structured[key].trim();
+      }
+    }
+  }
+
+  return "外部 MCP 工具返回了 isError=true。";
+}
+
 function normalizeExternalMcpNameText(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -521,6 +546,10 @@ function buildExternalMcpProxyUrl(path) {
     console.log("[MCP Cache] 写入:", label || cacheKey);
   }
 
+  function deleteExternalMcpToolCachedResult(cacheKey) {
+    if (cacheKey) externalMcpToolResultCache.delete(cacheKey);
+  }
+
   function shouldCacheExternalMcpTool(service, toolName) {
     const tool = service && Array.isArray(service.tools)
       ? service.tools.find(item => item && item.name === toolName)
@@ -711,6 +740,12 @@ function buildExternalMcpProxyUrl(path) {
     const cachedData = shouldUseCache ? getExternalMcpToolCachedResult(cacheKey) : null;
 
     if (cachedData) {
+      const cachedToolError = getExternalMcpToolResultError(cachedData);
+      if (!cachedData.ok || cachedToolError) {
+        deleteExternalMcpToolCachedResult(cacheKey);
+        throw new Error(cachedData.error || cachedToolError || "缓存的 MCP 工具结果表示调用失败。");
+      }
+
       return {
         serviceName: service.name || service.url,
         toolName,
@@ -735,9 +770,10 @@ function buildExternalMcpProxyUrl(path) {
     });
 
     const data = await response.json().catch(() => ({}));
+    const toolError = getExternalMcpToolResultError(data);
 
-    if (!response.ok || !data.ok) {
-      throw new Error(data.error || ("HTTP " + response.status));
+    if (!response.ok || !data.ok || toolError) {
+      throw new Error(data.error || toolError || ("HTTP " + response.status));
     }
 
     if (shouldUseCache) {
@@ -972,9 +1008,16 @@ function buildExternalMcpProxyUrl(path) {
           });
 
           data = await response.json().catch(() => ({}));
-          if (data && data.ok) {
-            setExternalMcpToolCachedResult(memoryCacheKey, data, serviceName + " / " + toolName);
-          }
+        }
+
+        const memoryToolError = getExternalMcpToolResultError(data);
+        if (!response.ok || !data || !data.ok || memoryToolError) {
+          if (memoryCachedData) deleteExternalMcpToolCachedResult(memoryCacheKey);
+          throw new Error((data && data.error) || memoryToolError || ("HTTP " + (response.status || "unknown")));
+        }
+
+        if (!memoryCachedData) {
+          setExternalMcpToolCachedResult(memoryCacheKey, data, serviceName + " / " + toolName);
         }
 
         console.log("[MCP Memory] 自动检索完成:", {
