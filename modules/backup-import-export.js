@@ -123,7 +123,8 @@
   const MCP_LOCAL_STORAGE_KEYS = [
     'mcpServiceConfigs',
     'mcpServiceSelectedId',
-    'externalMcpProxyBaseUrl'
+    'externalMcpProxyBaseUrl',
+    'vm_external_memory_bearer_token'
   ];
 
   const THOUGHT_CHAIN_LOCAL_STORAGE_KEYS = [
@@ -190,6 +191,31 @@
 
   function restoreMcpLocalStorage(localStorageData) {
     restoreNamedLocalStorage(localStorageData, 'MCP服务设置');
+  }
+
+  function migrateLegacyMemoryServerCredential(backupData) {
+    try {
+      const existingToken = String(localStorage.getItem('vm_external_memory_bearer_token') || '').trim();
+      if (existingToken) return false;
+
+      const chats = Array.isArray(backupData?.chats) ? backupData.chats : [];
+      for (const chat of chats) {
+        const token = String(
+          chat?.variableMemory?.settings?.externalMemoryBearerToken ||
+          chat?.vectorMemory?.settings?.externalMemoryBearerToken ||
+          ''
+        ).trim();
+
+        if (!token) continue;
+        localStorage.setItem('vm_external_memory_bearer_token', token);
+        console.log('已从旧版聊天备份迁移 memory-server 凭证。');
+        return true;
+      }
+    } catch (error) {
+      console.warn('迁移旧版 memory-server 凭证失败:', error);
+    }
+
+    return false;
   }
 
   function exportThoughtChainLocalStorage() {
@@ -674,7 +700,8 @@
       const mcpLocalStorageKeys = [
         'mcpServiceConfigs',
         'mcpServiceSelectedId',
-        'externalMcpProxyBaseUrl'
+        'externalMcpProxyBaseUrl',
+        'vm_external_memory_bearer_token'
       ];
 
       const thoughtChainLocalStorageKeys = [
@@ -885,6 +912,8 @@
         console.log('正在恢复思维链配置 localStorage 数据...');
         restoreThoughtChainLocalStorage(backupData.thoughtChainLocalStorage);
       }
+
+      migrateLegacyMemoryServerCredential(backupData);
 
     } catch (error) {
 
@@ -1290,9 +1319,21 @@
 
         const localStorageData = dataToMerge[type];
         if (localStorageData && typeof localStorageData === 'object') {
+          const shouldPreserveExistingMemoryToken = type === 'mcpLocalStorage' &&
+            !Object.prototype.hasOwnProperty.call(localStorageData, 'vm_external_memory_bearer_token');
+          const existingMemoryToken = shouldPreserveExistingMemoryToken
+            ? localStorage.getItem('vm_external_memory_bearer_token')
+            : null;
+
           console.log(`正在清理并恢复${handler.label}...`);
           handler.clear();
           handler.restore(localStorageData);
+
+          // 选择性合并旧版 MCP 备份时，备份中尚无设备级凭证字段。
+          // 保留本设备已有 Token，避免一次设置合并让全部 MCP 突然掉线。
+          if (existingMemoryToken) {
+            localStorage.setItem('vm_external_memory_bearer_token', existingMemoryToken);
+          }
         }
       });
 
@@ -1357,6 +1398,10 @@
           }
         }
       });
+
+      if (typesToMerge.includes('chats') || typesToMerge.includes('mcpLocalStorage')) {
+        migrateLegacyMemoryServerCredential(dataToMerge);
+      }
 
       await showCustomAlert('合并成功', '数据已成功合并！应用即将刷新以应用所有更改。');
       setTimeout(() => window.location.reload(), 1500);
@@ -1456,6 +1501,8 @@
         console.log('正在恢复思维链配置 localStorage 数据...');
         restoreThoughtChainLocalStorage(backupData.thoughtChainLocalStorage);
       }
+
+      migrateLegacyMemoryServerCredential(backupData);
       
     } catch (error) {
       throw new Error(`旧版备份数据写入数据库失败: ${error.message}`);

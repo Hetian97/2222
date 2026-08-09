@@ -1260,6 +1260,37 @@ function parseExternalMcpResponseJson(text) {
   return null;
 }
 
+function isInternalHotlistMcpUrl(serviceUrl) {
+  try {
+    const url = new URL(String(serviceUrl || '').trim());
+    const pathname = url.pathname.replace(/\/+$/, '') || '/';
+
+    return url.protocol === 'https:' &&
+      url.hostname.toLowerCase() === 'mcp.htw1.uk' &&
+      !url.port &&
+      pathname === '/hotlist-mcp' &&
+      !url.search &&
+      !url.hash;
+  } catch {
+    return false;
+  }
+}
+
+async function callInternalHotlistMcp(method, params = {}) {
+  const response = await handleHotlistMcpRequest({
+    jsonrpc: '2.0',
+    id: Date.now(),
+    method,
+    ...(params && Object.keys(params).length ? { params } : {})
+  });
+
+  if (response?.error) {
+    throw new Error(method + ' error: ' + JSON.stringify(response.error));
+  }
+
+  return response;
+}
+
 async function callExternalMcpTool(serviceUrl, toolName, toolArguments = {}, options = {}) {
   const urlText = String(serviceUrl || '').trim();
   const safeToolName = String(toolName || '').trim();
@@ -1276,6 +1307,34 @@ async function callExternalMcpTool(serviceUrl, toolName, toolArguments = {}, opt
 
   if (!['http:', 'https:'].includes(url.protocol)) {
     throw new Error('External MCP service URL must start with http:// or https://');
+  }
+
+  if (isInternalHotlistMcpUrl(urlText)) {
+    const initialize = await callInternalHotlistMcp('initialize', {
+      protocolVersion: options.protocolVersion || '2024-11-05',
+      capabilities: {},
+      clientInfo: {
+        name: '2222EPhone internal HotList caller',
+        version: '0.1.0'
+      }
+    });
+    const call = await callInternalHotlistMcp('tools/call', {
+      name: safeToolName,
+      arguments: toolArguments && typeof toolArguments === 'object'
+        ? toolArguments
+        : {}
+    });
+
+    return {
+      ok: true,
+      url: urlText,
+      sessionId: 'ephone-hotlist-session',
+      toolName: safeToolName,
+      arguments: toolArguments,
+      result: call.result,
+      raw: call,
+      initialize
+    };
   }
 
   const baseHeaders = {
@@ -1436,6 +1495,21 @@ async function callExternalMcpToolsList(serviceUrl, options = {}) {
 
   if (!['http:', 'https:'].includes(url.protocol)) {
     throw new Error('External MCP service URL must start with http:// or https://');
+  }
+
+  if (isInternalHotlistMcpUrl(urlText)) {
+    const listed = await callInternalHotlistMcp('tools/list');
+    const tools = Array.isArray(listed?.result?.tools) ? listed.result.tools : [];
+
+    return {
+      ok: true,
+      url: urlText,
+      sessionId: '',
+      count: tools.length,
+      tools,
+      raw: listed,
+      initialized: false
+    };
   }
 
   const baseHeaders = {

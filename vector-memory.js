@@ -89,6 +89,21 @@ class VariableMemoryManager {
       this._migrateFromVectorMemory(chat);
     }
 
+    // 外部 memory-server 的 Bearer Token 是设备级凭证，MCP 代理也从
+    // localStorage 读取它。旧备份可能只在聊天设置里保存了 Token，导致
+    // 设置页看起来已有内容，但 MCP 请求仍然没有 Authorization。
+    const storedExternalMemoryToken = String(
+      localStorage.getItem('vm_external_memory_bearer_token') || ''
+    ).trim();
+    const legacyChatToken = String(vm.settings.externalMemoryBearerToken || '').trim();
+
+    if (storedExternalMemoryToken) {
+      vm.settings.externalMemoryBearerToken = storedExternalMemoryToken;
+    } else if (legacyChatToken) {
+      localStorage.setItem('vm_external_memory_bearer_token', legacyChatToken);
+      vm.settings.externalMemoryBearerToken = legacyChatToken;
+    }
+
     return vm;
   }
 
@@ -181,7 +196,12 @@ class VariableMemoryManager {
   }
 
   getExternalMemoryRequestHeaders(chat, extraHeaders = {}) {
-    const token = String(this.getVariableMemory(chat).settings?.externalMemoryBearerToken || '').trim();
+    const vm = this.getVariableMemory(chat);
+    const token = String(
+      localStorage.getItem('vm_external_memory_bearer_token') ||
+      vm.settings?.externalMemoryBearerToken ||
+      ''
+    ).trim();
     return {
       ...extraHeaders,
       ...(token ? { Authorization: `Bearer ${token}` } : {})

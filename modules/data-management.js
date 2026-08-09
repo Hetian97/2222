@@ -332,7 +332,8 @@ async function cleanupRedundantData() {
       const mcpLocalStorageKeys = [
         'mcpServiceConfigs',
         'mcpServiceSelectedId',
-        'externalMcpProxyBaseUrl'
+        'externalMcpProxyBaseUrl',
+        'vm_external_memory_bearer_token'
       ];
 
       const thoughtChainLocalStorageKeys = [
