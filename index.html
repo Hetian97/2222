@@ -26,7 +26,7 @@
   <link rel="stylesheet" href="online-app.css?v=0.0.36">
   <link rel="stylesheet" href="period-tracker.css?v=0.0.37">
   <link rel="stylesheet" href="focus-timer.css?v=0.0.36">
-  <link rel="stylesheet" href="css/living-space.css?v=0.0.1">
+  <link rel="stylesheet" href="css/living-space.css?v=0.0.4">
   <link rel="stylesheet" href="extra.css?v=0.0.36">
   <link rel="apple-touch-icon" href="https://i.postimg.cc/nMbyyt1t/D7CD735A73F5FD1D7B8407E0EB8BBAC0.png">
   <link rel="manifest" href="manifest.json?v=0.0.36">
@@ -98,7 +98,7 @@
   <script src="modules/werewolf.js?v=0.0.36" defer></script>
   <script src="modules/reading-room.js?v=0.0.36" defer></script>
   <script src="modules/douban.js?v=0.0.36" defer></script>
-  <script src="modules/living-space.js?v=0.0.1" defer></script>
+  <script src="modules/living-space.js?v=0.0.13" defer></script>
   <!-- 第七层：其余功能 -->
   <script src="modules/tts-audio.js?v=0.0.36" defer></script>
   <script src="modules/appearance-theme.js?v=0.0.36" defer></script>
@@ -7592,7 +7592,8 @@
     <div class="modal-content" style="width:min(420px, calc(100vw - 36px));">
       <div class="modal-header"><span>摘录到生活空间</span></div>
       <div class="modal-body">
-        <p style="margin:0 0 12px;color:#777;font-size:12px;line-height:1.5;">先保留与地点有关的部分。此摘录仅会存入生活空间，不会写入长期记忆。</p>
+        <p style="margin:0 0 8px;color:#777;font-size:12px;line-height:1.5;">先保留与地点有关的部分。此摘录仅会存入生活空间，不会写入长期记忆。</p>
+        <p id="living-extract-location-hint" style="margin:0 0 12px;padding:8px 10px;border-radius:8px;background:#f4f7fa;color:#4b6b8f;font-size:12px;line-height:1.5;"></p>
         <div class="form-group"><label>摘录内容</label><textarea id="living-extract-content" rows="5" style="width:100%;box-sizing:border-box;"></textarea></div>
         <div class="form-group"><label>居所</label><select id="living-extract-space" style="width:100%;"></select></div>
         <div class="form-group"><label>角落</label><select id="living-extract-corner" style="width:100%;"></select></div>

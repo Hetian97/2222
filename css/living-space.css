@@ -7,6 +7,7 @@
 .living-space-character img { width: 38px; height: 38px; object-fit: cover; border-radius: 50%; background:#eee; }
 .living-space-space { min-height: 86px; }
 .living-space-space strong, .living-space-corner strong { display:block; font-size: 15px; }
+.living-space-corner-icon { display:inline-block; margin-right:5px; font-style:normal; }
 .living-space-space span, .living-space-corner small { display:block; margin-top:5px; color: var(--text-secondary, #777); font-size: 12px; line-height: 1.45; }
 .living-space-actions { display:flex; gap:8px; margin: 12px 0; flex-wrap:wrap; }
 .living-space-actions button { border: 0; border-radius: 10px; padding: 9px 12px; color:#fff; background:#4b6b8f; cursor:pointer; font-size:13px; }
@@ -14,6 +15,19 @@
 .living-space-actions .danger, .living-space-card-actions .danger { color:#c63b3b; background:#fff0f0; }
 .living-space-corner-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top: 10px; }
 .living-space-corner { padding: 12px; min-height: 82px; cursor:pointer; }
+.living-space-corner.managing { cursor:default; border-color:#8ca9c6; background:#f8fbff; }
+.living-space-corner-select { display:flex; justify-content:flex-end; gap:5px; align-items:center; margin:0 0 6px; color:#4b6b8f; font-size:12px; cursor:pointer; }
+.living-space-corner-select input { width:auto; margin:0; }
+.living-space-corner-manager { margin:12px 0; padding:13px; border-radius:14px; background:#f4f7fa; border-left:3px solid #8ca9c6; }
+.living-space-corner-manager > div:first-child { display:flex; justify-content:space-between; gap:10px; align-items:center; }
+.living-space-corner-manager > div:first-child span { color:#4b6b8f; font-size:12px; }
+.living-space-corner-manager > p { margin:7px 0 0; color:var(--text-secondary, #777); font-size:12px; line-height:1.5; }
+.living-space-corner-manager label { display:block; margin-top:10px; color:#555; font-size:12px; }
+.living-space-corner-manager select { width:100%; box-sizing:border-box; margin-top:5px; border:1px solid #d4dce5; border-radius:9px; padding:9px; font:inherit; background:#fff; }
+.living-space-corner-section { margin-top: 9px; }
+.living-space-corner-section > span { display:block; color:#4b6b8f; font-size:10px; font-weight:700; letter-spacing:.04em; }
+.living-space-corner-section.recent { padding-top:8px; border-top:1px solid rgba(75,107,143,.12); }
+.living-space-corner-section.recent > span { color:#9a783e; }
 .living-space-memory { margin-top:10px; padding:12px; border-left:3px solid #8ca9c6; }
 .living-space-memory p { margin:6px 0 0; font-size:13px; line-height:1.55; white-space:pre-wrap; }
 .living-space-memory-meta { color: var(--text-secondary, #888); font-size:11px; }
