@@ -559,6 +559,19 @@
       return wrapper;
     }
 
+    if (msg.type === 'mcp_activity') {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'message-wrapper mcp-activity-wrapper';
+      wrapper.dataset.timestamp = msg.timestamp;
+      wrapper.dataset.status = msg.status || 'success';
+
+      const text = document.createElement('span');
+      text.className = 'mcp-activity-text';
+      text.textContent = msg.content || '角色访问了外部 MCP';
+      wrapper.appendChild(text);
+      return wrapper;
+    }
+
     if (msg.isHidden && !chat.settings.showHiddenMessages) {
       return null;
     }

@@ -820,6 +820,32 @@
                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
            }
 
+           /* 后台 MCP 活动：只作为聊天时间线提示，不使用消息气泡。 */
+           .message-wrapper.mcp-activity-wrapper {
+               display: flex;
+               justify-content: center;
+               align-items: center;
+               width: 100%;
+               margin: 7px 0;
+               padding: 0 16px;
+               box-sizing: border-box;
+               color: var(--text-secondary, #8e8e93);
+               font-size: 11px;
+               line-height: 1.45;
+               text-align: center;
+               opacity: 0.82;
+           }
+
+           .message-wrapper.mcp-activity-wrapper::before {
+               content: "◌";
+               margin-right: 5px;
+               font-size: 12px;
+           }
+
+           .message-wrapper.mcp-activity-wrapper[data-status="failed"] {
+               color: #b7791f;
+           }
+
            /* 思维链块样式（作为系统消息类型） */
            .message-wrapper.thought-chain-wrapper {
                display: flex;

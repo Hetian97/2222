@@ -688,6 +688,92 @@ function buildExternalMcpProxyUrl(path) {
     return 'unknown';
   }
 
+  function formatExternalMcpActivityContent(chat, record) {
+    const actorName = chat?.name || chat?.originalName || '角色';
+    const services = Array.from(new Set(record?.services || [])).filter(Boolean);
+    const serviceText = services.length
+      ? services.map(name => `「${name}」`).join('、')
+      : '外部 MCP';
+    const successfulCategories = new Set(record?.successfulCategories || []);
+
+    if (record?.status === 'running') return `${actorName}正在访问${serviceText}…`;
+    if (record?.status === 'failed' && successfulCategories.size === 0) return `${actorName}访问${serviceText}失败`;
+
+    let content;
+    if (successfulCategories.has('read')) {
+      content = `${actorName}浏览了${serviceText}`;
+      if (successfulCategories.has('interact')) content += '并进行了互动';
+      if (successfulCategories.has('create')) content += '并发布了新内容';
+      if (successfulCategories.has('delete')) content += '并删除了内容';
+    } else if (successfulCategories.has('interact')) {
+      content = `${actorName}在${serviceText}进行了互动`;
+      if (successfulCategories.has('create')) content += '并发布了新内容';
+      if (successfulCategories.has('delete')) content += '并删除了内容';
+    } else if (successfulCategories.has('create')) {
+      content = `${actorName}在${serviceText}发布了新内容`;
+      if (successfulCategories.has('delete')) content += '并删除了内容';
+    } else if (successfulCategories.has('delete')) {
+      content = `${actorName}在${serviceText}删除了内容`;
+    } else {
+      content = `${actorName}使用了${serviceText}`;
+    }
+
+    if (record?.status === 'failed') content += '，但后续操作失败';
+    return content;
+  }
+
+  function refreshExternalMcpActivityRecord(chat, record) {
+    if (!record) return;
+    record.content = formatExternalMcpActivityContent(chat, record);
+    const wrapper = document.querySelector(`.mcp-activity-wrapper[data-timestamp="${record.timestamp}"]`);
+    const text = wrapper?.querySelector('.mcp-activity-text');
+    if (text) text.textContent = record.content;
+    if (wrapper) wrapper.dataset.status = record.status || 'success';
+  }
+
+  function ensureExternalMcpActivityRecord(chat, responseOptions, serviceName) {
+    if (responseOptions.externalMcpBackground !== true) return null;
+    let record = responseOptions.externalMcpActivityRecord;
+    let wasCreated = false;
+    if (!record) {
+      record = {
+        role: 'system',
+        type: 'mcp_activity',
+        content: '',
+        timestamp: Date.now(),
+        isHidden: true,
+        isExcluded: true,
+        excludeFromExport: true,
+        source: 'external_mcp_background_activity',
+        status: 'running',
+        services: [],
+        successfulCategories: []
+      };
+      responseOptions.externalMcpActivityRecord = record;
+      chat.history.push(record);
+      wasCreated = true;
+    }
+    if (serviceName && !record.services.includes(serviceName)) record.services.push(serviceName);
+    refreshExternalMcpActivityRecord(chat, record);
+    if (wasCreated) {
+      const isViewingThisChat = state.activeChatId === chat.id &&
+        document.getElementById('chat-interface-screen')?.classList.contains('active');
+      if (isViewingThisChat && typeof appendMessage === 'function') {
+        Promise.resolve(appendMessage(record, chat)).then(() => refreshExternalMcpActivityRecord(chat, record));
+      }
+    }
+    return record;
+  }
+
+  function updateExternalMcpActivityRecord(chat, record, category, status) {
+    if (!record) return;
+    if (status === 'success' && !record.successfulCategories.includes(category || 'unknown')) {
+      record.successfulCategories.push(category || 'unknown');
+    }
+    record.status = status;
+    refreshExternalMcpActivityRecord(chat, record);
+  }
+
   function isExternalMcpToolAllowedInBackground(service, toolName, args) {
     if (!service || service.backgroundActivityEnabled !== true || !toolName) return false;
     const overrides = service.backgroundToolPermissions && typeof service.backgroundToolPermissions === 'object'
@@ -5386,28 +5472,40 @@ ${getActiveThoughtsPrompt()}
             autoApprovedService = null;
           }
 
-          if (isBackgroundMcpRun) {
-            if (!autoApprovedService || !isExternalMcpToolAllowedInBackground(autoApprovedService, requestWithActor.toolName, requestWithActor.arguments || {})) {
-              throw new Error("该 MCP 工具没有获得后台自主活动权限：" + (requestWithActor.serviceName || '') + " / " + (requestWithActor.toolName || ''));
+          const activityServiceName = autoApprovedService?.name || autoApprovedService?.serverName || requestWithActor.serviceName || '外部 MCP';
+          const activityCategory = classifyExternalMcpBackgroundAction(autoApprovedService, requestWithActor.toolName, requestWithActor.arguments || {});
+          const activityRecord = isBackgroundMcpRun
+            ? ensureExternalMcpActivityRecord(chat, responseOptions, activityServiceName)
+            : null;
+
+          try {
+            if (isBackgroundMcpRun) {
+              if (!autoApprovedService || !isExternalMcpToolAllowedInBackground(autoApprovedService, requestWithActor.toolName, requestWithActor.arguments || {})) {
+                throw new Error("该 MCP 工具没有获得后台自主活动权限：" + (requestWithActor.serviceName || '') + " / " + (requestWithActor.toolName || ''));
+              }
             }
+
+            const shouldAutoApprove = isBackgroundMcpRun
+              ? true
+              : !!(autoApprovedService && autoApprovedService.allowAutonomousCall === true);
+
+            if (!shouldAutoApprove && !confirmExternalMcpToolRequest(requestWithActor, stepLabel)) {
+              return { approved: false, result: null };
+            }
+
+            if (shouldAutoApprove) {
+              console.log("[MCP Auto] 已自动批准角色调用外部 MCP 工具:", stepLabel, requestWithActor);
+            } else {
+              console.log("用户已确认外部 MCP 工具调用，开始执行:", stepLabel, requestWithActor);
+            }
+
+            const result = await executeExternalMcpToolRequest(requestWithActor, actor);
+            updateExternalMcpActivityRecord(chat, activityRecord, activityCategory, 'success');
+            return { approved: true, result };
+          } catch (error) {
+            updateExternalMcpActivityRecord(chat, activityRecord, activityCategory, 'failed');
+            throw error;
           }
-
-          const shouldAutoApprove = isBackgroundMcpRun
-            ? true
-            : !!(autoApprovedService && autoApprovedService.allowAutonomousCall === true);
-
-          if (!shouldAutoApprove && !confirmExternalMcpToolRequest(requestWithActor, stepLabel)) {
-            return { approved: false, result: null };
-          }
-
-          if (shouldAutoApprove) {
-            console.log("[MCP Auto] 已自动批准角色调用外部 MCP 工具:", stepLabel, requestWithActor);
-          } else {
-            console.log("用户已确认外部 MCP 工具调用，开始执行:", stepLabel, requestWithActor);
-          }
-
-          const result = await executeExternalMcpToolRequest(requestWithActor, actor);
-          return { approved: true, result };
         };
 
         try {

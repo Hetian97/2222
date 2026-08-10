@@ -1913,6 +1913,7 @@ async function openVectorMemorySettings(chat, defaultTab = 'settings') {
 function isMemorySummaryNoise(msg) {
   if (!msg) return false;
   if (msg.type === 'thought_chain_block') return true;
+  if (msg.type === 'mcp_activity') return true;
   if (typeof msg.content !== 'string') return false;
   const content = msg.content;
   return content.includes('我分享了一条情侣空间记录') && content.includes('[情侣空间分享｜');

@@ -920,7 +920,7 @@ const updateTokenCountDisplay = debounce(async () => {
   const excludedCountEl = document.getElementById('excluded-count-value');
   if (excludedCountEl) {
     if (chat && chat.history) {
-      const excludedCount = chat.history.filter(m => m.isExcluded).length;
+      const excludedCount = chat.history.filter(m => m.isExcluded && m.type !== 'mcp_activity').length;
       excludedCountEl.textContent = excludedCount > 0 ? `${excludedCount} 条` : '0 条';
       excludedCountEl.style.color = excludedCount > 0 ? 'var(--accent-color)' : '#8a8a8a';
     } else {

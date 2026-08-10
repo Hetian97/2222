@@ -493,6 +493,9 @@
         .replace(/>/g, '&gt;');
 
       const escapeAttr = (value) => escapeHtml(value).replace(/"/g, '&quot;');
+      const exportableHistory = Array.isArray(chat.history)
+        ? chat.history.filter(msg => msg.type !== 'mcp_activity' && msg.excludeFromExport !== true)
+        : [];
 
       if (format === 'json') {
         // 方案3：导出时移除API历史记录
@@ -500,6 +503,7 @@
         if (chatDataCopy.apiHistory) {
           delete chatDataCopy.apiHistory;
         }
+        chatDataCopy.history = exportableHistory;
 
         const backupData = {
           type: 'EPhoneSingleChat',
@@ -522,8 +526,8 @@
       } else if (format === 'txt') {
         let txtContent = `【与 ${chat.name} 的聊天记录】\n【导出时间：${new Date().toLocaleString()}】\n\n`;
         
-        if (chat.history && chat.history.length > 0) {
-          for (const msg of chat.history) {
+        if (exportableHistory.length > 0) {
+          for (const msg of exportableHistory) {
             const role = msg.role === 'user' ? '我' : chat.name;
             const time = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : '';
             const content = getExportMessageText(msg);
@@ -661,9 +665,9 @@
       </div>
       <div id="message-list">
 `;
-        if (chat.history && chat.history.length > 0) {
+        if (exportableHistory.length > 0) {
           const aiInitial = chat.name ? chat.name.charAt(0) : 'A';
-          for (const msg of chat.history) {
+          for (const msg of exportableHistory) {
             const isUser = msg.role === 'user';
             const role = isUser ? '我' : chat.name;
             const time = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : '';

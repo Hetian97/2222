@@ -307,7 +307,7 @@ window.initEventBindingsB = function(state, db) {
       const chat = state.chats[state.activeChatId];
 
       // 检查消息数量 - 使用 chat.history 而不是 chat.messages
-      const messageCount = chat.history ? chat.history.length : 0;
+      const messageCount = chat.history ? chat.history.filter(msg => msg.type !== 'mcp_activity').length : 0;
 
       if (messageCount === 0) {
         await showCustomAlert('提示', '当前聊天没有消息记录。');
@@ -383,7 +383,7 @@ window.initEventBindingsB = function(state, db) {
       const chat = state.chats[state.activeChatId];
 
       // 检查消息数量
-      const messageCount = chat.history ? chat.history.length : 0;
+      const messageCount = chat.history ? chat.history.filter(msg => msg.type !== 'mcp_activity').length : 0;
 
       if (messageCount === 0) {
         await showCustomAlert('提示', '当前聊天没有消息记录。');
