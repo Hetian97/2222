@@ -39,6 +39,10 @@
   }
 
   function getWakePauseReason(config) {
+    const dndReason = typeof window.getDoNotDisturbPauseReason === 'function'
+      ? window.getDoNotDisturbPauseReason(appState?.globalSettings)
+      : '';
+    if (dndReason) return dndReason;
     if (!appState?.globalSettings?.enableBackgroundActivity) {
       return '已随“后台角色活动”总开关暂停';
     }
@@ -156,6 +160,16 @@
 
       if (!data.event) {
         setStatus('在线 · 暂无待处理唤醒', '#34c759');
+        return;
+      }
+
+      if (
+        typeof window.isTimestampInDoNotDisturb === 'function' &&
+        window.isTimestampInDoNotDisturb(data.event.createdAt, appState?.globalSettings)
+      ) {
+        await acknowledgeEvent(data.event, 'completed');
+        setStatus('已忽略免打扰时段内的 AISay 唤醒', '#34c759');
+        setTimeout(() => pollOnce(), 0);
         return;
       }
 

@@ -1012,3 +1012,77 @@ function openSimpleImageZoom(src) {
   void overlay.offsetWidth;
   overlay.classList.add('visible');
 }
+
+// ============================================================
+// 统一免打扰时段
+// ============================================================
+function parseDoNotDisturbTime(value, fallback) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || '').trim());
+  if (!match) return fallback;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return fallback;
+  return hours * 60 + minutes;
+}
+
+function getDoNotDisturbConfig(settings = window.state?.globalSettings) {
+  return {
+    enabled: settings?.doNotDisturb?.enabled === true,
+    startTime: String(settings?.doNotDisturb?.startTime || '01:00'),
+    endTime: String(settings?.doNotDisturb?.endTime || '09:00')
+  };
+}
+
+function isTimestampInDoNotDisturb(timestamp = Date.now(), settings = window.state?.globalSettings) {
+  const config = getDoNotDisturbConfig(settings);
+  if (!config.enabled) return false;
+
+  const start = parseDoNotDisturbTime(config.startTime, 60);
+  const end = parseDoNotDisturbTime(config.endTime, 9 * 60);
+  if (start === end) return true;
+
+  const date = new Date(Number(timestamp) || Date.now());
+  const current = date.getHours() * 60 + date.getMinutes();
+  return start < end
+    ? current >= start && current < end
+    : current >= start || current < end;
+}
+
+function doesIntervalOverlapDoNotDisturb(startTimestamp, endTimestamp = Date.now(), settings = window.state?.globalSettings) {
+  const config = getDoNotDisturbConfig(settings);
+  if (!config.enabled) return false;
+
+  const intervalStart = Math.min(Number(startTimestamp) || 0, Number(endTimestamp) || Date.now());
+  const intervalEnd = Math.max(Number(startTimestamp) || 0, Number(endTimestamp) || Date.now());
+  if (!intervalStart || intervalEnd - intervalStart >= 24 * 60 * 60 * 1000) return true;
+
+  const start = parseDoNotDisturbTime(config.startTime, 60);
+  const end = parseDoNotDisturbTime(config.endTime, 9 * 60);
+  if (start === end) return true;
+
+  const firstDay = new Date(intervalStart);
+  firstDay.setHours(0, 0, 0, 0);
+  firstDay.setDate(firstDay.getDate() - 1);
+  const lastDay = new Date(intervalEnd);
+  lastDay.setHours(0, 0, 0, 0);
+
+  for (let day = firstDay.getTime(); day <= lastDay.getTime(); day += 24 * 60 * 60 * 1000) {
+    const dndStart = day + start * 60 * 1000;
+    const dndEnd = start < end
+      ? day + end * 60 * 1000
+      : day + 24 * 60 * 60 * 1000 + end * 60 * 1000;
+    if (intervalStart < dndEnd && intervalEnd >= dndStart) return true;
+  }
+  return false;
+}
+
+function getDoNotDisturbPauseReason(settings = window.state?.globalSettings) {
+  if (!isTimestampInDoNotDisturb(Date.now(), settings)) return '';
+  const config = getDoNotDisturbConfig(settings);
+  return `免打扰中（${config.startTime}–${config.endTime}）`;
+}
+
+window.getDoNotDisturbConfig = getDoNotDisturbConfig;
+window.isTimestampInDoNotDisturb = isTimestampInDoNotDisturb;
+window.doesIntervalOverlapDoNotDisturb = doesIntervalOverlapDoNotDisturb;
+window.getDoNotDisturbPauseReason = getDoNotDisturbPauseReason;

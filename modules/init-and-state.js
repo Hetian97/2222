@@ -126,6 +126,11 @@ document.addEventListener('DOMContentLoaded', () => {
       enableExternalMcpBackgroundActivity: false,
       externalMcpBackgroundActivityChance: 35,
       backgroundActivityInterval: 60,
+      doNotDisturb: {
+        enabled: false,
+        startTime: '01:00',
+        endTime: '09:00'
+      },
       enableViewMyPhoneInBackground: false,  // 新增：后台查看用户手机开关，默认关闭
       viewMyPhoneChance: null,               // 新增：后台查看用户手机概率，null=AI自主决定，0-100=按概率触发
       blockCooldownHours: 1,
@@ -208,6 +213,11 @@ document.addEventListener('DOMContentLoaded', () => {
     state.globalSettings = {
       ...defaultGlobalSettings,
       ...(loadedGlobalSettings || {})
+    };
+
+    state.globalSettings.doNotDisturb = {
+      ...defaultGlobalSettings.doNotDisturb,
+      ...(state.globalSettings.doNotDisturb || {})
     };
 
     // 确保 systemNotification 配置完整

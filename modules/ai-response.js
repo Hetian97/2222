@@ -8846,6 +8846,7 @@ ${linkedContents}
   async function triggerExternalMcpBackgroundActivity(chatId) {
     const chat = state.chats[chatId];
     if (!chat || chat.isGroup) return false;
+    if (typeof window.isTimestampInDoNotDisturb === 'function' && window.isTimestampInDoNotDisturb()) return false;
     if (!state.globalSettings?.enableBackgroundActivity || !state.globalSettings?.enableExternalMcpBackgroundActivity) return false;
     if (chat.settings?.enableBackgroundActivity === false || externalMcpBackgroundInFlight.has(chatId)) return false;
 

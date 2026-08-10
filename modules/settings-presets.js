@@ -899,6 +899,12 @@
     if (backgroundMcpActivitySwitch) backgroundMcpActivitySwitch.checked = state.globalSettings.enableExternalMcpBackgroundActivity === true;
     const backgroundMcpActivityChanceInput = document.getElementById('background-mcp-activity-chance-input');
     if (backgroundMcpActivityChanceInput) backgroundMcpActivityChanceInput.value = state.globalSettings.externalMcpBackgroundActivityChance ?? 35;
+    const backgroundDndSwitch = document.getElementById('background-dnd-switch');
+    const backgroundDndStartInput = document.getElementById('background-dnd-start-input');
+    const backgroundDndEndInput = document.getElementById('background-dnd-end-input');
+    if (backgroundDndSwitch) backgroundDndSwitch.checked = state.globalSettings.doNotDisturb?.enabled === true;
+    if (backgroundDndStartInput) backgroundDndStartInput.value = state.globalSettings.doNotDisturb?.startTime || '01:00';
+    if (backgroundDndEndInput) backgroundDndEndInput.value = state.globalSettings.doNotDisturb?.endTime || '09:00';
     // 新增：加载后台查看用户手机设置
     document.getElementById('global-enable-view-myphone-bg-switch').checked = state.globalSettings.enableViewMyPhoneInBackground || false;
     document.getElementById('global-view-myphone-chance-input').value = state.globalSettings.viewMyPhoneChance !== null && state.globalSettings.viewMyPhoneChance !== undefined ? state.globalSettings.viewMyPhoneChance : '';

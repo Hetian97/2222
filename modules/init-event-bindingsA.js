@@ -2123,6 +2123,14 @@ window.initEventBindingsA = async function(state, db) {
       state.globalSettings.enableExternalMcpBackgroundActivity = !!(backgroundMcpActivitySwitch && backgroundMcpActivitySwitch.checked);
       const backgroundMcpActivityChanceInput = document.getElementById('background-mcp-activity-chance-input');
       state.globalSettings.externalMcpBackgroundActivityChance = Math.max(0, Math.min(100, parseInt(backgroundMcpActivityChanceInput?.value, 10) || 0));
+      const backgroundDndSwitch = document.getElementById('background-dnd-switch');
+      const backgroundDndStartInput = document.getElementById('background-dnd-start-input');
+      const backgroundDndEndInput = document.getElementById('background-dnd-end-input');
+      state.globalSettings.doNotDisturb = {
+        enabled: !!backgroundDndSwitch?.checked,
+        startTime: String(backgroundDndStartInput?.value || '01:00'),
+        endTime: String(backgroundDndEndInput?.value || '09:00')
+      };
       
       // 新增：保存后台查看用户手机设置
       state.globalSettings.enableViewMyPhoneInBackground = document.getElementById('global-enable-view-myphone-bg-switch').checked;

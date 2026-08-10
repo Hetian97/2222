@@ -31,6 +31,10 @@
       stopBackgroundSimulation();
       return;
     }
+    if (typeof window.isTimestampInDoNotDisturb === 'function' && window.isTimestampInDoNotDisturb()) {
+      console.log('[免打扰] 本轮后台活动已暂停。');
+      return;
+    }
 
 
     const allSingleChats = Object.values(state.chats).filter(chat => !chat.isGroup);
@@ -858,6 +862,14 @@ ${tasksString}
 
   async function simulateBackgroundActivity(minutesOffline) {
     console.log(`检测到应用离线了 ${minutesOffline.toFixed(1)} 分钟，开始模拟后台活动...`);
+    const offlineStart = Date.now() - Math.max(0, Number(minutesOffline) || 0) * 60 * 1000;
+    if (
+      typeof window.doesIntervalOverlapDoNotDisturb === 'function' &&
+      window.doesIntervalOverlapDoNotDisturb(offlineStart, Date.now())
+    ) {
+      console.log('[免打扰] 离线期间经过免打扰时段，不补做后台活动。');
+      return;
+    }
 
 
     const activeCharacters = Object.values(state.chats).filter(chat =>

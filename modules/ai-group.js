@@ -538,6 +538,10 @@ ${formatRules}
   async function triggerInactiveAiAction(chatId) {
     const chat = state.chats[chatId];
     if (!chat) return;
+    if (typeof window.isTimestampInDoNotDisturb === 'function' && window.isTimestampInDoNotDisturb()) {
+      console.log(`[免打扰] 已跳过角色 "${chat.name || chatId}" 的独立后台活动。`);
+      return;
+    }
 
     if (typeof window.triggerExternalMcpBackgroundActivity === 'function') {
       const handledByExternalMcp = await window.triggerExternalMcpBackgroundActivity(chatId);
@@ -1586,6 +1590,10 @@ ${longTimeNoSee ? `【重要提示】你们已经很久没聊天了！你【必�
   async function triggerGroupAiAction(chatId) {
     const chat = state.chats[chatId];
     if (!chat || !chat.isGroup) return;
+    if (typeof window.isTimestampInDoNotDisturb === 'function' && window.isTimestampInDoNotDisturb()) {
+      console.log(`[免打扰] 已跳过群聊 "${chat.name || chatId}" 的后台活动。`);
+      return;
+    }
 
     const maxMemory = chat.settings.maxMemory || 10;
     const recentHistory_RAW = chat.history.filter(m => !m.isHidden && !m.isExcluded).slice(-maxMemory);

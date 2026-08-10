@@ -60,7 +60,7 @@
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <!-- 拆分后的模块（按依赖顺序加载） -->
   <!-- 第一层：全局工具函数（DOMContentLoaded 之前） -->
-  <script src="modules/utils.js?v=0.0.38" defer></script>
+  <script src="modules/utils.js?v=0.0.39" defer></script>
   <script src="modules/translations.js?v=0.0.36" defer></script>
   <!-- 第二层：UI 通用组件 -->
   <script src="modules/ui-modals.js?v=0.0.36" defer></script>
@@ -70,8 +70,8 @@
   <script src="modules/chat-interface.js?v=0.0.38" defer></script>
   <script src="modules/chat-input.js?v=0.0.37" defer></script>
   <!-- 第四层：AI 核心 -->
-  <script src="modules/ai-response.js?v=0.0.96" defer></script>
-  <script src="modules/ai-group.js?v=0.0.36" defer></script>
+  <script src="modules/ai-response.js?v=0.0.97" defer></script>
+  <script src="modules/ai-group.js?v=0.0.37" defer></script>
   <!-- 第五层：功能模块 -->
   <script src="modules/music-player.js?v=0.0.36" defer></script>
   <script src="modules/qzone.js?v=0.0.36" defer></script>
@@ -81,7 +81,7 @@
   <script src="modules/message-actions.js?v=0.0.37" defer></script>
   <script src="modules/nai-imagen.js?v=0.0.37" defer></script>
   <script src="modules/backup-import-export.js?v=0.0.41" defer></script>
-  <script src="modules/settings-presets.js?v=0.0.38" defer></script>
+  <script src="modules/settings-presets.js?v=0.0.39" defer></script>
   <script src="modules/chat-settings-presets.js?v=0.0.36" defer></script>
   <script src="modules/shopping.js?v=0.0.51" defer></script>
   <script src="modules/rendering-rules.js?v=0.0.36" defer></script>
@@ -103,9 +103,9 @@
   <script src="modules/tts-audio.js?v=0.0.36" defer></script>
   <script src="modules/appearance-theme.js?v=0.0.36" defer></script>
   <script src="modules/notification-battery.js?v=0.0.36" defer></script>
-  <script src="modules/garden-wake.js?v=0.0.1" defer></script>
-  <script src="modules/aisay-wake.js?v=0.0.1" defer></script>
-  <script src="modules/background-activity.js?v=0.0.36" defer></script>
+  <script src="modules/garden-wake.js?v=0.0.2" defer></script>
+  <script src="modules/aisay-wake.js?v=0.0.2" defer></script>
+  <script src="modules/background-activity.js?v=0.0.37" defer></script>
   <script src="modules/card-import.js?v=0.0.36" defer></script>
   <script src="modules/character-export.js?v=0.0.37" defer></script>
   <script src="modules/data-management.js?v=0.0.37" defer></script>
@@ -121,11 +121,11 @@
   <!-- PIN/城市（依赖 DOM） -->
   <script src="modules/init-pin-city.js?v=0.0.36" defer></script>
   <!-- 事件绑定和功能（依赖 state, db） -->
-  <script src="modules/init-event-bindingsA.js?v=0.0.40" defer></script>
+  <script src="modules/init-event-bindingsA.js?v=0.0.41" defer></script>
   <script src="modules/init-event-bindingsB.js?v=0.0.38" defer></script>
   <script src="modules/init-features.js?v=0.0.36" defer></script>
   <!-- 主入口（最后加载，调用 init） -->
-  <script src="modules/init-and-state.js?v=0.0.36" defer></script>
+  <script src="modules/init-and-state.js?v=0.0.37" defer></script>
   <!-- 第九层：DOMContentLoaded 外部的独立模块 -->
   <script src="modules/video-optimization.js?v=0.0.36" defer></script>
   <script src="modules/clean-chat-detail.js?v=0.0.36" defer></script>
@@ -2591,6 +2591,25 @@
                 </div>
             </div>
             <div class="settings-item">
+                <label>启用免打扰时段</label>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="background-dnd-switch">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="settings-item">
+                <label>免打扰开始</label>
+                <div class="settings-right">
+                    <input type="time" id="background-dnd-start-input" value="01:00" class="settings-num-input">
+                </div>
+            </div>
+            <div class="settings-item">
+                <label>免打扰结束</label>
+                <div class="settings-right">
+                    <input type="time" id="background-dnd-end-input" value="09:00" class="settings-num-input">
+                </div>
+            </div>
+            <div class="settings-item">
                 <label>检测间隔 (秒)</label>
                 <div class="settings-right">
                     <input type="number" id="background-interval-input" min="30" value="60" class="settings-num-input">
@@ -2616,7 +2635,7 @@
                 </div>
             </div>
         </div>
-        <div class="settings-desc">开启后台活动会增加 API 费用。MCP 活动占比表示角色每次被后台唤醒时，有多少概率把本轮活动用于已授权的 MCP；其余轮次继续聊天、空间或查手机。后台查看手机：留空概率时AI自主决定，填写0-100则按概率触发。</div>
+        <div class="settings-desc">开启后台活动会增加 API 费用。MCP 活动占比表示角色每次被后台唤醒时，有多少概率把本轮活动用于已授权的 MCP；其余轮次继续聊天、空间或查手机。免打扰时段同时暂停线上/线下后台活动、后台 MCP 和 Garden/AISay 唤醒；时段内的外部唤醒不会在结束后逐条补发。后台查看手机：留空概率时AI自主决定，填写0-100则按概率触发。</div>
 
         <!-- 语音设置 -->
         <div class="settings-header" data-lang-key="apiTtsSettings">Minimax TTS 语音</div>
