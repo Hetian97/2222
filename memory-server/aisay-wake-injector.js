@@ -2,13 +2,29 @@
 
 const http = require('http');
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
 
 const apiBaseUrl = String(
   process.env.EPHONE_AISAY_WAKE_API_URL || 'http://127.0.0.1:8765'
 ).replace(/\/+$/, '');
-const apiToken = String(
-  process.env.EPHONE_AISAY_WAKE_API_TOKEN || process.env.MEMORY_API_TOKEN || ''
-).trim();
+function readApiToken() {
+  const environmentToken = String(
+    process.env.EPHONE_AISAY_WAKE_API_TOKEN || process.env.MEMORY_API_TOKEN || ''
+  ).trim();
+  if (environmentToken) return environmentToken;
+
+  const tokenFile = String(
+    process.env.EPHONE_AISAY_WAKE_API_TOKEN_FILE || path.join(__dirname, '.memory-api-token')
+  ).trim();
+  try {
+    return fs.readFileSync(tokenFile, 'utf8').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+const apiToken = readApiToken();
 
 const categoryLabels = {
   mention: '群聊里有人提到你',
