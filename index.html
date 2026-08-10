@@ -10888,6 +10888,21 @@
     renderMcpServiceList();
   }
 
+  function moveMcpServiceConfig(id, direction) {
+    const configs = getMcpServiceConfigs();
+    const index = configs.findIndex(item => item.id === id);
+    if (index < 0) return;
+
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= configs.length) return;
+
+    [configs[index], configs[targetIndex]] = [configs[targetIndex], configs[index]];
+    configs[index].updatedAt = new Date().toISOString();
+    configs[targetIndex].updatedAt = new Date().toISOString();
+    saveMcpServiceConfigs(configs);
+    renderMcpServiceList();
+  }
+
   function deleteMcpServiceConfig(id) {
     const configs = getMcpServiceConfigs();
     const service = configs.find(item => item.id === id);
@@ -10922,7 +10937,8 @@
       return;
     }
 
-    for (const service of configs) {
+    for (let serviceIndex = 0; serviceIndex < configs.length; serviceIndex++) {
+      const service = configs[serviceIndex];
       const item = document.createElement('div');
       item.style.border = '1px solid rgba(0,0,0,0.08)';
       item.style.borderRadius = '12px';
@@ -10984,6 +11000,20 @@
       toggleBtn.textContent = service.enabled === false ? '启用' : '禁用';
       toggleBtn.onclick = () => toggleMcpServiceEnabled(service.id);
 
+      const moveUpBtn = document.createElement('button');
+      moveUpBtn.className = 'settings-button';
+      moveUpBtn.textContent = '↑';
+      moveUpBtn.title = '上移';
+      moveUpBtn.disabled = serviceIndex === 0;
+      moveUpBtn.onclick = () => moveMcpServiceConfig(service.id, -1);
+
+      const moveDownBtn = document.createElement('button');
+      moveDownBtn.className = 'settings-button';
+      moveDownBtn.textContent = '↓';
+      moveDownBtn.title = '下移';
+      moveDownBtn.disabled = serviceIndex === configs.length - 1;
+      moveDownBtn.onclick = () => moveMcpServiceConfig(service.id, 1);
+
       const deleteBtn = document.createElement('button');
       deleteBtn.className = 'settings-button';
       deleteBtn.textContent = '删除';
@@ -10991,6 +11021,8 @@
 
       actions.appendChild(selectBtn);
       actions.appendChild(toggleBtn);
+      actions.appendChild(moveUpBtn);
+      actions.appendChild(moveDownBtn);
       actions.appendChild(deleteBtn);
 
       item.appendChild(title);
