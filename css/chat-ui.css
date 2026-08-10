@@ -820,7 +820,7 @@
                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
            }
 
-           /* 后台 MCP 活动：只作为聊天时间线提示，不使用消息气泡。 */
+           /* MCP 活动：只作为聊天时间线提示，不使用消息气泡。 */
            .message-wrapper.mcp-activity-wrapper {
                display: flex;
                justify-content: center;

@@ -732,7 +732,6 @@ function buildExternalMcpProxyUrl(path) {
   }
 
   function ensureExternalMcpActivityRecord(chat, responseOptions, serviceName) {
-    if (responseOptions.externalMcpBackground !== true) return null;
     let record = responseOptions.externalMcpActivityRecord;
     let wasCreated = false;
     if (!record) {
@@ -744,7 +743,9 @@ function buildExternalMcpProxyUrl(path) {
         isHidden: true,
         isExcluded: true,
         excludeFromExport: true,
-        source: 'external_mcp_background_activity',
+        source: responseOptions.externalMcpBackground === true
+          ? 'external_mcp_background_activity'
+          : 'external_mcp_chat_activity',
         status: 'running',
         services: [],
         successfulCategories: []
@@ -5474,9 +5475,7 @@ ${getActiveThoughtsPrompt()}
 
           const activityServiceName = autoApprovedService?.name || autoApprovedService?.serverName || requestWithActor.serviceName || '外部 MCP';
           const activityCategory = classifyExternalMcpBackgroundAction(autoApprovedService, requestWithActor.toolName, requestWithActor.arguments || {});
-          const activityRecord = isBackgroundMcpRun
-            ? ensureExternalMcpActivityRecord(chat, responseOptions, activityServiceName)
-            : null;
+          let activityRecord = null;
 
           try {
             if (isBackgroundMcpRun) {
@@ -5492,6 +5491,8 @@ ${getActiveThoughtsPrompt()}
             if (!shouldAutoApprove && !confirmExternalMcpToolRequest(requestWithActor, stepLabel)) {
               return { approved: false, result: null };
             }
+
+            activityRecord = ensureExternalMcpActivityRecord(chat, responseOptions, activityServiceName);
 
             if (shouldAutoApprove) {
               console.log("[MCP Auto] 已自动批准角色调用外部 MCP 工具:", stepLabel, requestWithActor);
