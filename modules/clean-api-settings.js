@@ -199,13 +199,15 @@
       tabs.push({ id: 'service', label: '服务', elements: collectElements(serviceGroups) });
     }
 
-    // === Tab 4: 通知（后台保活 + 系统级通知 + Garden 自动唤醒） ===
+    // === Tab 4: 通知（后台保活 + 系统级通知 + 外部服务自动唤醒） ===
     const notifyGroups = [];
     g = takeGroup(findByText('后台保活'));
     if (g) notifyGroups.push(g);
     g = takeGroup(findByText('系统级通知'));
     if (g) notifyGroups.push(g);
     g = takeGroup(findByText('Galatea Garden 自动唤醒'));
+    if (g) notifyGroups.push(g);
+    g = takeGroup(findByText('AISay 自动唤醒'));
     if (g) notifyGroups.push(g);
     if (notifyGroups.length) {
       tabs.push({ id: 'notify', label: '通知', elements: collectElements(notifyGroups) });
