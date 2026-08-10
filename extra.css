@@ -194,3 +194,45 @@
 .custom-thoughts-actions {
     gap: 0 !important;
 }
+
+/* ============================================
+   MCP 服务页 - 防止长 URL / Token 撑出手机屏幕
+   ============================================ */
+
+#mcp-service-screen,
+#mcp-service-screen .mcp-service-container {
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+#mcp-service-screen .mcp-service-container {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+#mcp-service-screen .mcp-service-container > div,
+#mcp-service-screen #mcp-service-list,
+#mcp-service-screen .mcp-service-card,
+#mcp-service-screen details,
+#mcp-service-screen pre,
+#mcp-service-screen input,
+#mcp-service-screen textarea,
+#mcp-service-screen select {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+#mcp-service-screen .mcp-service-card-title,
+#mcp-service-screen .mcp-service-card-meta,
+#mcp-service-screen #mcp-service-output {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+#mcp-service-screen #mcp-service-output {
+    width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+}

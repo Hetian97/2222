@@ -27,7 +27,7 @@
   <link rel="stylesheet" href="period-tracker.css?v=0.0.37">
   <link rel="stylesheet" href="focus-timer.css?v=0.0.36">
   <link rel="stylesheet" href="css/living-space.css?v=0.0.4">
-  <link rel="stylesheet" href="extra.css?v=0.0.36">
+  <link rel="stylesheet" href="extra.css?v=0.0.37">
   <link rel="apple-touch-icon" href="https://i.postimg.cc/nMbyyt1t/D7CD735A73F5FD1D7B8407E0EB8BBAC0.png">
   <link rel="manifest" href="manifest.json?v=0.0.36">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1852,7 +1852,7 @@
         <span style="width: 30px;"></span>
       </div>
 
-      <div class="list-container" style="padding:16px;overflow-y:auto;">
+      <div class="list-container mcp-service-container" style="padding:16px;overflow-y:auto;">
         <div style="background:#fff;border-radius:18px;padding:16px;box-shadow:0 4px 16px rgba(0,0,0,0.06);margin-bottom:14px;">
           <div style="font-size:18px;font-weight:700;margin-bottom:8px;">外部 MCP 服务</div>
           <div style="font-size:13px;color:#666;line-height:1.7;margin-bottom:10px;">
@@ -10999,6 +10999,7 @@
     for (let serviceIndex = 0; serviceIndex < configs.length; serviceIndex++) {
       const service = configs[serviceIndex];
       const item = document.createElement('div');
+      item.className = 'mcp-service-card';
       item.style.border = '1px solid rgba(0,0,0,0.08)';
       item.style.borderRadius = '12px';
       item.style.padding = '10px';
@@ -11006,10 +11007,12 @@
       item.style.background = service.id === selectedId ? 'rgba(0,122,255,0.08)' : 'rgba(0,0,0,0.02)';
 
       const title = document.createElement('div');
+      title.className = 'mcp-service-card-title';
       title.style.fontWeight = '700';
       title.textContent = (service.id === selectedId ? '✓ ' : '') + service.name;
 
       const meta = document.createElement('div');
+      meta.className = 'mcp-service-card-meta';
       meta.style.fontSize = '12px';
       meta.style.color = '#666';
       meta.style.marginTop = '4px';
@@ -11044,6 +11047,7 @@
         ' · ' + service.url;
 
       const actions = document.createElement('div');
+      actions.className = 'mcp-service-card-actions';
       actions.style.display = 'flex';
       actions.style.flexWrap = 'wrap';
       actions.style.gap = '8px';
