@@ -1722,6 +1722,8 @@ async function callExternalMcpToolsList(serviceUrl, options = {}) {
       !message.includes('mcp-session-id') &&
       !message.includes('session ID') &&
       !message.includes('valid session') &&
+      !message.includes('SESSION_EXPIRED') &&
+      !message.includes('连接已过期') &&
       !message.includes('initialize')
     ) {
       throw firstError;
