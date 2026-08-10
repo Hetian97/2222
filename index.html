@@ -10962,8 +10962,8 @@
       const triggerKeywordsText = service.triggerKeywordsText && String(service.triggerKeywordsText).trim()
         ? ' · 触发词：' + String(service.triggerKeywordsText).trim().replace(/\s+/g, ' ')
         : '';
-      const autoCallText = service.allowAutonomousCall === true ? ' · 自动调用' : '';
-      const backgroundActivityText = service.backgroundActivityEnabled === true ? ' · 后台 MCP' : '';
+      const autoCallText = ' · 自动调用：' + (service.allowAutonomousCall === true ? '开' : '关');
+      const backgroundActivityText = ' · 后台自主活动：' + (service.backgroundActivityEnabled === true ? '开' : '关');
       const authText = ' · 认证：' + (
         service.authType === 'bearer'
           ? 'Bearer'
