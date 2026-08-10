@@ -45,9 +45,9 @@
 /* Tab 栏 */
 #clean-chat-detail-screen .ccd-tabs {
   display: flex;
-  justify-content: center;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
   border-bottom: 1px solid var(--border-color, #eee);
   background: var(--primary-bg, #fff);
   flex-shrink: 0;
@@ -60,9 +60,10 @@
 }
 
 #clean-chat-detail-screen .ccd-tab {
-  flex-shrink: 0;
-  padding: 10px 16px;
-  font-size: 14px;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 10px 2px;
+  font-size: 13px;
   color: var(--text-secondary, #999);
   cursor: pointer;
   white-space: nowrap;
