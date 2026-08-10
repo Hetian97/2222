@@ -198,6 +198,12 @@ document.addEventListener('DOMContentLoaded', () => {
         pollSeconds: 15,
         showWakeMessage: true
       },
+      aisayWake: {
+        enabled: false,
+        targetChatId: '',
+        pollSeconds: 15,
+        showWakeMessage: true
+      },
     };
     state.globalSettings = {
       ...defaultGlobalSettings,
@@ -229,6 +235,11 @@ document.addEventListener('DOMContentLoaded', () => {
     state.globalSettings.gardenWake = {
       ...defaultGlobalSettings.gardenWake,
       ...(state.globalSettings.gardenWake || {})
+    };
+
+    state.globalSettings.aisayWake = {
+      ...defaultGlobalSettings.aisayWake,
+      ...(state.globalSettings.aisayWake || {})
     };
 
     state.globalSettings.appIcons = {
@@ -589,6 +600,9 @@ document.addEventListener('DOMContentLoaded', () => {
     initSystemNotification();
     if (typeof window.initGardenWakeClient === 'function') {
       window.initGardenWakeClient(state, db);
+    }
+    if (typeof window.initAisayWakeClient === 'function') {
+      window.initAisayWakeClient(state, db);
     }
     initializeBackgroundKeepAlive();
     bindBackgroundKeepAliveEvents();

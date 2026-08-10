@@ -15,7 +15,11 @@ const {
   addGardenWakeEvent,
   claimGardenWakeEvent,
   finishGardenWakeEvent,
-  getGardenWakeStats
+  getGardenWakeStats,
+  addAisayWakeEvent,
+  claimAisayWakeEvent,
+  finishAisayWakeEvent,
+  getAisayWakeStats
 } = require('./db');
 
 const {
@@ -3299,6 +3303,99 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, {
       ok: true,
       stats: getGardenWakeStats()
+    });
+    return;
+  }
+
+  if (pathname === '/aisay-wake/events' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      if (body?.version !== 1 || body?.type !== 'aisay_wake') {
+        throw new Error('Invalid AISay wake envelope.');
+      }
+
+      const queued = addAisayWakeEvent({
+        externalEventId: body.event_id,
+        category: body.category,
+        reason: body.reason || body.category,
+        message: body.message,
+        payload: body,
+        createdAt: body.created_at ? Date.parse(body.created_at) : Date.now()
+      });
+
+      sendJson(res, queued.duplicate ? 200 : 201, {
+        ok: true,
+        eventId: queued.event.id,
+        externalEventId: queued.event.externalEventId,
+        duplicate: queued.duplicate,
+        queuedAt: queued.event.createdAt
+      });
+    } catch (error) {
+      sendJson(res, 400, {
+        ok: false,
+        error: error.message || String(error)
+      });
+    }
+    return;
+  }
+
+  if (pathname === '/aisay-wake/claim' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      const event = claimAisayWakeEvent(body.clientId, body.leaseMs);
+      sendJson(res, 200, {
+        ok: true,
+        event: event ? {
+          id: event.id,
+          externalEventId: event.externalEventId,
+          category: event.category,
+          reason: event.reason,
+          message: event.message,
+          payload: event.payload,
+          createdAt: event.createdAt,
+          claimToken: event.claimToken
+        } : null
+      });
+    } catch (error) {
+      sendJson(res, 400, {
+        ok: false,
+        error: error.message || String(error)
+      });
+    }
+    return;
+  }
+
+  if (pathname === '/aisay-wake/ack' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      const updated = finishAisayWakeEvent(
+        body.eventId,
+        body.claimToken,
+        body.status,
+        body.error || ''
+      );
+
+      if (!updated) {
+        sendJson(res, 409, {
+          ok: false,
+          error: 'AISay wake event is no longer owned by this client.'
+        });
+      } else {
+        sendJson(res, 200, { ok: true });
+      }
+    } catch (error) {
+      sendJson(res, 400, {
+        ok: false,
+        error: error.message || String(error)
+      });
+    }
+    return;
+  }
+
+  if (pathname === '/aisay-wake/status' && req.method === 'GET') {
+    sendJson(res, 200, {
+      ok: true,
+      stats: getAisayWakeStats()
     });
     return;
   }

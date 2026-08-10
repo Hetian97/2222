@@ -52,6 +52,25 @@ CREATE TABLE IF NOT EXISTS garden_wake_events (
 
 CREATE INDEX IF NOT EXISTS idx_garden_wake_status_created
 ON garden_wake_events(status, createdAt);
+
+CREATE TABLE IF NOT EXISTS aisay_wake_events (
+  id TEXT PRIMARY KEY,
+  externalEventId TEXT NOT NULL UNIQUE,
+  category TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  message TEXT NOT NULL,
+  payload TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  createdAt INTEGER NOT NULL,
+  claimedAt INTEGER,
+  claimedBy TEXT,
+  claimToken TEXT,
+  completedAt INTEGER,
+  lastError TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_aisay_wake_status_created
+ON aisay_wake_events(status, createdAt);
 `);
 
 function ensureColumn(table, column, definition) {
@@ -462,6 +481,110 @@ function getGardenWakeStats() {
   return Object.fromEntries(rows.map(row => [row.status, row.count]));
 }
 
+function normalizeAisayWakeEvent(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    payload: safeJsonParse(row.payload, {})
+  };
+}
+
+function addAisayWakeEvent(event) {
+  const now = Date.now();
+  const externalEventId = String(event.externalEventId || event.event_id || event.id || '').trim();
+  const item = {
+    id: `aisay_wake_${externalEventId}`,
+    externalEventId,
+    category: String(event.category || 'unknown').trim(),
+    reason: String(event.reason || event.category || 'aisay_wake').trim(),
+    message: String(event.message || '').trim(),
+    payload: safeJsonStringify(event.payload || event),
+    status: 'pending',
+    createdAt: Number(event.createdAt) || now
+  };
+
+  if (!item.externalEventId || !item.category || !item.message) {
+    throw new Error('AISay wake event_id, category and message are required.');
+  }
+
+  const result = db.prepare(`
+    INSERT INTO aisay_wake_events (
+      id, externalEventId, category, reason, message, payload, status, createdAt
+    ) VALUES (
+      @id, @externalEventId, @category, @reason, @message, @payload, @status, @createdAt
+    )
+    ON CONFLICT(externalEventId) DO NOTHING
+  `).run(item);
+
+  return {
+    event: normalizeAisayWakeEvent(
+      db.prepare('SELECT * FROM aisay_wake_events WHERE externalEventId = ?').get(item.externalEventId)
+    ),
+    duplicate: result.changes === 0
+  };
+}
+
+function claimAisayWakeEvent(clientId, leaseMs = 5 * 60 * 1000) {
+  const safeClientId = String(clientId || '').trim();
+  if (!safeClientId) throw new Error('AISay wake clientId is required.');
+
+  const now = Date.now();
+  const safeLeaseMs = Math.min(30 * 60 * 1000, Math.max(30 * 1000, Number(leaseMs) || 5 * 60 * 1000));
+  const claimToken = crypto.randomUUID();
+
+  return db.transaction(() => {
+    db.prepare(`
+      UPDATE aisay_wake_events
+      SET status = 'pending', claimedAt = NULL, claimedBy = NULL, claimToken = NULL
+      WHERE status = 'processing' AND claimedAt < ?
+    `).run(now - safeLeaseMs);
+
+    const row = db.prepare(`
+      SELECT * FROM aisay_wake_events
+      WHERE status = 'pending'
+      ORDER BY createdAt ASC
+      LIMIT 1
+    `).get();
+
+    if (!row) return null;
+
+    const updated = db.prepare(`
+      UPDATE aisay_wake_events
+      SET status = 'processing', claimedAt = ?, claimedBy = ?, claimToken = ?
+      WHERE id = ? AND status = 'pending'
+    `).run(now, safeClientId, claimToken, row.id);
+
+    if (!updated.changes) return null;
+    return normalizeAisayWakeEvent(
+      db.prepare('SELECT * FROM aisay_wake_events WHERE id = ?').get(row.id)
+    );
+  })();
+}
+
+function finishAisayWakeEvent(id, claimToken, status, errorMessage = '') {
+  const safeId = String(id || '').trim();
+  const safeClaimToken = String(claimToken || '').trim();
+  const safeStatus = status === 'completed' ? 'completed' : 'failed';
+  if (!safeId || !safeClaimToken) return false;
+
+  const result = db.prepare(`
+    UPDATE aisay_wake_events
+    SET status = ?, completedAt = ?, lastError = ?
+    WHERE id = ? AND status = 'processing' AND claimToken = ?
+  `).run(safeStatus, Date.now(), String(errorMessage || '').slice(0, 1000), safeId, safeClaimToken);
+
+  return result.changes > 0;
+}
+
+function getAisayWakeStats() {
+  const rows = db.prepare(`
+    SELECT status, COUNT(*) AS count
+    FROM aisay_wake_events
+    GROUP BY status
+  `).all();
+  return Object.fromEntries(rows.map(row => [row.status, row.count]));
+}
+
 module.exports = {
   db,
   addMemory,
@@ -475,5 +598,9 @@ module.exports = {
   addGardenWakeEvent,
   claimGardenWakeEvent,
   finishGardenWakeEvent,
-  getGardenWakeStats
+  getGardenWakeStats,
+  addAisayWakeEvent,
+  claimAisayWakeEvent,
+  finishAisayWakeEvent,
+  getAisayWakeStats
 };
