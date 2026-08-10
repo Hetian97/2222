@@ -539,6 +539,11 @@ ${formatRules}
     const chat = state.chats[chatId];
     if (!chat) return;
 
+    if (typeof window.triggerExternalMcpBackgroundActivity === 'function') {
+      const handledByExternalMcp = await window.triggerExternalMcpBackgroundActivity(chatId);
+      if (handledByExternalMcp) return;
+    }
+
     if (!chat.isGroup && chat.settings && chat.settings.isOfflineMode) {
       return triggerOfflineInactiveAiAction(chatId);
     }

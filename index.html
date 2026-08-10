@@ -1948,7 +1948,19 @@
                 <input id="mcp-service-allow-autonomous-call-input" type="checkbox">
                 允许角色自动调用
               </label>
-              <label style="font-size:13px;color:#555;">模式
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#555;">
+                <input id="mcp-service-background-activity-input" type="checkbox" onchange="updateMcpServiceBackgroundFieldsVisibility()">
+                允许参与后台自主活动
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#555;">
+                <input id="mcp-service-background-create-input" type="checkbox">
+                允许后台创建新内容
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#555;">
+                <input id="mcp-service-background-delete-input" type="checkbox">
+                允许后台删除/撤回内容
+              </label>
+              <label style="font-size:13px;color:#555;grid-column:1 / -1;">模式
                 <select id="mcp-service-mode-select" style="
                   width:100%;
                   box-sizing:border-box;
@@ -1965,6 +1977,12 @@
                 </select>
               </label>
             </div>
+
+            <details id="mcp-service-background-tools-details" style="border:1px solid rgba(0,0,0,0.08);border-radius:10px;padding:10px;background:rgba(0,0,0,0.02);">
+              <summary style="cursor:pointer;font-size:13px;color:#555;">后台工具权限（高级）</summary>
+              <div style="font-size:12px;color:#777;margin:8px 0;line-height:1.5;">读取和常规互动工具默认允许；创建、删除仍受上方开关限制；无法判断的新工具默认关闭。可以在这里逐项限制或授权。</div>
+              <div id="mcp-service-background-tools-list" style="display:grid;grid-template-columns:1fr;gap:7px;max-height:220px;overflow:auto;"></div>
+            </details>
 
 
             <label style="font-size:13px;color:#555;">执行范围</label>
@@ -2559,6 +2577,19 @@
                 </label>
             </div>
             <div class="settings-item">
+                <label>启用外部 MCP 自主活动</label>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="background-mcp-activity-switch">
+                    <span class="slider"></span>
+                </label>
+            </div>
+            <div class="settings-item">
+                <label>MCP 活动占比 (%)</label>
+                <div class="settings-right">
+                    <input type="number" id="background-mcp-activity-chance-input" min="0" max="100" value="35" class="settings-num-input">
+                </div>
+            </div>
+            <div class="settings-item">
                 <label>检测间隔 (秒)</label>
                 <div class="settings-right">
                     <input type="number" id="background-interval-input" min="30" value="60" class="settings-num-input">
@@ -2584,7 +2615,7 @@
                 </div>
             </div>
         </div>
-        <div class="settings-desc">开启后台活动会增加 API 费用。后台查看手机：留空概率时AI自主决定，填写0-100则按概率触发。</div>
+        <div class="settings-desc">开启后台活动会增加 API 费用。MCP 活动占比表示角色每次被后台唤醒时，有多少概率把本轮活动用于已授权的 MCP；其余轮次继续聊天、空间或查手机。后台查看手机：留空概率时AI自主决定，填写0-100则按概率触发。</div>
 
         <!-- 语音设置 -->
         <div class="settings-header" data-lang-key="apiTtsSettings">Minimax TTS 语音</div>
@@ -10544,11 +10575,87 @@
     return "未选择";
   }
 
+  function classifyMcpBackgroundToolForUi(tool) {
+    const text = [tool?.name || '', tool?.description || ''].join(' ').toLowerCase();
+    if (/(delete|remove|withdraw|revoke|purge|clear|erase|撤回|删除|移除|清空)/i.test(text)) return 'delete';
+    if (/(create[_-]?thread|new[_-]?(thread|post)|publish|create[_-]?post|发帖|发布新|创建主题)/i.test(text)) return 'create';
+    if (/(reply|comment|vote|like|interact|join[_-]?game|start[_-]?game|submit[_-]?action|send[_-]?(chat|message)|回复|评论|点赞|投票|互动|加入游戏|提交行动)/i.test(text)) return 'interact';
+    if (/(list|read|get|show|search|find|query|discover|review|status|summary|notification|inbox|activity|查看|读取|列表|搜索|发现|通知|状态)/i.test(text)) return 'read';
+    if (/^(cli|identity)$/i.test(String(tool?.name || ''))) return 'interact';
+    return 'unknown';
+  }
+
+  function isMcpBackgroundToolDefaultAllowed(tool, service) {
+    const category = classifyMcpBackgroundToolForUi(tool);
+    // 创建和删除工具本身默认保留在工具清单中，但仍受上方对应总权限的硬性限制。
+    // 这样以后打开“允许创建/删除”时，不必再逐项重新勾选。
+    if (category === 'read' || category === 'interact' || category === 'create' || category === 'delete') return true;
+    return false;
+  }
+
+  function renderMcpServiceBackgroundToolPermissions(service) {
+    const container = document.getElementById('mcp-service-background-tools-list');
+    if (!container) return;
+    const tools = Array.isArray(service?.tools) ? service.tools : [];
+    const overrides = service?.backgroundToolPermissions && typeof service.backgroundToolPermissions === 'object'
+      ? service.backgroundToolPermissions
+      : {};
+    container.innerHTML = '';
+    if (!tools.length) {
+      container.textContent = '请先测试 tools/list 获取工具。';
+      return;
+    }
+    for (const tool of tools) {
+      if (!tool?.name) continue;
+      const category = classifyMcpBackgroundToolForUi(tool);
+      const label = document.createElement('label');
+      label.style.display = 'flex';
+      label.style.alignItems = 'flex-start';
+      label.style.gap = '7px';
+      label.style.fontSize = '12px';
+      label.style.color = '#555';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'mcp-background-tool-permission-input';
+      checkbox.dataset.toolName = String(tool.name);
+      checkbox.checked = Object.prototype.hasOwnProperty.call(overrides, tool.name)
+        ? overrides[tool.name] === true
+        : isMcpBackgroundToolDefaultAllowed(tool, service);
+      const text = document.createElement('span');
+      const categoryLabel = { read: '读取', interact: '互动', create: '创建', delete: '删除', unknown: '待确认' }[category];
+      text.textContent = `${tool.name}（${categoryLabel}）`;
+      label.appendChild(checkbox);
+      label.appendChild(text);
+      container.appendChild(label);
+    }
+  }
+
+  function getMcpBackgroundToolPermissionsFromForm() {
+    const permissions = {};
+    document.querySelectorAll('.mcp-background-tool-permission-input').forEach(input => {
+      if (input.dataset.toolName) permissions[input.dataset.toolName] = input.checked;
+    });
+    return permissions;
+  }
+
+  function updateMcpServiceBackgroundFieldsVisibility() {
+    const enabled = !!document.getElementById('mcp-service-background-activity-input')?.checked;
+    ['mcp-service-background-create-input', 'mcp-service-background-delete-input'].forEach(id => {
+      const input = document.getElementById(id);
+      if (input) input.disabled = !enabled;
+    });
+    const details = document.getElementById('mcp-service-background-tools-details');
+    if (details) details.style.opacity = enabled ? '1' : '0.55';
+  }
+
   function getMcpServiceFormData() {
     const nameInput = document.getElementById('mcp-service-name-input');
     const urlInput = document.getElementById('mcp-service-url-input');
     const enabledInput = document.getElementById('mcp-service-enabled-input');
     const allowAutonomousCallInput = document.getElementById('mcp-service-allow-autonomous-call-input');
+    const backgroundActivityInput = document.getElementById('mcp-service-background-activity-input');
+    const backgroundCreateInput = document.getElementById('mcp-service-background-create-input');
+    const backgroundDeleteInput = document.getElementById('mcp-service-background-delete-input');
     const modeSelect = document.getElementById('mcp-service-mode-select');
     const authTypeSelect = document.getElementById('mcp-service-auth-type-select');
     const bearerTokenInput = document.getElementById('mcp-service-bearer-token-input');
@@ -10567,6 +10674,10 @@
       url,
       enabled: enabledInput ? enabledInput.checked : true,
       allowAutonomousCall: allowAutonomousCallInput ? allowAutonomousCallInput.checked : false,
+      backgroundActivityEnabled: backgroundActivityInput ? backgroundActivityInput.checked : false,
+      backgroundAllowCreate: backgroundCreateInput ? backgroundCreateInput.checked : false,
+      backgroundAllowDelete: backgroundDeleteInput ? backgroundDeleteInput.checked : false,
+      backgroundToolPermissions: getMcpBackgroundToolPermissionsFromForm(),
       mode: modeSelect ? modeSelect.value : 'tools',
       authType: authTypeSelect ? authTypeSelect.value : 'none',
       bearerToken: bearerTokenInput ? bearerTokenInput.value.trim() : '',
@@ -10586,6 +10697,9 @@
     const urlInput = document.getElementById('mcp-service-url-input');
     const enabledInput = document.getElementById('mcp-service-enabled-input');
     const allowAutonomousCallInput = document.getElementById('mcp-service-allow-autonomous-call-input');
+    const backgroundActivityInput = document.getElementById('mcp-service-background-activity-input');
+    const backgroundCreateInput = document.getElementById('mcp-service-background-create-input');
+    const backgroundDeleteInput = document.getElementById('mcp-service-background-delete-input');
     const modeSelect = document.getElementById('mcp-service-mode-select');
     const authTypeSelect = document.getElementById('mcp-service-auth-type-select');
     const bearerTokenInput = document.getElementById('mcp-service-bearer-token-input');
@@ -10599,6 +10713,9 @@
     if (urlInput) urlInput.value = service?.url || '';
     if (enabledInput) enabledInput.checked = service?.enabled !== false;
     if (allowAutonomousCallInput) allowAutonomousCallInput.checked = service?.allowAutonomousCall === true;
+    if (backgroundActivityInput) backgroundActivityInput.checked = service?.backgroundActivityEnabled === true;
+    if (backgroundCreateInput) backgroundCreateInput.checked = service?.backgroundAllowCreate === true;
+    if (backgroundDeleteInput) backgroundDeleteInput.checked = service?.backgroundAllowDelete === true;
     if (modeSelect) modeSelect.value = service?.mode || 'tools';
     if (authTypeSelect) authTypeSelect.value = service?.authType || 'none';
     if (bearerTokenInput) bearerTokenInput.value = service?.bearerToken || '';
@@ -10619,6 +10736,9 @@
 
     if (triggerKeywordsInput) triggerKeywordsInput.value = service?.triggerKeywordsText || '';
 
+    renderMcpServiceBackgroundToolPermissions(service || {});
+    updateMcpServiceBackgroundFieldsVisibility();
+
     updateMcpServiceAuthFieldsVisibility();
   }
 
@@ -10628,6 +10748,10 @@
       name: '',
       url: '',
       enabled: true,
+      backgroundActivityEnabled: false,
+      backgroundAllowCreate: false,
+      backgroundAllowDelete: false,
+      backgroundToolPermissions: {},
       mode: 'tools',
       authType: 'none',
       bearerToken: '',
@@ -10663,6 +10787,10 @@
         url: form.url,
         enabled: form.enabled,
         allowAutonomousCall: form.allowAutonomousCall,
+        backgroundActivityEnabled: form.backgroundActivityEnabled,
+        backgroundAllowCreate: form.backgroundAllowCreate,
+        backgroundAllowDelete: form.backgroundAllowDelete,
+        backgroundToolPermissions: form.backgroundToolPermissions,
         mode: form.mode,
         authType: form.authType,
         bearerToken: form.bearerToken,
@@ -10684,6 +10812,10 @@
         url: form.url,
         enabled: form.enabled,
         allowAutonomousCall: form.allowAutonomousCall,
+        backgroundActivityEnabled: form.backgroundActivityEnabled,
+        backgroundAllowCreate: form.backgroundAllowCreate,
+        backgroundAllowDelete: form.backgroundAllowDelete,
+        backgroundToolPermissions: form.backgroundToolPermissions,
         mode: form.mode,
         authType: form.authType,
         bearerToken: form.bearerToken,
@@ -10815,6 +10947,7 @@
         ? ' · 触发词：' + String(service.triggerKeywordsText).trim().replace(/\s+/g, ' ')
         : '';
       const autoCallText = service.allowAutonomousCall === true ? ' · 自动调用' : '';
+      const backgroundActivityText = service.backgroundActivityEnabled === true ? ' · 后台 MCP' : '';
       const authText = ' · 认证：' + (
         service.authType === 'bearer'
           ? 'Bearer'
@@ -10828,6 +10961,7 @@
         ' · 模式：' + (service.mode || 'tools') +
         authText +
         autoCallText +
+        backgroundActivityText +
         allowedCallersText +
         triggerKeywordsText +
         toolsText +
@@ -11148,6 +11282,14 @@
 
     saveMcpServiceConfigs(configs);
     renderMcpServiceList();
+    const formSnapshot = getMcpServiceFormData();
+    renderMcpServiceBackgroundToolPermissions({
+      ...configs[index],
+      backgroundActivityEnabled: formSnapshot.backgroundActivityEnabled,
+      backgroundAllowCreate: formSnapshot.backgroundAllowCreate,
+      backgroundAllowDelete: formSnapshot.backgroundAllowDelete,
+      backgroundToolPermissions: formSnapshot.backgroundToolPermissions
+    });
   }
 
 

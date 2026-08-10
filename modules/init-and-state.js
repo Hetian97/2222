@@ -123,6 +123,8 @@ document.addEventListener('DOMContentLoaded', () => {
       enableCrossChat: true,              // 新增：全局跨聊天消息开关（群聊↔私聊），默认开启
       promptClearMemoryOnChatClear: false, // 新增：全局清空聊天记录时是否弹窗询问一并清除长期记忆，默认关闭
       enableBackgroundActivity: false,
+      enableExternalMcpBackgroundActivity: false,
+      externalMcpBackgroundActivityChance: 35,
       backgroundActivityInterval: 60,
       enableViewMyPhoneInBackground: false,  // 新增：后台查看用户手机开关，默认关闭
       viewMyPhoneChance: null,               // 新增：后台查看用户手机概率，null=AI自主决定，0-100=按概率触发

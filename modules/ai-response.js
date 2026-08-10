@@ -211,7 +211,7 @@ function buildExternalMcpProxyUrl(path) {
     return context;
   }
 
-  function buildEnabledMcpServicesPrompt(chat, messagesPayload) {
+  function buildEnabledMcpServicesPrompt(chat, messagesPayload, options = {}) {
     try {
       const raw = localStorage.getItem('mcpServiceConfigs');
       if (!raw) return '';
@@ -219,7 +219,8 @@ function buildExternalMcpProxyUrl(path) {
       const services = JSON.parse(raw);
       if (!Array.isArray(services)) return '';
 
-      const actor = buildExternalMcpActorContext(chat);
+      const isBackgroundActivity = options.externalMcpBackground === true;
+      const actor = buildExternalMcpActorContext(chat, isBackgroundActivity ? "background_mcp" : undefined);
       const latestUserText = getLatestUserTextForExternalMcpMemory(messagesPayload);
 
       const enabledServices = services.filter(service => {
@@ -230,8 +231,15 @@ function buildExternalMcpProxyUrl(path) {
           Array.isArray(service.tools) &&
           service.tools.length > 0 &&
           isExternalMcpServiceAllowedForActor(service, actor) &&
-          isExternalMcpServiceTriggeredByMessage(service, latestUserText);
-      });
+          (!isBackgroundActivity || service.backgroundActivityEnabled === true) &&
+          (isBackgroundActivity || isExternalMcpServiceTriggeredByMessage(service, latestUserText));
+      }).map(service => isBackgroundActivity
+        ? {
+            ...service,
+            tools: service.tools.filter(tool => isExternalMcpToolAllowedInBackground(service, tool?.name || '', {}))
+          }
+        : service
+      ).filter(service => service.tools.length > 0);
 
       console.log("[MCP Directory] 工具目录服务:", enabledServices.map(service => ({
         name: service.name || service.url,
@@ -290,10 +298,23 @@ function buildExternalMcpProxyUrl(path) {
         '可用服务与工具：'
       ];
 
+      if (isBackgroundActivity) {
+        lines.push(
+          '',
+          '【后台 MCP 自主活动】',
+          '这是系统触发的独立后台活动，不是用户要求。你必须先从下方已授权的服务中选择一个，并调用读取、浏览或互动工具了解真实情况。',
+          '只允许调用目录中列出的工具；不要尝试未列出的创建、删除、撤回或其他工具。没有值得互动的内容时，可以只浏览，不必强行发布或回复。'
+        );
+      }
+
       enabledServices.forEach((service, serviceIndex) => {
         const serviceName = service.name || service.url || ('MCP Service ' + (serviceIndex + 1));
         lines.push('');
         lines.push('服务：' + serviceName);
+        if (isBackgroundActivity) {
+          lines.push('后台权限：浏览/读取/常规互动已允许；创建新内容' + (service.backgroundAllowCreate === true ? '已允许' : '未允许') + '；删除/撤回' + (service.backgroundAllowDelete === true ? '已允许' : '未允许') + '。');
+          lines.push('如果工具通过 command/cmd/action 参数承载多个子命令（例如 cli），上述权限同样适用于子命令；未允许创建时不得使用 post/create/publish，未允许删除时不得使用 delete/remove/withdraw/revoke。');
+        }
         if (service.serverName || service.serverVersion) {
           lines.push('server：' + (service.serverName || 'unknown') + (service.serverVersion ? ' / ' + service.serverVersion : ''));
         }
@@ -645,6 +666,40 @@ function buildExternalMcpProxyUrl(path) {
   function describeExternalMcpAllowedCallers(service) {
     const allowed = parseExternalMcpAllowedCallers(service);
     return allowed.length ? allowed.join(", ") : "全部";
+  }
+
+  function classifyExternalMcpBackgroundAction(service, toolName, args) {
+    const normalizedToolName = String(toolName || '').trim().toLowerCase();
+    const command = String(args?.command || args?.cmd || args?.action || '').trim().toLowerCase();
+    const commandHead = command.split(/\s+/).slice(0, 3).join(' ');
+    const text = `${normalizedToolName} ${commandHead}`;
+
+    if (/(delete|remove|withdraw|revoke|purge|clear|erase|撤回|删除|移除|清空)/i.test(text)) return 'delete';
+    if (/(create[_-]?thread|create[_-]?post|new[_-]?(thread|post)|publish|(^|\s)post(\s|$)|发帖|发布新|创建主题)/i.test(text)) return 'create';
+    if (/(reply|comment|vote|like|interact|join[_-]?game|start[_-]?game|submit[_-]?action|send[_-]?(chat|message)|chat send|回复|评论|点赞|投票|互动|加入游戏|提交行动)/i.test(text)) return 'interact';
+    if (/(list|read|get|show|search|find|query|discover|review|status|summary|notification|inbox|activity|查看|读取|列表|搜索|发现|通知|状态)/i.test(text)) return 'read';
+    if (/^(cli|identity|interact)$/i.test(normalizedToolName)) return 'interact';
+
+    const tool = Array.isArray(service?.tools)
+      ? service.tools.find(item => String(item?.name || '') === String(toolName || ''))
+      : null;
+    const safety = classifyExternalMcpToolSafety(toolName, tool?.description || '');
+    if (safety === 'read') return 'read';
+    return 'unknown';
+  }
+
+  function isExternalMcpToolAllowedInBackground(service, toolName, args) {
+    if (!service || service.backgroundActivityEnabled !== true || !toolName) return false;
+    const overrides = service.backgroundToolPermissions && typeof service.backgroundToolPermissions === 'object'
+      ? service.backgroundToolPermissions
+      : {};
+    if (Object.prototype.hasOwnProperty.call(overrides, toolName) && overrides[toolName] === false) return false;
+
+    const category = classifyExternalMcpBackgroundAction(service, toolName, args || {});
+    if (category === 'delete') return service.backgroundAllowDelete === true;
+    if (category === 'create') return service.backgroundAllowCreate === true;
+    if (category === 'read' || category === 'interact') return true;
+    return overrides[toolName] === true;
   }
 
   function findExternalMcpServiceForRequest(request) {
@@ -2136,7 +2191,7 @@ ${linkedContents}
     }
   }
 
-  async function triggerAiResponse(targetChatId = '') {
+  async function triggerAiResponse(targetChatId = '', responseOptions = {}) {
     const chatId = targetChatId || state.activeChatId;
     if (!chatId) return;
     const chat = state.chats[chatId];
@@ -4955,7 +5010,7 @@ ${getActiveThoughtsPrompt()}
         systemPrompt += '\n\n' + externalMcpMemoryContextForMainChat;
       }
 
-      const mcpToolDirectoryPromptForMainChat = shouldEnableExternalMcpForThisChat ? buildEnabledMcpServicesPrompt(chat, messagesPayload) : "";
+      const mcpToolDirectoryPromptForMainChat = shouldEnableExternalMcpForThisChat ? buildEnabledMcpServicesPrompt(chat, messagesPayload, responseOptions) : "";
 
       if (mcpToolDirectoryPromptForMainChat) {
         systemPrompt += '\n\n' + mcpToolDirectoryPromptForMainChat;
@@ -5320,7 +5375,8 @@ ${getActiveThoughtsPrompt()}
         }];
 
         const runExternalMcpToolRequest = async (request, stepLabel) => {
-          const actor = buildExternalMcpActorContext(chat);
+          const isBackgroundMcpRun = responseOptions.externalMcpBackground === true;
+          const actor = buildExternalMcpActorContext(chat, isBackgroundMcpRun ? "background_mcp" : undefined);
           const requestWithActor = Object.assign({}, request || {}, { actor });
           let autoApprovedService = null;
 
@@ -5330,7 +5386,15 @@ ${getActiveThoughtsPrompt()}
             autoApprovedService = null;
           }
 
-          const shouldAutoApprove = !!(autoApprovedService && autoApprovedService.allowAutonomousCall === true);
+          if (isBackgroundMcpRun) {
+            if (!autoApprovedService || !isExternalMcpToolAllowedInBackground(autoApprovedService, requestWithActor.toolName, requestWithActor.arguments || {})) {
+              throw new Error("该 MCP 工具没有获得后台自主活动权限：" + (requestWithActor.serviceName || '') + " / " + (requestWithActor.toolName || ''));
+            }
+          }
+
+          const shouldAutoApprove = isBackgroundMcpRun
+            ? true
+            : !!(autoApprovedService && autoApprovedService.allowAutonomousCall === true);
 
           if (!shouldAutoApprove && !confirmExternalMcpToolRequest(requestWithActor, stepLabel)) {
             return { approved: false, result: null };
@@ -8671,8 +8735,67 @@ ${linkedContents}
     }
   }
 
+  const externalMcpBackgroundInFlight = new Set();
+
+  async function triggerExternalMcpBackgroundActivity(chatId) {
+    const chat = state.chats[chatId];
+    if (!chat || chat.isGroup) return false;
+    if (!state.globalSettings?.enableBackgroundActivity || !state.globalSettings?.enableExternalMcpBackgroundActivity) return false;
+    if (chat.settings?.enableBackgroundActivity === false || externalMcpBackgroundInFlight.has(chatId)) return false;
+
+    const actor = buildExternalMcpActorContext(chat, 'background_mcp');
+    const eligibleServices = getExternalMcpServiceConfigsForChat().filter(service => {
+      const mode = String(service?.mode || 'tools');
+      return service &&
+        service.enabled !== false &&
+        service.backgroundActivityEnabled === true &&
+        (mode === 'tools' || mode === 'all') &&
+        Array.isArray(service.tools) &&
+        service.tools.some(tool => isExternalMcpToolAllowedInBackground(service, tool?.name || '', {})) &&
+        isExternalMcpServiceAllowedForActor(service, actor);
+    });
+    if (!eligibleServices.length) return false;
+
+    const actionCooldownMinutes = Number(chat.settings?.actionCooldownMinutes || 10);
+    if (chat.lastActionTimestamp && (Date.now() - chat.lastActionTimestamp) < actionCooldownMinutes * 60 * 1000) return false;
+
+    const configuredChance = Number(state.globalSettings?.externalMcpBackgroundActivityChance ?? 35);
+    const backgroundMcpChance = Math.max(0, Math.min(100, Number.isFinite(configuredChance) ? configuredChance : 35));
+    if (Math.random() * 100 >= backgroundMcpChance) return false;
+
+    const serviceNames = eligibleServices.map(service => service.name || service.serverName || service.url).filter(Boolean);
+    const wakeMessage = {
+      role: 'user',
+      type: 'text',
+      content: `[系统后台自主活动：现在可以去外部 MCP 看看。可选服务：${serviceNames.join('、')}。请根据自己的性格和最近经历选择一个服务，必须先真实调用已授权的浏览、读取或互动工具，再根据结果决定是否继续互动。没有值得回应的内容时可以只浏览；不要向用户索要指令，也不要声称执行未授权操作。]`,
+      timestamp: Date.now(),
+      isHidden: true,
+      source: 'external_mcp_background'
+    };
+
+    externalMcpBackgroundInFlight.add(chatId);
+    chat.history = Array.isArray(chat.history) ? chat.history : [];
+    chat.history.push(wakeMessage);
+    try {
+      await triggerAiResponse(chatId, { externalMcpBackground: true });
+      chat.lastActionType = 'external_mcp';
+      return true;
+    } catch (error) {
+      console.warn('[MCP Background] 后台自主活动失败:', error);
+      chat.lastActionType = 'external_mcp_failed';
+      return true;
+    } finally {
+      chat.lastActionTimestamp = Date.now();
+      const index = chat.history.indexOf(wakeMessage);
+      if (index >= 0) chat.history.splice(index, 1);
+      await db.chats.put(chat);
+      externalMcpBackgroundInFlight.delete(chatId);
+    }
+  }
+
   // ========== 全局暴露 ==========
   window.triggerAiResponse = triggerAiResponse;
+  window.triggerExternalMcpBackgroundActivity = triggerExternalMcpBackgroundActivity;
   window.silentlyUpdateDbUrl = silentlyUpdateDbUrl;
   window.handleRegenerateResponse = handleRegenerateResponse;
   window.handleRegenerateCallResponse = handleRegenerateCallResponse;

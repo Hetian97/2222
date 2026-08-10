@@ -2119,6 +2119,10 @@ window.initEventBindingsA = async function(state, db) {
       state.globalSettings.enableViewMyPhone = document.getElementById('global-enable-view-myphone-switch').checked;
       state.globalSettings.enableCrossChat = document.getElementById('global-enable-cross-chat-switch').checked;
       state.globalSettings.promptClearMemoryOnChatClear = document.getElementById('global-prompt-clear-memory-switch').checked;
+      const backgroundMcpActivitySwitch = document.getElementById('background-mcp-activity-switch');
+      state.globalSettings.enableExternalMcpBackgroundActivity = !!(backgroundMcpActivitySwitch && backgroundMcpActivitySwitch.checked);
+      const backgroundMcpActivityChanceInput = document.getElementById('background-mcp-activity-chance-input');
+      state.globalSettings.externalMcpBackgroundActivityChance = Math.max(0, Math.min(100, parseInt(backgroundMcpActivityChanceInput?.value, 10) || 0));
       
       // 新增：保存后台查看用户手机设置
       state.globalSettings.enableViewMyPhoneInBackground = document.getElementById('global-enable-view-myphone-bg-switch').checked;
