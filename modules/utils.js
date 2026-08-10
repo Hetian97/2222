@@ -54,6 +54,44 @@ function qqUndefinedFilter(content) {
 
   return filtered;
 }
+
+/**
+ * Remove selected chat messages together with the MCP activity record that
+ * belongs to the same assistant turn. New records carry explicit links;
+ * older records fall back to the first visible assistant message after them.
+ */
+function removeMessagesAndLinkedMcpActivities(history, timestamps) {
+  const source = Array.isArray(history) ? history : [];
+  const selected = timestamps instanceof Set ? timestamps : new Set(timestamps || []);
+  if (selected.size === 0) return source;
+
+  const linkedActivities = new Set();
+  source.forEach((message, index) => {
+    if (message?.type !== 'mcp_activity') return;
+
+    const linkedTimestamps = Array.isArray(message.relatedMessageTimestamps)
+      ? message.relatedMessageTimestamps
+      : [];
+    if (linkedTimestamps.length > 0) {
+      if (linkedTimestamps.every(timestamp => selected.has(timestamp))) {
+        linkedActivities.add(message.timestamp);
+      }
+      return;
+    }
+
+    // Compatibility for activity records created before explicit linking.
+    for (let nextIndex = index + 1; nextIndex < source.length; nextIndex++) {
+      const nextMessage = source[nextIndex];
+      if (nextMessage?.type === 'mcp_activity' || (nextMessage?.role === 'user' && !nextMessage?.isHidden)) break;
+      if (nextMessage?.role === 'assistant' && !nextMessage?.isHidden && nextMessage?.type !== 'thought_chain_block') {
+        if (selected.has(nextMessage.timestamp)) linkedActivities.add(message.timestamp);
+        break;
+      }
+    }
+  });
+
+  return source.filter(message => !selected.has(message?.timestamp) && !linkedActivities.has(message?.timestamp));
+}
 // ========== QQ主屏幕Undefined过滤器结束 ==========
 
 // ========== 货币映射配置 ==========

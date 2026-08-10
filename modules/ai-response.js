@@ -5588,6 +5588,7 @@ ${getActiveThoughtsPrompt()}
       isViewingThisChat = document.getElementById('chat-interface-screen').classList.contains('active') && state.activeChatId === chatId;
       let callHasBeenHandled = false;
       let messageTimestamp = Date.now();
+      const responseMessageTimestamps = [];
       let newMessagesToRender = [];
       let notificationShown = false;
       /** 用于兜底：从本轮的 thought_chain 中取第一个出现的群成员本名，缺 name 时优先用其补全 */
@@ -8255,6 +8256,7 @@ ${getActiveThoughtsPrompt()}
         if (aiMessage) {
           aiMessage = applyRoleReplySanitizer(aiMessage, chat);
           chat.history.push(aiMessage);
+          responseMessageTimestamps.push(aiMessage.timestamp);
           if (!isViewingThisChat && aiMessage.type !== 'thought_chain_block') {
             chat.unreadCount = (chat.unreadCount || 0) + 1;
           }
@@ -8338,6 +8340,11 @@ ${getActiveThoughtsPrompt()}
             await window.handleShoppingCartCommandFromAI(chat.id, rawAiContentForCart);
           }
         }
+      }
+
+      const externalMcpActivityRecord = responseOptions.externalMcpActivityRecord;
+      if (externalMcpActivityRecord && responseMessageTimestamps.length > 0) {
+        externalMcpActivityRecord.relatedMessageTimestamps = [...new Set(responseMessageTimestamps)];
       }
 
       if (callHasBeenHandled && videoCallState.isGroupCall) {

@@ -1193,7 +1193,7 @@
       for (const msgRef of oldPrivateMessages) {
         const chat = chatsToUpdate.get(msgRef.chatId);
         if (chat) {
-          chat.history = chat.history.filter(msg => msg.timestamp !== msgRef.timestamp);
+          chat.history = removeMessagesAndLinkedMcpActivities(chat.history, new Set([msgRef.timestamp]));
         }
       }
 
@@ -1215,7 +1215,7 @@
 
 
     const originalAiMessages = chat.history.filter(msg => lastResponseTimestamps.includes(msg.timestamp));
-    chat.history = chat.history.filter(msg => !lastResponseTimestamps.includes(msg.timestamp));
+    chat.history = removeMessagesAndLinkedMcpActivities(chat.history, new Set(lastResponseTimestamps));
 
 
     if (editedRawBlocks.length === 0) {

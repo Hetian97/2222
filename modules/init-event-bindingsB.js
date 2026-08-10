@@ -1204,7 +1204,7 @@ window.initEventBindingsB = function(state, db) {
             deletedPollsInfo.push(`关于“${msg.question}”的投票(时间戳: ${msg.timestamp})`);
           }
         }
-        chat.history = chat.history.filter(msg => !selectedMessages.has(msg.timestamp));
+        chat.history = removeMessagesAndLinkedMcpActivities(chat.history, selectedMessages);
         let forgetReason = "一些之前的消息已被用户删除。";
         if (deletedPollsInfo.length > 0) {
           forgetReason += ` 其中包括以下投票：${deletedPollsInfo.join('；')}。`;
@@ -1237,7 +1237,7 @@ window.initEventBindingsB = function(state, db) {
         const chat = state.chats[state.activeChatId];
 
 
-        chat.history = chat.history.filter(msg => !selectedMessages.has(msg.timestamp));
+        chat.history = removeMessagesAndLinkedMcpActivities(chat.history, selectedMessages);
 
 
         await db.chats.put(chat);
