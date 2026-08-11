@@ -65,6 +65,74 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
+  // 设置页：持久化存储状态检查
+  // 该功能属于数据保护模块，不依赖提示词管理器是否启用。
+  function initStoragePersistenceControls() {
+    const checkBtn = document.getElementById('check-storage-persistence-btn');
+    const infoDiv = document.getElementById('storage-persistence-info');
+    if (!checkBtn || !infoDiv || checkBtn.dataset.persistenceBound === 'true') return;
+
+    checkBtn.dataset.persistenceBound = 'true';
+
+    const renderStatus = async () => {
+      infoDiv.style.display = 'block';
+      infoDiv.innerHTML = '<span style="color:#999;">检查中...</span>';
+
+      try {
+        const persisted = await window.checkStoragePersistence();
+        const estimate = await window.getStorageEstimate();
+        let html = '';
+
+        if (persisted === true) {
+          html += '<div style="margin-bottom:8px;">🛡️ <strong style="color:#34c759;">已启用持久化保护</strong><br><span style="font-size:12px;">浏览器不会自动清除本站数据</span></div>';
+        } else if (persisted === false) {
+          html += '<div style="margin-bottom:8px;">⚠️ <strong style="color:#ff9500;">未获得持久化保护</strong><br><span style="font-size:12px;">浏览器可能在存储压力下自动清除数据，建议定期备份</span></div>';
+          html += '<button id="request-persist-btn" style="margin:6px 0 10px;padding:6px 14px;border:none;border-radius:8px;background:#007aff;color:#fff;font-size:13px;cursor:pointer;">请求持久化保护</button>';
+        } else {
+          html += '<div style="margin-bottom:8px;">❓ <strong style="color:#999;">浏览器不支持持久化存储 API</strong></div>';
+        }
+
+        if (estimate) {
+          const usageMB = (estimate.usage / 1024 / 1024).toFixed(1);
+          const quotaMB = (estimate.quota / 1024 / 1024).toFixed(0);
+          const percent = Number(estimate.usagePercent);
+          const safePercent = Number.isFinite(percent) ? percent : 0;
+          const barColor = safePercent > 80 ? '#ff3b30' : safePercent > 50 ? '#ff9500' : '#34c759';
+          html += '<div style="margin-top:4px;">';
+          html += `📦 已用 <strong>${usageMB} MB</strong> / ${quotaMB} MB（${safePercent.toFixed(2)}%）`;
+          html += '<div style="margin-top:6px;height:6px;background:#e0e0e0;border-radius:3px;overflow:hidden;">';
+          html += `<div style="height:100%;width:${Math.min(safePercent, 100)}%;background:${barColor};border-radius:3px;transition:width 0.3s;"></div>`;
+          html += '</div></div>';
+        }
+
+        infoDiv.innerHTML = html;
+
+        const requestBtn = document.getElementById('request-persist-btn');
+        if (requestBtn) {
+          requestBtn.addEventListener('click', async () => {
+            try {
+              const granted = await requestStoragePersistence();
+              if (granted) {
+                await showCustomAlert('成功', '已获得持久化存储保护，浏览器不会自动清除数据。');
+              } else {
+                await showCustomAlert('提示', '浏览器拒绝了请求。\n\n建议：将本站添加到主屏幕（PWA安装）或开启通知权限，可提高授权概率。');
+              }
+              await renderStatus();
+            } catch (error) {
+              await showCustomAlert('错误', '请求失败: ' + error.message);
+            }
+          });
+        }
+      } catch (error) {
+        infoDiv.innerHTML = '<span style="color:#ff3b30;">检查失败: ' + error.message + '</span>';
+      }
+    };
+
+    checkBtn.addEventListener('click', renderStatus);
+  }
+
+  initStoragePersistenceControls();
+
   // 确保数据库完全打开和就绪
   window.dbReady = false;
   window.dbReadyPromise = db.open().then(() => {
