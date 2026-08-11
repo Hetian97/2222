@@ -1150,12 +1150,37 @@ async function refreshCharacterWalletByAI(chatId) {
     .map(m => `${m.role}: ${String(m.content || m.dialogue || m.description || '').slice(0, 120)}`)
     .join('\n');
 
+  let worldBookContext = '';
+  const worldBookIds = [...(chat.settings?.linkedWorldBookIds || [])];
+  (state.worldBooks || []).forEach(worldBook => {
+    if (worldBook.isGlobal && !worldBookIds.includes(worldBook.id)) {
+      worldBookIds.push(worldBook.id);
+    }
+  });
+
+  const linkedWorldBooks = worldBookIds.map(bookId => {
+    const worldBook = (state.worldBooks || []).find(book => book.id === bookId);
+    if (!worldBook || !Array.isArray(worldBook.content)) return '';
+    const enabledEntries = worldBook.content
+      .filter(entry => entry.enabled !== false)
+      .map(entry => `- ${entry.content}`)
+      .join('\n');
+    return enabledEntries ? `## 来自《${worldBook.name}》\n${enabledEntries}` : '';
+  }).filter(Boolean);
+
+  if (linkedWorldBooks.length > 0) {
+    worldBookContext = linkedWorldBooks.join('\n\n');
+  }
+
   const prompt = `
-请根据角色设定、职业、最近剧情和当前余额，为角色钱包追加生成 1-5 条合理的收入/支出流水。
+请根据角色设定、世界书、职业、最近剧情和当前余额，为角色钱包追加生成 1-5 条合理的收入/支出流水。
 
 角色名：${chat.name}
 角色设定：
 ${chat.settings?.aiPersona || '无'}
+
+世界书设定：
+${worldBookContext || '无'}
 
 当前角色钱包余额：¥${currentBalance.toFixed(2)}
 
@@ -1173,6 +1198,7 @@ ${recentLogs.map(log => `${log.note} ${log.amount}，余额 ${log.balanceBefore}
 5. 金额必须是数字。
 6. note 用中文，简短自然。
 7. 不要生成购物车清空记录，购物车清空由购物系统负责。
+8. 如果角色的职业、世界观或近期剧情合理支持收入，可偶尔生成工资、报酬、交易所得等收入；不要每次刷新都强行生成收入。
 
 输出格式：
 {

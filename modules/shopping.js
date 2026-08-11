@@ -1073,8 +1073,11 @@ function loadShoppingCart() {
       longTermMemoryContext = chat.longTermMemory && chat.longTermMemory.length > 0 ?
         chat.longTermMemory.map(mem => `- (记录于 ${formatTimeAgo(mem.timestamp)}) ${mem.content}`).join('\n') : '无';
     }
-    const recentHistoryContext = chat.history.slice(-10).map(msg =>
-      `${msg.role === 'user' ? userNickname : chat.name}: ${String(msg.content).substring(0, 30)}...`
+    const recentHistoryContext = (chat.history || [])
+      .filter(msg => !msg.isHidden)
+      .slice(-20)
+      .map(msg =>
+      `${msg.role === 'user' ? userNickname : chat.name}: ${String(msg.content || msg.dialogue || msg.description || '').slice(0, 120)}`
     ).join('\n');
 
     let worldBookContext = '';
@@ -1333,6 +1336,38 @@ ${lines.join('\n')}
 `;
     } catch (error) {
       console.warn('[Shopping] 获取购物车提示失败:', error);
+      return '';
+    }
+  }
+
+  // 将角色最近的购买记录以精简形式注入日常聊天，帮助角色保持消费记忆的一致性。
+  async function getPurchasedItemsPromptForChat(chatId) {
+    try {
+      const chat = state.chats[chatId];
+      if (!chat) return '';
+
+      const purchases = chat.simulatedTaobaoHistory?.purchases || [];
+      if (purchases.length === 0) return '';
+
+      const recentPurchases = purchases.slice(0, 8).map(item => {
+        const time = item.timestamp
+          ? new Date(item.timestamp).toLocaleString('zh-CN')
+          : '未知时间';
+        const itemName = item.itemName || item.name || '未知商品';
+        const quantity = Number(item.quantity || 1);
+        const amount = Number(item.price || 0);
+        const payment = item.paymentNote || item.paymentMethod || '未记录';
+        const reason = item.reason ? `；购买理由：${String(item.reason).slice(0, 80)}` : '';
+        return `- ${time}｜${itemName} × ${quantity}｜金额 ¥${amount.toFixed(2)}｜付款方式：${payment}${reason}`;
+      }).join('\n');
+
+      return `
+# 最近已购买商品
+${recentPurchases}
+
+这些是你最近的购买记录。仅在用户询问、当前话题相关或自然联想到时引用；不要主动逐条汇报，也不要提及系统提示、数据注入或记录来源。`;
+    } catch (error) {
+      console.warn('[Shopping] 获取已购买记录提示失败:', error);
       return '';
     }
   }
@@ -1697,6 +1732,7 @@ async function removeCartItemByName(itemName) {
   window.addNewProductCategory = addNewProductCategory;
   window.deleteProductCategory = deleteProductCategory;
   window.getShoppingCartPromptForChat = getShoppingCartPromptForChat;
+  window.getPurchasedItemsPromptForChat = getPurchasedItemsPromptForChat;
   window.handleShoppingCartCommandFromAI = handleShoppingCartCommandFromAI;
   window.saveShoppingCart = saveShoppingCart;
   window.saveShoppingSettings = saveShoppingSettings;

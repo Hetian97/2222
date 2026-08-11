@@ -3853,6 +3853,13 @@ ${enabledEntries}
             }
           }
 
+          if (window.getPurchasedItemsPromptForChat && chat?.id) {
+            const purchasedItemsPrompt = await window.getPurchasedItemsPromptForChat(chat.id);
+            if (purchasedItemsPrompt) {
+              systemPrompt += '\n\n' + purchasedItemsPrompt;
+            }
+          }
+
           if (window.getCharacterWalletPromptForChat && chat?.id) {
             const walletPrompt = await window.getCharacterWalletPromptForChat(chat.id);
             if (walletPrompt) {
@@ -4820,6 +4827,13 @@ ${getActiveThoughtsPrompt()}
             const shoppingCartPrompt = await window.getShoppingCartPromptForChat(chat.id);
             if (shoppingCartPrompt) {
               systemPrompt += '\n\n' + shoppingCartPrompt;
+            }
+          }
+
+          if (window.getPurchasedItemsPromptForChat && chat?.id) {
+            const purchasedItemsPrompt = await window.getPurchasedItemsPromptForChat(chat.id);
+            if (purchasedItemsPrompt) {
+              systemPrompt += '\n\n' + purchasedItemsPrompt;
             }
           }
 
@@ -8719,6 +8733,13 @@ ${linkedContents}
         const shoppingCartPrompt = await window.getShoppingCartPromptForChat(chat.id);
         if (shoppingCartPrompt) {
           systemPrompt += '\n\n' + shoppingCartPrompt;
+        }
+      }
+
+      if (window.getPurchasedItemsPromptForChat && chat?.id) {
+        const purchasedItemsPrompt = await window.getPurchasedItemsPromptForChat(chat.id);
+        if (purchasedItemsPrompt) {
+          systemPrompt += '\n\n' + purchasedItemsPrompt;
         }
       }
 

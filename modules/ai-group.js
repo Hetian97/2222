@@ -323,6 +323,11 @@ ${formatRules}
       if (shoppingCartPrompt) systemPrompt += '\n\n' + shoppingCartPrompt;
     }
 
+    if (window.getPurchasedItemsPromptForChat && chat?.id) {
+      const purchasedItemsPrompt = await window.getPurchasedItemsPromptForChat(chat.id);
+      if (purchasedItemsPrompt) systemPrompt += '\n\n' + purchasedItemsPrompt;
+    }
+
     if (window.getCharacterWalletPromptForChat && chat?.id) {
       const walletPrompt = await window.getCharacterWalletPromptForChat(chat.id);
       if (walletPrompt) systemPrompt += '\n\n' + walletPrompt;
