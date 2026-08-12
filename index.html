@@ -55,7 +55,7 @@
   <script src="notification-manager.js?v=0.0.36" defer></script>
   <script src="character-generator.js?v=0.0.36" defer></script>
   <script src="structured-memory.js?v=0.0.36" defer></script>
-  <script src="vector-memory.js?v=0.0.38" defer></script>
+  <script src="vector-memory.js?v=0.0.39" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <!-- 拆分后的模块（按依赖顺序加载） -->
@@ -10043,17 +10043,26 @@
 
     const chroma = last.chroma || {};
     const top = Array.isArray(last.resultsTop) ? last.resultsTop.slice(0, 3) : [];
+    const injectedIds = new Set(Array.isArray(last.injectedMemoryIds) ? last.injectedMemoryIds.map(String) : []);
     const timeText = last.atISO ? new Date(last.atISO).toLocaleString() : '';
 
     lines.push('最近一次真实检索：');
+    if (last.id) lines.push('- traceId：' + last.id);
     lines.push('- time：' + timeText);
     lines.push('- source：' + (last.source || ''));
+    lines.push('- status：' + (last.status || 'candidates'));
     lines.push('- searchMode：' + (last.searchMode || ''));
     lines.push('- requestedSearchEngine：' + (last.requestedSearchEngine || ''));
     lines.push('- resultCount：' + (last.resultCount ?? 0));
     lines.push('- limit：' + (last.limit ?? 0));
     if (last.candidateLimit !== null && typeof last.candidateLimit !== 'undefined') {
       lines.push('- candidateLimit：' + last.candidateLimit);
+    }
+    if (last.status === 'injected' || last.injectedAt) {
+      lines.push('- injectedCount：' + (last.injectedCount ?? 0));
+      if (last.injectedAtISO) {
+        lines.push('- injectedAt：' + new Date(last.injectedAtISO).toLocaleString());
+      }
     }
 
     lines.push('');
@@ -10081,6 +10090,7 @@
 
         lines.push('');
         lines.push(String(index + 1) + '. [' + category + '] ' + (item.id || ''));
+        lines.push('   已注入：' + (injectedIds.has(String(item.id || '')) ? '✓' : '✗'));
         lines.push('   Vector：' + (hasEmbedding ? ('✓ ' + dim + 'd') : '✗'));
         if (typeof item.searchScore !== 'undefined' && item.searchScore !== null) {
           lines.push('   Score：' + item.searchScore);

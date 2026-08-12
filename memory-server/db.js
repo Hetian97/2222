@@ -37,6 +37,33 @@ CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
 CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance);
 CREATE INDEX IF NOT EXISTS idx_memories_memoryTime ON memories(memoryTime);
 
+CREATE TABLE IF NOT EXISTS memory_search_logs (
+  id TEXT PRIMARY KEY,
+  chatId TEXT,
+  source TEXT,
+  query TEXT NOT NULL,
+  queryVariants TEXT,
+  requestedSearchEngine TEXT,
+  searchMode TEXT,
+  requestedLimit INTEGER DEFAULT 0,
+  candidateLimit INTEGER DEFAULT 0,
+  resultCount INTEGER DEFAULT 0,
+  resultMemoryIds TEXT,
+  resultsTop TEXT,
+  chroma TEXT,
+  status TEXT NOT NULL DEFAULT 'candidates',
+  createdAt INTEGER NOT NULL,
+  injectedAt INTEGER,
+  injectedMemoryIds TEXT,
+  injectedCount INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_search_logs_createdAt
+ON memory_search_logs(createdAt DESC);
+
+CREATE INDEX IF NOT EXISTS idx_memory_search_logs_chatId_createdAt
+ON memory_search_logs(chatId, createdAt DESC);
+
 CREATE TABLE IF NOT EXISTS garden_wake_events (
   id TEXT PRIMARY KEY,
   reason TEXT NOT NULL,
@@ -400,6 +427,144 @@ function importFromJsonArray(memories) {
   return memories.filter(item => item && item.content).length;
 }
 
+function normalizeMemorySearchLog(row) {
+  if (!row) return null;
+
+  const createdAt = Number(row.createdAt || 0);
+  const injectedAt = Number(row.injectedAt || 0);
+
+  return {
+    id: row.id,
+    at: createdAt,
+    atISO: createdAt ? new Date(createdAt).toISOString() : '',
+    chatId: row.chatId || '',
+    source: row.source || '',
+    query: row.query || '',
+    queryPreview: String(row.query || '').replace(/\s+/g, ' ').slice(0, 80),
+    queryVariants: safeJsonParse(row.queryVariants, []),
+    requestedSearchEngine: row.requestedSearchEngine || '',
+    searchMode: row.searchMode || '',
+    limit: Number(row.requestedLimit || 0),
+    candidateLimit: Number(row.candidateLimit || 0),
+    resultCount: Number(row.resultCount || 0),
+    resultMemoryIds: safeJsonParse(row.resultMemoryIds, []),
+    resultsTop: safeJsonParse(row.resultsTop, []),
+    chroma: safeJsonParse(row.chroma, { attempted: false }),
+    status: row.status || 'candidates',
+    injectedAt: injectedAt || null,
+    injectedAtISO: injectedAt ? new Date(injectedAt).toISOString() : '',
+    injectedMemoryIds: safeJsonParse(row.injectedMemoryIds, []),
+    injectedCount: Number(row.injectedCount || 0)
+  };
+}
+
+function createMemorySearchLog(info = {}) {
+  const now = Date.now();
+  const results = Array.isArray(info.results) ? info.results : [];
+  const resultMemoryIds = [...new Set(
+    results.map(item => String(item?.id || '').trim()).filter(Boolean)
+  )];
+  const id = info.id || `search_${now}_${crypto.randomBytes(4).toString('hex')}`;
+
+  db.prepare(`
+    INSERT INTO memory_search_logs (
+      id, chatId, source, query, queryVariants, requestedSearchEngine,
+      searchMode, requestedLimit, candidateLimit, resultCount,
+      resultMemoryIds, resultsTop, chroma, status, createdAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidates', ?)
+  `).run(
+    id,
+    String(info.chatId || ''),
+    String(info.source || ''),
+    String(info.query || '').slice(0, 4000),
+    safeJsonStringify(Array.isArray(info.queryVariants) ? info.queryVariants.slice(0, 10) : []),
+    String(info.requestedSearchEngine || ''),
+    String(info.searchMode || ''),
+    Number(info.limit || 0),
+    Number(info.candidateLimit || 0),
+    Number(info.resultCount ?? results.length),
+    safeJsonStringify(resultMemoryIds),
+    safeJsonStringify(Array.isArray(info.resultsTop) ? info.resultsTop.slice(0, 10) : []),
+    safeJsonStringify(info.chroma || { attempted: false }),
+    now
+  );
+
+  const keepLimit = Math.min(50000, Math.max(100, Number(process.env.MEMORY_SEARCH_LOG_LIMIT || 5000) || 5000));
+  db.prepare(`
+    DELETE FROM memory_search_logs
+    WHERE id IN (
+      SELECT id FROM memory_search_logs
+      ORDER BY createdAt DESC
+      LIMIT -1 OFFSET ?
+    )
+  `).run(keepLimit);
+
+  return normalizeMemorySearchLog(
+    db.prepare('SELECT * FROM memory_search_logs WHERE id = ?').get(id)
+  );
+}
+
+function getLatestMemorySearchLog() {
+  return normalizeMemorySearchLog(
+    db.prepare('SELECT * FROM memory_search_logs ORDER BY createdAt DESC LIMIT 1').get()
+  );
+}
+
+function commitMemorySearchInjection(searchId, requestedMemoryIds = []) {
+  const safeSearchId = String(searchId || '').trim();
+  if (!safeSearchId) throw new Error('searchId is required');
+
+  return db.transaction(() => {
+    const row = db.prepare('SELECT * FROM memory_search_logs WHERE id = ?').get(safeSearchId);
+    if (!row) throw new Error('Memory search log not found');
+
+    if (row.injectedAt) {
+      return {
+        committed: false,
+        alreadyCommitted: true,
+        log: normalizeMemorySearchLog(row)
+      };
+    }
+
+    const allowedIds = new Set(safeJsonParse(row.resultMemoryIds, []).map(String));
+    const injectedMemoryIds = [...new Set(
+      (Array.isArray(requestedMemoryIds) ? requestedMemoryIds : [])
+        .map(value => String(value || '').trim())
+        .filter(value => value && allowedIds.has(value))
+    )].slice(0, 200);
+    const recalledAt = Date.now();
+    const updateMemory = db.prepare(`
+      UPDATE memories
+      SET recallCount = COALESCE(recallCount, 0) + 1,
+          lastRecalled = ?
+      WHERE id = ?
+    `);
+
+    for (const memoryId of injectedMemoryIds) {
+      updateMemory.run(String(recalledAt), memoryId);
+    }
+
+    db.prepare(`
+      UPDATE memory_search_logs
+      SET status = 'injected', injectedAt = ?, injectedMemoryIds = ?, injectedCount = ?
+      WHERE id = ?
+    `).run(
+      recalledAt,
+      safeJsonStringify(injectedMemoryIds),
+      injectedMemoryIds.length,
+      safeSearchId
+    );
+
+    return {
+      committed: true,
+      alreadyCommitted: false,
+      log: normalizeMemorySearchLog(
+        db.prepare('SELECT * FROM memory_search_logs WHERE id = ?').get(safeSearchId)
+      )
+    };
+  })();
+}
+
 function addGardenWakeEvent(event) {
   const now = Date.now();
   const item = {
@@ -594,6 +759,9 @@ module.exports = {
   clearAllMemories,
   getMemoryStats,
   listUnembeddedMemories,
+  createMemorySearchLog,
+  getLatestMemorySearchLog,
+  commitMemorySearchInjection,
   importFromJsonArray,
   addGardenWakeEvent,
   claimGardenWakeEvent,

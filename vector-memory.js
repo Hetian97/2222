@@ -1006,10 +1006,36 @@ class VariableMemoryManager {
 
       if (memories.length === 0) return null;
 
+      memories._searchTraceId = String(result.searchTraceId || '').trim();
+
       console.log('[变量记忆] 已使用外部 memory-server /memory/search 召回:', memories.length, result.searchMode || '');
       return memories;
     } catch (error) {
       console.warn('[变量记忆] 外部 memory-server /memory/search 失败，回退前端缓存检索:', error.message);
+      return null;
+    }
+  }
+
+  async commitExternalMemoryRecall(chat, searchTraceId, memoryIds) {
+    const safeTraceId = String(searchTraceId || '').trim();
+    const safeMemoryIds = [...new Set(
+      (Array.isArray(memoryIds) ? memoryIds : [])
+        .map(value => String(value || '').trim())
+        .filter(Boolean)
+    )];
+
+    if (!safeTraceId) return null;
+
+    try {
+      return await this.externalMemoryRequest(chat, '/memory/search/commit', {
+        method: 'POST',
+        body: {
+          searchTraceId: safeTraceId,
+          memoryIds: safeMemoryIds
+        }
+      });
+    } catch (error) {
+      console.warn('[变量记忆] 外部记忆召回计数回写失败:', error.message);
       return null;
     }
   }
@@ -1105,6 +1131,10 @@ class VariableMemoryManager {
         results = await this.retrieveRelevantFromExternalServer(chat, recentMessages, null, queryVariants);
       }
 
+      const externalSearchTraceId = Array.isArray(results)
+        ? String(results._searchTraceId || '').trim()
+        : '';
+
       if (!Array.isArray(results) && vm.fragments.length > 0) {
         results = await this.retrieveRelevant(chat, recentMessages);
       }
@@ -1128,6 +1158,14 @@ class VariableMemoryManager {
         }
 
         output += '\n';
+      }
+
+      if (externalSearchTraceId) {
+        await this.commitExternalMemoryRecall(
+          chat,
+          externalSearchTraceId,
+          nonCoreResults.map(result => result.fragment?.id)
+        );
       }
     }
 

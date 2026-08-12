@@ -12,6 +12,9 @@ const {
   clearAllMemories,
   getMemoryStats,
   listUnembeddedMemories,
+  createMemorySearchLog,
+  getLatestMemorySearchLog,
+  commitMemorySearchInjection,
   addGardenWakeEvent,
   claimGardenWakeEvent,
   finishGardenWakeEvent,
@@ -108,8 +111,23 @@ function updateLastMemorySearchState(info = {}) {
       fallback: typeof chroma.fallback === 'undefined' ? false : Boolean(chroma.fallback),
       error: chroma.error || null
     },
-    resultsTop: results.slice(0, 3).map(compactMemorySearchPreview).filter(Boolean)
+    resultsTop: results.slice(0, 10).map(compactMemorySearchPreview).filter(Boolean)
   };
+
+  try {
+    const persisted = createMemorySearchLog({
+      ...lastMemorySearchState,
+      chatId: info.chatId || '',
+      queryVariants: info.queryVariants || [],
+      results,
+      resultsTop: lastMemorySearchState.resultsTop
+    });
+    lastMemorySearchState = persisted;
+    return persisted.id;
+  } catch (error) {
+    console.warn('[memory-server] failed to persist memory search log:', error.message || String(error));
+    return null;
+  }
 }
 
 const VALID_CATEGORIES = ['U', 'A', 'R', 'E', 'I', 'L', 'P', 'T', 'M', 'C'];
@@ -2600,10 +2618,13 @@ async function handleMcpRequest(body) {
 
         const mcpSearchMode = embeddingConfig.endpoint && embeddingConfig.apiKey ? 'semantic-hybrid' : 'keyword-fallback';
 
+        let searchTraceId = null;
         if (!args.diagnostic) {
-          updateLastMemorySearchState({
+          searchTraceId = updateLastMemorySearchState({
             source: 'mcp:search_memory',
             query: args.query || '',
+            queryVariants: debugQueries.slice(1),
+            chatId: args.chatId || '',
             searchMode: mcpSearchMode,
             requestedSearchEngine: 'mcp-simpleSearch',
             limit: safeMcpLimit,
@@ -2632,6 +2653,7 @@ async function handleMcpRequest(body) {
             debugQueries,
             cleanedQueries: debugQueries.slice(1),
             count: results.length,
+            searchTraceId,
             memories: results
           }
         });
@@ -3659,8 +3681,34 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/memory/search/last' && req.method === 'GET') {
     sendJson(res, 200, {
       ok: true,
-      lastSearch: lastMemorySearchState
+      lastSearch: getLatestMemorySearchLog() || lastMemorySearchState
     });
+    return;
+  }
+
+  if (pathname === '/memory/search/commit' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      const result = commitMemorySearchInjection(
+        body.searchTraceId,
+        body.memoryIds
+      );
+
+      sendJson(res, 200, {
+        ok: true,
+        committed: result.committed,
+        alreadyCommitted: result.alreadyCommitted,
+        searchTraceId: result.log?.id || '',
+        injectedCount: result.log?.injectedCount || 0,
+        injectedMemoryIds: result.log?.injectedMemoryIds || []
+      });
+    } catch (error) {
+      const notFound = String(error.message || '').includes('not found');
+      sendJson(res, notFound ? 404 : 400, {
+        ok: false,
+        error: error.message || String(error)
+      });
+    }
     return;
   }
 
@@ -3780,9 +3828,11 @@ const server = http.createServer(async (req, res) => {
                 };
 
                 if (!body.diagnostic) {
-                  updateLastMemorySearchState({
+                  responsePayload.searchTraceId = updateLastMemorySearchState({
                     source: '/memory/search',
                     query: q,
+                    queryVariants: debugQueries.slice(1),
+                    chatId: body.chatId || '',
                     searchMode: responsePayload.searchMode,
                     requestedSearchEngine: memorySearchEngine,
                     limit: safeLimit,
@@ -3933,9 +3983,11 @@ const server = http.createServer(async (req, res) => {
       };
 
       if (!body.diagnostic) {
-        updateLastMemorySearchState({
+        responsePayload.searchTraceId = updateLastMemorySearchState({
           source: '/memory/search',
           query: q,
+          queryVariants: debugQueries.slice(1),
+          chatId: body.chatId || '',
           searchMode: responsePayload.searchMode,
           requestedSearchEngine: memorySearchEngine,
           limit: safeLimit,
