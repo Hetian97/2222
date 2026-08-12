@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS memory_search_logs (
   resultsTop TEXT,
   chroma TEXT,
   fts TEXT,
+  shadowPolicy TEXT,
   status TEXT NOT NULL DEFAULT 'candidates',
   createdAt INTEGER NOT NULL,
   injectedAt INTEGER,
@@ -121,6 +122,7 @@ ensureColumn('memories', 'embeddingModel', 'TEXT');
 ensureColumn('memories', 'embeddingDim', 'INTEGER DEFAULT 0');
 ensureColumn('memories', 'embeddingUpdatedAt', 'TEXT');
 ensureColumn('memory_search_logs', 'fts', 'TEXT');
+ensureColumn('memory_search_logs', 'shadowPolicy', 'TEXT');
 
 const MEMORY_FTS_SCHEMA_VERSION = '2-cjk-bigram-materialized';
 let memoryFtsAvailable = false;
@@ -914,6 +916,7 @@ function normalizeMemorySearchLog(row) {
     resultsTop: safeJsonParse(row.resultsTop, []),
     chroma: safeJsonParse(row.chroma, { attempted: false }),
     fts: safeJsonParse(row.fts, { attempted: false }),
+    shadowPolicy: safeJsonParse(row.shadowPolicy, null),
     status: row.status || 'candidates',
     injectedAt: injectedAt || null,
     injectedAtISO: injectedAt ? new Date(injectedAt).toISOString() : '',
@@ -934,8 +937,8 @@ function createMemorySearchLog(info = {}) {
     INSERT INTO memory_search_logs (
       id, chatId, source, query, queryVariants, requestedSearchEngine,
       searchMode, requestedLimit, candidateLimit, resultCount,
-      resultMemoryIds, resultsTop, chroma, fts, status, createdAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidates', ?)
+      resultMemoryIds, resultsTop, chroma, fts, shadowPolicy, status, createdAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidates', ?)
   `).run(
     id,
     String(info.chatId || ''),
@@ -951,6 +954,7 @@ function createMemorySearchLog(info = {}) {
     safeJsonStringify(Array.isArray(info.resultsTop) ? info.resultsTop.slice(0, 10) : []),
     safeJsonStringify(info.chroma || { attempted: false }),
     safeJsonStringify(info.fts || { attempted: false }),
+    safeJsonStringify(info.shadowPolicy || null),
     now
   );
 

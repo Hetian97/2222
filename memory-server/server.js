@@ -37,6 +37,10 @@ const {
   resetChromaCollection
 } = require('./chroma-client');
 
+const {
+  runRecallShadowPolicy
+} = require('./recall-shadow-policy');
+
 const PORT = Number(process.env.PORT || 8765);
 const BACKUP_DIR = path.join(__dirname, 'backups');
 const API_TOKEN_FILE = path.join(__dirname, '.memory-api-token');
@@ -90,11 +94,23 @@ function compactMemorySearchPreview(memory) {
   };
 }
 
+function compactShadowPolicySummary(shadowPolicy) {
+  if (!shadowPolicy) return null;
+  const { decisions, ...summary } = shadowPolicy;
+  return summary;
+}
+
 function updateLastMemorySearchState(info = {}) {
   const results = Array.isArray(info.results) ? info.results : [];
   const chroma = info.chroma || { attempted: false };
   const fts = info.fts || { attempted: false };
   const query = String(info.query || '');
+  const shadowPolicy = info.shadowPolicy || null;
+  const shadowDecisionById = new Map(
+    (Array.isArray(shadowPolicy?.decisions) ? shadowPolicy.decisions : [])
+      .map(decision => [String(decision?.id || ''), decision])
+      .filter(([id]) => id)
+  );
 
   lastMemorySearchState = {
     at: Date.now(),
@@ -124,7 +140,22 @@ function updateLastMemorySearchState(info = {}) {
       tokenizer: String(fts.tokenizer || ''),
       error: fts.error || null
     },
-    resultsTop: results.slice(0, 10).map(compactMemorySearchPreview).filter(Boolean)
+    shadowPolicy,
+    resultsTop: results.slice(0, 10).map(memory => {
+      const preview = compactMemorySearchPreview(memory);
+      if (!preview) return null;
+      const decision = shadowDecisionById.get(preview.id);
+      return decision ? {
+        ...preview,
+        shadow: {
+          admitted: Boolean(decision.admitted),
+          selected: Boolean(decision.selected),
+          route: decision.route || '',
+          reason: decision.finalReason || decision.reason || '',
+          admissionScore: decision.admissionScore ?? null
+        }
+      } : preview;
+    }).filter(Boolean)
   };
 
   try {
@@ -414,7 +445,8 @@ function scoreExactAnchorTerms(anchorTerms, memory) {
   if (!Array.isArray(anchorTerms) || !anchorTerms.length || !memory) {
     return {
       score: 0,
-      matchedTerm: ''
+      matchedTerm: '',
+      matchedCount: 0
     };
   }
 
@@ -465,7 +497,8 @@ function scoreExactAnchorTerms(anchorTerms, memory) {
 
   return {
     score: Math.min(1, score),
-    matchedTerm
+    matchedTerm,
+    matchedCount
   };
 }
 
@@ -1167,6 +1200,9 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
         vectorScore,
         keywordScore: textScore,
         anchorScore: anchorHit?.score || 0,
+        anchorMatchedTerm: anchorHit?.matchedTerm || '',
+        anchorMatchedCount: anchorHit?.matchedCount || 0,
+        normalizedQueryLength: normalizeExactAnchorTerm(q).length,
         matchedQuery,
         hasVector,
         scoreParts
@@ -1192,6 +1228,9 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
       _vectorScore: Number(item.vectorScore.toFixed(6)),
       _keywordScore: Number(item.keywordScore.toFixed(6)),
       _anchorScore: Number((item.anchorScore || 0).toFixed(6)),
+      _anchorMatchedTerm: item.anchorMatchedTerm || '',
+      _anchorMatchedCount: Number(item.anchorMatchedCount || 0),
+      _normalizedQueryLength: Number(item.normalizedQueryLength || 0),
       _matchedQuery: item.matchedQuery || q,
       _scoreParts: {
         semantic: Number((item.scoreParts?.semantic || 0).toFixed(6)),
@@ -2623,10 +2662,21 @@ async function handleMcpRequest(body) {
         const debugQueries = buildMemorySearchQueries(args.query || '', args.queryVariants || args.cleanedQueries || args.queries || []);
 
         const safeMcpLimit = clampNumber(args.limit || 10, 1, 200, 10);
-        const results = await simpleSearch(memories, args.query || '', safeMcpLimit, {
+        const shadowCandidateLimit = clampNumber(
+          args.shadowCandidateLimit || process.env.MEMORY_SHADOW_CANDIDATE_LIMIT || Math.max(safeMcpLimit * 5, 60),
+          safeMcpLimit,
+          200,
+          Math.max(safeMcpLimit * 5, 60)
+        );
+        const rankedCandidates = await simpleSearch(memories, args.query || '', shadowCandidateLimit, {
           embedding: embeddingConfig,
           queryVariants: debugQueries.slice(1),
           scoreWeights: args.scoreWeights || args.weights || {}
+        });
+        const results = rankedCandidates.slice(0, safeMcpLimit);
+        const shadowPolicy = runRecallShadowPolicy(rankedCandidates, {
+          targetLimit: safeMcpLimit,
+          candidateLimit: shadowCandidateLimit
         });
 
         const mcpSearchMode = embeddingConfig.endpoint && embeddingConfig.apiKey ? 'semantic-hybrid' : 'keyword-fallback';
@@ -2647,6 +2697,7 @@ async function handleMcpRequest(body) {
               attempted: false,
               fallback: false
             },
+            shadowPolicy,
             results
           });
         }
@@ -2667,6 +2718,7 @@ async function handleMcpRequest(body) {
             cleanedQueries: debugQueries.slice(1),
             count: results.length,
             searchTraceId,
+            shadowPolicy: compactShadowPolicySummary(shadowPolicy),
             memories: results
           }
         });
@@ -3883,6 +3935,12 @@ const server = http.createServer(async (req, res) => {
             );
             const chromaMemories = [];
             const seen = new Set();
+            const chromaShadowCandidateLimit = clampNumber(
+              body.shadowCandidateLimit || process.env.MEMORY_SHADOW_CANDIDATE_LIMIT || Math.max(safeLimit * 5, 60),
+              safeLimit,
+              200,
+              Math.max(safeLimit * 5, 60)
+            );
 
             for (let i = 0; i < ids.length; i++) {
               const id = String(ids[i]);
@@ -3921,14 +3979,19 @@ const server = http.createServer(async (req, res) => {
                 _searchMode: 'chroma-vector'
               });
 
-              if (chromaMemories.length >= safeLimit) break;
+              if (chromaMemories.length >= chromaShadowCandidateLimit) break;
             }
 
               if (chromaMemories.length > 0) {
+                const liveChromaMemories = chromaMemories.slice(0, safeLimit);
+                const shadowPolicy = runRecallShadowPolicy(chromaMemories, {
+                  targetLimit: safeLimit,
+                  candidateLimit: chromaShadowCandidateLimit
+                });
                 const responsePayload = {
                   ok: true,
                   query: q,
-                  count: chromaMemories.length,
+                  count: liveChromaMemories.length,
                   searchMode: 'chroma-vector',
                   chroma: {
                     attempted: true,
@@ -3936,7 +3999,8 @@ const server = http.createServer(async (req, res) => {
                     matchedCandidates: chromaMemories.length
                   },
                   fts: ftsMeta,
-                  memories: chromaMemories
+                  shadowPolicy: compactShadowPolicySummary(shadowPolicy),
+                  memories: liveChromaMemories
                 };
 
                 if (!body.diagnostic) {
@@ -3949,10 +4013,11 @@ const server = http.createServer(async (req, res) => {
                     requestedSearchEngine: memorySearchEngine,
                     limit: safeLimit,
                     candidateLimit: memories.length,
-                    resultCount: chromaMemories.length,
+                    resultCount: liveChromaMemories.length,
                     chroma: responsePayload.chroma,
                     fts: responsePayload.fts,
-                    results: chromaMemories
+                    shadowPolicy,
+                    results: liveChromaMemories
                   });
                 }
 
@@ -4073,10 +4138,23 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
-      const results = await simpleSearch(memories, q, safeLimit, {
+      const shadowCandidateLimit = clampNumber(
+        body.shadowCandidateLimit || process.env.MEMORY_SHADOW_CANDIDATE_LIMIT || Math.max(safeLimit * 5, 60),
+        safeLimit,
+        200,
+        Math.max(safeLimit * 5, 60)
+      );
+      const rankedCandidates = await simpleSearch(memories, q, shadowCandidateLimit, {
         embedding: embeddingConfig,
         queryVariants: debugQueries.slice(1),
         scoreWeights: body.scoreWeights || body.weights || {}
+      });
+      // Shadow mode observes a wider ranked pool, but the live response remains the
+      // exact same top-N slice as before stage 3.
+      const results = rankedCandidates.slice(0, safeLimit);
+      const shadowPolicy = runRecallShadowPolicy(rankedCandidates, {
+        targetLimit: safeLimit,
+        candidateLimit: shadowCandidateLimit
       });
 
       let searchMode = '';
@@ -4109,6 +4187,7 @@ const server = http.createServer(async (req, res) => {
           attempted: false
         }),
         fts: ftsMeta,
+        shadowPolicy: compactShadowPolicySummary(shadowPolicy),
         memories: results
       };
 
@@ -4125,6 +4204,7 @@ const server = http.createServer(async (req, res) => {
           resultCount: results.length,
           chroma: responsePayload.chroma,
           fts: responsePayload.fts,
+          shadowPolicy,
           results
         });
       }

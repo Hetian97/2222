@@ -29,6 +29,16 @@ database.addMemory({
   importance: 10,
   memoryTime: 2
 });
+database.addMemory({
+  id: 'beijing_weather_noise',
+  chatId: 'chat-1',
+  category: 'E',
+  content: '北京今天阳光很好，路边有人买了一瓶水',
+  tags: ['北京'],
+  importance: 10,
+  emotionalWeight: 10,
+  memoryTime: 3
+});
 
 for (let index = 0; index < 30; index++) {
   database.addMemory({
@@ -107,7 +117,7 @@ async function main() {
     const status = await request('GET', '/memory/fts/status');
     assert.equal(status.status, 200);
     assert.equal(status.body.fts.integrity, 'ok');
-    assert.equal(status.body.fts.totalMemories, 32);
+    assert.equal(status.body.fts.totalMemories, 33);
 
     const search = await request('POST', '/memory/search', {
       query: '北京出差',
@@ -124,6 +134,10 @@ async function main() {
     assert.equal(search.body.fts.attempted, true);
     assert(search.body.memories.some(memory => memory.id === 'very_old_beijing_trip'));
     assert(!search.body.memories.some(memory => memory.category === 'C'));
+    assert.equal(search.body.shadowPolicy.mode, 'shadow');
+    assert.equal(search.body.shadowPolicy.behaviorChanged, false);
+    assert(search.body.shadowPolicy.candidateCount >= search.body.memories.length);
+    assert(search.body.memories.some(memory => memory.id === 'beijing_weather_noise'));
 
     const realSearch = await request('POST', '/memory/search', {
       query: '北京出差',
@@ -133,6 +147,18 @@ async function main() {
       limit: 5
     });
     assert(realSearch.body.searchTraceId);
+    assert(realSearch.body.memories.length > 0 && realSearch.body.memories.length <= 5);
+
+    const persistedShadow = await request('GET', '/memory/search/last');
+    assert.equal(persistedShadow.body.lastSearch.shadowPolicy.mode, 'shadow');
+    assert.equal(persistedShadow.body.lastSearch.shadowPolicy.behaviorChanged, false);
+    assert(Array.isArray(persistedShadow.body.lastSearch.shadowPolicy.decisions));
+    assert(persistedShadow.body.lastSearch.resultsTop.some(item => item.shadow));
+    const noiseDecision = persistedShadow.body.lastSearch.shadowPolicy.decisions
+      .find(decision => decision.id === 'beijing_weather_noise');
+    assert(noiseDecision);
+    assert.equal(noiseDecision.admitted, false, JSON.stringify(noiseDecision));
+    assert(persistedShadow.body.lastSearch.resultMemoryIds.includes('beijing_weather_noise'));
 
     const firstCommit = await request('POST', '/memory/search/commit', {
       searchTraceId: realSearch.body.searchTraceId,

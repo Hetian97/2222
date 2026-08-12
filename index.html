@@ -10043,9 +10043,30 @@
 
     const chroma = last.chroma || {};
     const fts = last.fts || {};
+    const shadow = last.shadowPolicy || null;
     const top = Array.isArray(last.resultsTop) ? last.resultsTop.slice(0, 3) : [];
     const injectedIds = new Set(Array.isArray(last.injectedMemoryIds) ? last.injectedMemoryIds.map(String) : []);
     const timeText = last.atISO ? new Date(last.atISO).toLocaleString() : '';
+    const shadowRouteLabels = {
+      explicit_anchor: '明确锚点',
+      composite_semantic: '多线索语义',
+      rejected: '未通过'
+    };
+    const shadowReasonLabels = {
+      selected_by_shadow: '进入模拟注入集合',
+      near_duplicate: '与已选记忆近义重复',
+      category_quota: '该类型已达到模拟配额',
+      shadow_limit: '超过模拟注入数量',
+      insufficient_relevance_evidence: '相关性证据不足',
+      importance_or_emotion_without_relevance: '只有重要度或情绪，缺少当前相关性',
+      rare_exact_anchor: '命中稀有明确锚点',
+      strong_keyword_evidence: '关键词证据强',
+      very_high_semantic_match: '语义匹配非常高',
+      semantic_match_with_support: '语义匹配并有辅助证据',
+      multi_signal_semantic_match: '多条线索共同支持',
+      combined_keyword_semantic_match: '关键词与语义共同支持',
+      moderate_anchor_keyword_match: '锚点与关键词共同支持'
+    };
 
     lines.push('最近一次真实检索：');
     if (last.id) lines.push('- traceId：' + last.id);
@@ -10086,6 +10107,20 @@
     if (fts.error) lines.push('- error：' + fts.error);
 
     lines.push('');
+    lines.push('第三阶段 Shadow 门卫：');
+    if (!shadow) {
+      lines.push('- 尚无 shadow 数据');
+    } else {
+      lines.push('- mode：' + (shadow.mode || 'shadow'));
+      lines.push('- behaviorChanged：' + String(Boolean(shadow.behaviorChanged)));
+      lines.push('- candidates：' + (shadow.candidateCount ?? 0));
+      lines.push('- admitted：' + (shadow.admittedCount ?? 0));
+      lines.push('- rejected：' + (shadow.rejectedCount ?? 0));
+      lines.push('- shadowSelected：' + (shadow.selectedCount ?? 0));
+      lines.push('- zeroRecall：' + String(Boolean(shadow.zeroRecall)));
+    }
+
+    lines.push('');
     lines.push('query：' + (last.queryPreview || ''));
 
     lines.push('');
@@ -10112,6 +10147,14 @@
         }
         if (item.searchMode) {
           lines.push('   Mode：' + item.searchMode);
+        }
+        if (item.shadow) {
+          const shadowState = item.shadow.selected
+            ? '模拟保留'
+            : (item.shadow.admitted ? '门卫通过、未入模拟配额' : '模拟拒绝');
+          lines.push('   Shadow：' + shadowState);
+          if (item.shadow.route) lines.push('   通道：' + (shadowRouteLabels[item.shadow.route] || item.shadow.route));
+          if (item.shadow.reason) lines.push('   原因：' + (shadowReasonLabels[item.shadow.reason] || item.shadow.reason));
         }
         lines.push('   ' + content);
       });
