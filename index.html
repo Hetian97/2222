@@ -10064,6 +10064,7 @@
       very_high_semantic_match: '语义匹配非常高',
       semantic_match_with_support: '语义匹配并有辅助证据',
       multi_signal_semantic_match: '多条线索共同支持',
+      salient_semantic_match: '语义相关且具有重要情绪证据',
       combined_keyword_semantic_match: '关键词与语义共同支持',
       moderate_anchor_keyword_match: '锚点与关键词共同支持'
     };
@@ -10112,12 +10113,17 @@
       lines.push('- 尚无 shadow 数据');
     } else {
       lines.push('- mode：' + (shadow.mode || 'shadow'));
+      if (shadow.version) lines.push('- version：' + shadow.version);
       lines.push('- behaviorChanged：' + String(Boolean(shadow.behaviorChanged)));
+      if (shadow.evidenceMode) lines.push('- evidenceMode：' + shadow.evidenceMode);
+      if (shadow.categoryQuotaMode) lines.push('- categoryQuotaMode：' + shadow.categoryQuotaMode);
       lines.push('- candidates：' + (shadow.candidateCount ?? 0));
       lines.push('- admitted：' + (shadow.admittedCount ?? 0));
       lines.push('- rejected：' + (shadow.rejectedCount ?? 0));
       lines.push('- shadowSelected：' + (shadow.selectedCount ?? 0));
       lines.push('- zeroRecall：' + String(Boolean(shadow.zeroRecall)));
+      if (typeof shadow.legacySaturatedCount !== 'undefined') lines.push('- 旧分数饱和候选：' + shadow.legacySaturatedCount);
+      if (typeof shadow.calibratedSaturatedCount !== 'undefined') lines.push('- 校准后饱和候选：' + shadow.calibratedSaturatedCount);
     }
 
     lines.push('');
@@ -10155,6 +10161,7 @@
           lines.push('   Shadow：' + shadowState);
           if (item.shadow.route) lines.push('   通道：' + (shadowRouteLabels[item.shadow.route] || item.shadow.route));
           if (item.shadow.reason) lines.push('   原因：' + (shadowReasonLabels[item.shadow.reason] || item.shadow.reason));
+          if (Number(item.shadow.softQuotaPenalty || 0) > 0) lines.push('   类型多样性软惩罚：' + item.shadow.softQuotaPenalty);
         }
         lines.push('   ' + content);
       });

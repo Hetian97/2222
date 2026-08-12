@@ -152,7 +152,8 @@ function updateLastMemorySearchState(info = {}) {
           selected: Boolean(decision.selected),
           route: decision.route || '',
           reason: decision.finalReason || decision.reason || '',
-          admissionScore: decision.admissionScore ?? null
+          admissionScore: decision.admissionScore ?? null,
+          softQuotaPenalty: decision.softQuotaPenalty ?? 0
         }
       } : preview;
     }).filter(Boolean)
@@ -2676,7 +2677,9 @@ async function handleMcpRequest(body) {
         const results = rankedCandidates.slice(0, safeMcpLimit);
         const shadowPolicy = runRecallShadowPolicy(rankedCandidates, {
           targetLimit: safeMcpLimit,
-          candidateLimit: shadowCandidateLimit
+          candidateLimit: shadowCandidateLimit,
+          query: args.query || '',
+          queryVariants: debugQueries.slice(1)
         });
 
         const mcpSearchMode = embeddingConfig.endpoint && embeddingConfig.apiKey ? 'semantic-hybrid' : 'keyword-fallback';
@@ -3986,7 +3989,9 @@ const server = http.createServer(async (req, res) => {
                 const liveChromaMemories = chromaMemories.slice(0, safeLimit);
                 const shadowPolicy = runRecallShadowPolicy(chromaMemories, {
                   targetLimit: safeLimit,
-                  candidateLimit: chromaShadowCandidateLimit
+                  candidateLimit: chromaShadowCandidateLimit,
+                  query: q,
+                  queryVariants: debugQueries.slice(1)
                 });
                 const responsePayload = {
                   ok: true,
@@ -4154,7 +4159,9 @@ const server = http.createServer(async (req, res) => {
       const results = rankedCandidates.slice(0, safeLimit);
       const shadowPolicy = runRecallShadowPolicy(rankedCandidates, {
         targetLimit: safeLimit,
-        candidateLimit: shadowCandidateLimit
+        candidateLimit: shadowCandidateLimit,
+        query: q,
+        queryVariants: debugQueries.slice(1)
       });
 
       let searchMode = '';

@@ -135,6 +135,7 @@ async function main() {
     assert(search.body.memories.some(memory => memory.id === 'very_old_beijing_trip'));
     assert(!search.body.memories.some(memory => memory.category === 'C'));
     assert.equal(search.body.shadowPolicy.mode, 'shadow');
+    assert.equal(search.body.shadowPolicy.version, 'stage3-shadow-v1.1');
     assert.equal(search.body.shadowPolicy.behaviorChanged, false);
     assert(search.body.shadowPolicy.candidateCount >= search.body.memories.length);
     assert(search.body.memories.some(memory => memory.id === 'beijing_weather_noise'));
@@ -151,6 +152,7 @@ async function main() {
 
     const persistedShadow = await request('GET', '/memory/search/last');
     assert.equal(persistedShadow.body.lastSearch.shadowPolicy.mode, 'shadow');
+    assert.equal(persistedShadow.body.lastSearch.shadowPolicy.version, 'stage3-shadow-v1.1');
     assert.equal(persistedShadow.body.lastSearch.shadowPolicy.behaviorChanged, false);
     assert(Array.isArray(persistedShadow.body.lastSearch.shadowPolicy.decisions));
     assert(persistedShadow.body.lastSearch.resultsTop.some(item => item.shadow));
@@ -158,6 +160,7 @@ async function main() {
       .find(decision => decision.id === 'beijing_weather_noise');
     assert(noiseDecision);
     assert.equal(noiseDecision.admitted, false, JSON.stringify(noiseDecision));
+    assert(noiseDecision.signals.keyword < noiseDecision.signals.legacyKeyword);
     assert(persistedShadow.body.lastSearch.resultMemoryIds.includes('beijing_weather_noise'));
 
     const firstCommit = await request('POST', '/memory/search/commit', {
