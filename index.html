@@ -10042,6 +10042,7 @@
     }
 
     const chroma = last.chroma || {};
+    const fts = last.fts || {};
     const top = Array.isArray(last.resultsTop) ? last.resultsTop.slice(0, 3) : [];
     const injectedIds = new Set(Array.isArray(last.injectedMemoryIds) ? last.injectedMemoryIds.map(String) : []);
     const timeText = last.atISO ? new Date(last.atISO).toLocaleString() : '';
@@ -10074,6 +10075,15 @@
     if (typeof chroma.addedCandidates !== 'undefined' && chroma.addedCandidates !== null) lines.push('- addedCandidates：' + String(chroma.addedCandidates));
     if (typeof chroma.fallback !== 'undefined') lines.push('- fallback：' + String(chroma.fallback));
     if (chroma.error) lines.push('- error：' + chroma.error);
+
+    lines.push('');
+    lines.push('SQLite FTS5：');
+    lines.push('- available：' + (typeof fts.available === 'undefined' || fts.available === null ? '未返回' : String(fts.available)));
+    lines.push('- attempted：' + (typeof fts.attempted === 'undefined' ? '未返回' : String(fts.attempted)));
+    if (typeof fts.returned !== 'undefined' && fts.returned !== null) lines.push('- returned：' + String(fts.returned));
+    if (fts.tokenizer) lines.push('- tokenizer：' + fts.tokenizer);
+    if (typeof fts.fallback !== 'undefined') lines.push('- fallback：' + String(fts.fallback));
+    if (fts.error) lines.push('- error：' + fts.error);
 
     lines.push('');
     lines.push('query：' + (last.queryPreview || ''));

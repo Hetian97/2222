@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS memory_search_logs (
   resultMemoryIds TEXT,
   resultsTop TEXT,
   chroma TEXT,
+  fts TEXT,
   status TEXT NOT NULL DEFAULT 'candidates',
   createdAt INTEGER NOT NULL,
   injectedAt INTEGER,
@@ -98,6 +99,12 @@ CREATE TABLE IF NOT EXISTS aisay_wake_events (
 
 CREATE INDEX IF NOT EXISTS idx_aisay_wake_status_created
 ON aisay_wake_events(status, createdAt);
+
+CREATE TABLE IF NOT EXISTS memory_index_meta (
+  name TEXT PRIMARY KEY,
+  value TEXT,
+  updatedAt INTEGER NOT NULL
+);
 `);
 
 function ensureColumn(table, column, definition) {
@@ -113,6 +120,203 @@ function ensureColumn(table, column, definition) {
 ensureColumn('memories', 'embeddingModel', 'TEXT');
 ensureColumn('memories', 'embeddingDim', 'INTEGER DEFAULT 0');
 ensureColumn('memories', 'embeddingUpdatedAt', 'TEXT');
+ensureColumn('memory_search_logs', 'fts', 'TEXT');
+
+const MEMORY_FTS_SCHEMA_VERSION = '2-cjk-bigram-materialized';
+let memoryFtsAvailable = false;
+let memoryFtsTokenizer = '';
+let memoryFtsStartupError = '';
+
+function setMemoryIndexMeta(name, value) {
+  db.prepare(`
+    INSERT INTO memory_index_meta (name, value, updatedAt)
+    VALUES (?, ?, ?)
+    ON CONFLICT(name) DO UPDATE SET
+      value = excluded.value,
+      updatedAt = excluded.updatedAt
+  `).run(String(name), String(value ?? ''), Date.now());
+}
+
+function getMemoryIndexMeta(name) {
+  const row = db.prepare('SELECT value, updatedAt FROM memory_index_meta WHERE name = ?').get(String(name));
+  return row || null;
+}
+
+function createMemoryFtsNgramSchema() {
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+      memoryId UNINDEXED,
+      chatId UNINDEXED,
+      category UNINDEXED,
+      importance UNINDEXED,
+      terms,
+      tokenize='unicode61'
+    );
+
+    CREATE TABLE IF NOT EXISTS memory_fts_pending (
+      memoryId TEXT PRIMARY KEY,
+      operation TEXT NOT NULL,
+      createdAt INTEGER NOT NULL
+    );
+
+    CREATE TRIGGER IF NOT EXISTS memories_fts_ai AFTER INSERT ON memories BEGIN
+      INSERT INTO memory_fts_pending(memoryId, operation, createdAt)
+      VALUES (new.id, 'upsert', CAST(strftime('%s','now') AS INTEGER) * 1000)
+      ON CONFLICT(memoryId) DO UPDATE SET operation='upsert', createdAt=excluded.createdAt;
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS memories_fts_ad AFTER DELETE ON memories BEGIN
+      INSERT INTO memory_fts_pending(memoryId, operation, createdAt)
+      VALUES (old.id, 'delete', CAST(strftime('%s','now') AS INTEGER) * 1000)
+      ON CONFLICT(memoryId) DO UPDATE SET operation='delete', createdAt=excluded.createdAt;
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS memories_fts_au AFTER UPDATE OF content, tags, context, source, chatId, category, importance ON memories BEGIN
+      INSERT INTO memory_fts_pending(memoryId, operation, createdAt)
+      VALUES (new.id, 'upsert', CAST(strftime('%s','now') AS INTEGER) * 1000)
+      ON CONFLICT(memoryId) DO UPDATE SET operation='upsert', createdAt=excluded.createdAt;
+    END;
+  `);
+
+  memoryFtsAvailable = true;
+  memoryFtsTokenizer = 'unicode61-cjk-bigram';
+}
+
+function expandMemoryFtsTerms(...values) {
+  const terms = [];
+  const seen = new Set();
+  const add = (value) => {
+    const term = String(value || '').trim().toLowerCase();
+    if (!term || seen.has(term)) return;
+    seen.add(term);
+    terms.push(term);
+  };
+
+  for (const rawValue of values) {
+    const text = String(rawValue || '').normalize('NFKC').toLowerCase();
+    (text.match(/[a-z0-9_][a-z0-9_.:/-]{1,63}/g) || []).forEach(add);
+
+    for (const run of (text.match(/[\u3400-\u9fff]+/g) || [])) {
+      if (run.length === 1) add(run);
+      for (const size of [2, 3, 4]) {
+        for (let i = 0; i <= run.length - size; i++) add(run.slice(i, i + size));
+      }
+    }
+  }
+
+  return terms.join(' ');
+}
+
+function indexMemoryFtsRow(memory) {
+  db.prepare('DELETE FROM memory_fts WHERE memoryId = ?').run(String(memory.id));
+  db.prepare(`
+    INSERT INTO memory_fts(memoryId, chatId, category, importance, terms)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(
+    String(memory.id),
+    String(memory.chatId || ''),
+    String(memory.category || ''),
+    Number(memory.importance || 0),
+    expandMemoryFtsTerms(memory.content, memory.tags, memory.context, memory.source)
+  );
+}
+
+function flushMemoryFtsPending(limit = 10000) {
+  if (!memoryFtsAvailable) return { processed: 0 };
+  const safeLimit = Math.min(50000, Math.max(1, Number(limit) || 10000));
+  const rows = db.prepare(`
+    SELECT memoryId, operation FROM memory_fts_pending
+    ORDER BY createdAt ASC LIMIT ?
+  `).all(safeLimit);
+
+  const applyPending = db.transaction((items) => {
+    for (const item of items) {
+      if (item.operation === 'delete') {
+        db.prepare('DELETE FROM memory_fts WHERE memoryId = ?').run(item.memoryId);
+      } else {
+        const memory = db.prepare('SELECT * FROM memories WHERE id = ?').get(item.memoryId);
+        if (memory) indexMemoryFtsRow(memory);
+        else db.prepare('DELETE FROM memory_fts WHERE memoryId = ?').run(item.memoryId);
+      }
+      db.prepare('DELETE FROM memory_fts_pending WHERE memoryId = ?').run(item.memoryId);
+    }
+  });
+
+  applyPending(rows);
+  return { processed: rows.length };
+}
+
+function rebuildMemoryFts() {
+  if (!memoryFtsAvailable) {
+    throw new Error(memoryFtsStartupError || 'FTS5 is unavailable');
+  }
+
+  const startedAt = Date.now();
+  const rows = db.prepare('SELECT * FROM memories ORDER BY rowid ASC').all();
+  const rebuild = db.transaction((memories) => {
+    db.prepare('DELETE FROM memory_fts').run();
+    db.prepare('DELETE FROM memory_fts_pending').run();
+    for (const memory of memories) indexMemoryFtsRow(memory);
+  });
+  rebuild(rows);
+
+  const total = rows.length;
+  setMemoryIndexMeta('memory_fts_schema_version', MEMORY_FTS_SCHEMA_VERSION);
+  setMemoryIndexMeta('memory_fts_tokenizer', memoryFtsTokenizer);
+  setMemoryIndexMeta('memory_fts_indexed_count', total);
+  setMemoryIndexMeta('memory_fts_last_rebuilt_at', Date.now());
+
+  return {
+    ok: true,
+    available: true,
+    tokenizer: memoryFtsTokenizer,
+    total,
+    durationMs: Date.now() - startedAt
+  };
+}
+
+function initializeMemoryFts() {
+  try {
+    const existingTable = db.prepare(`
+      SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memory_fts'
+    `).get();
+    const existingColumns = existingTable
+      ? db.prepare('PRAGMA table_info(memory_fts)').all().map(column => column.name)
+      : [];
+
+    if (existingTable && (!existingColumns.includes('memoryId') || !existingColumns.includes('terms'))) {
+      db.exec(`
+        DROP TRIGGER IF EXISTS memories_fts_ai;
+        DROP TRIGGER IF EXISTS memories_fts_ad;
+        DROP TRIGGER IF EXISTS memories_fts_au;
+        DROP TABLE IF EXISTS memory_fts;
+        DROP TABLE IF EXISTS memory_fts_pending;
+      `);
+    }
+
+    createMemoryFtsNgramSchema();
+  } catch (error) {
+    memoryFtsStartupError = error.message || String(error);
+    console.warn('[memory-server] FTS5 unavailable; recent-memory fallback remains enabled:', memoryFtsStartupError);
+    return;
+  }
+
+  const schemaMeta = getMemoryIndexMeta('memory_fts_schema_version');
+  const tokenizerMeta = getMemoryIndexMeta('memory_fts_tokenizer');
+
+  if (!schemaMeta || schemaMeta.value !== MEMORY_FTS_SCHEMA_VERSION || tokenizerMeta?.value !== memoryFtsTokenizer) {
+    const result = rebuildMemoryFts();
+    console.log(`[memory-server] FTS5 index initialized: ${result.total} memories in ${result.durationMs}ms (${result.tokenizer})`);
+  } else {
+    const status = getMemoryFtsStatus({ integrityCheck: true });
+    if (status.integrity !== 'ok') {
+      const result = rebuildMemoryFts();
+      console.warn(`[memory-server] FTS5 mismatch repaired: ${result.total} memories in ${result.durationMs}ms`);
+    }
+  }
+}
+
+initializeMemoryFts();
 
 function safeJsonStringify(value) {
   if (value === undefined || value === null) return null;
@@ -186,7 +390,7 @@ function addMemory(memory) {
   };
 
   const stmt = db.prepare(`
-    INSERT OR REPLACE INTO memories (
+    INSERT INTO memories (
       id, chatId, content, category, importance, emotionalWeight,
       tags, memoryTime, createdAt, updatedAt, lastRecalled,
       recallCount, embedding, embeddingModel, embeddingDim, embeddingUpdatedAt,
@@ -197,9 +401,29 @@ function addMemory(memory) {
       @recallCount, @embedding, @embeddingModel, @embeddingDim, @embeddingUpdatedAt,
       @linkedMemories, @source, @context
     )
+    ON CONFLICT(id) DO UPDATE SET
+      chatId = excluded.chatId,
+      content = excluded.content,
+      category = excluded.category,
+      importance = excluded.importance,
+      emotionalWeight = excluded.emotionalWeight,
+      tags = excluded.tags,
+      memoryTime = excluded.memoryTime,
+      createdAt = excluded.createdAt,
+      updatedAt = excluded.updatedAt,
+      lastRecalled = excluded.lastRecalled,
+      recallCount = excluded.recallCount,
+      embedding = excluded.embedding,
+      embeddingModel = excluded.embeddingModel,
+      embeddingDim = excluded.embeddingDim,
+      embeddingUpdatedAt = excluded.embeddingUpdatedAt,
+      linkedMemories = excluded.linkedMemories,
+      source = excluded.source,
+      context = excluded.context
   `);
 
   stmt.run(item);
+  flushMemoryFtsPending();
   return normalizeMemory(db.prepare('SELECT * FROM memories WHERE id = ?').get(item.id));
 }
 
@@ -257,11 +481,13 @@ function listMemories(filters = {}) {
 
 function deleteMemory(id) {
   const result = db.prepare('DELETE FROM memories WHERE id = ?').run(id);
+  flushMemoryFtsPending();
   return result.changes > 0;
 }
 
 function clearAllMemories() {
   const result = db.prepare('DELETE FROM memories').run();
+  flushMemoryFtsPending(50000);
   return result.changes;
 }
 
@@ -427,6 +653,213 @@ function importFromJsonArray(memories) {
   return memories.filter(item => item && item.content).length;
 }
 
+function getMemoriesByIds(ids, filters = {}) {
+  const safeIds = [...new Set(
+    (Array.isArray(ids) ? ids : [])
+      .map(value => String(value || '').trim())
+      .filter(Boolean)
+  )].slice(0, 2000);
+
+  if (!safeIds.length) return [];
+
+  const params = [...safeIds];
+  const where = [`id IN (${safeIds.map(() => '?').join(', ')})`];
+
+  if (filters.chatId) {
+    where.push('chatId = ?');
+    params.push(String(filters.chatId));
+  }
+
+  if (filters.category) {
+    where.push('category = ?');
+    params.push(String(filters.category).trim().toUpperCase());
+  }
+
+  if (filters.minImportance !== undefined && filters.minImportance !== null && filters.minImportance !== '') {
+    where.push('importance >= ?');
+    params.push(Number(filters.minImportance));
+  }
+
+  if (filters.maxImportance !== undefined && filters.maxImportance !== null && filters.maxImportance !== '') {
+    where.push('importance <= ?');
+    params.push(Number(filters.maxImportance));
+  }
+
+  const rows = db.prepare(`SELECT * FROM memories WHERE ${where.join(' AND ')}`).all(...params);
+  const byId = new Map(rows.map(row => [String(row.id), normalizeMemory(row)]));
+  return safeIds.map(id => byId.get(id)).filter(Boolean);
+}
+
+function buildMemoryFtsMatchQuery(queries) {
+  const values = Array.isArray(queries) ? queries : [queries];
+  const terms = [];
+  const seen = new Set();
+
+  const add = (value) => {
+    const term = String(value || '').trim().toLowerCase();
+    if (term.length < 2 || seen.has(term)) return;
+    seen.add(term);
+    terms.push(term);
+  };
+
+  for (const value of values.slice(0, 12)) {
+    const text = String(value || '').normalize('NFKC');
+    const latinTerms = text.match(/[a-zA-Z0-9_][a-zA-Z0-9_.:/-]{2,63}/g) || [];
+    latinTerms.forEach(add);
+
+    const cjkRuns = text.match(/[\u3400-\u9fff]{2,32}/g) || [];
+    for (const run of cjkRuns) {
+      if (run.length <= 8) add(run);
+
+      for (const windowSize of [2, 3, 4]) {
+        for (let i = 0; i <= run.length - windowSize && terms.length < 96; i++) {
+          add(run.slice(i, i + windowSize));
+        }
+      }
+    }
+
+    if (terms.length >= 64) break;
+  }
+
+  return terms.slice(0, 96).map(term => `"${term.replace(/"/g, '""')}"`).join(' OR ');
+}
+
+function searchMemoriesFts(queries, filters = {}) {
+  if (!memoryFtsAvailable) {
+    return {
+      available: false,
+      attempted: false,
+      fallback: true,
+      error: memoryFtsStartupError || 'FTS5 is unavailable',
+      matchQuery: '',
+      memories: []
+    };
+  }
+
+  const matchQuery = buildMemoryFtsMatchQuery(queries);
+  if (!matchQuery) {
+    return {
+      available: true,
+      attempted: false,
+      fallback: true,
+      error: 'No FTS5 term with at least 2 characters',
+      matchQuery: '',
+      memories: []
+    };
+  }
+
+  flushMemoryFtsPending();
+
+  const params = [matchQuery];
+  const where = ['memory_fts MATCH ?'];
+
+  if (filters.chatId) {
+    where.push('memory_fts.chatId = ?');
+    params.push(String(filters.chatId));
+  }
+
+  if (filters.category) {
+    where.push('memory_fts.category = ?');
+    params.push(String(filters.category).trim().toUpperCase());
+  }
+
+  if (filters.minImportance !== undefined && filters.minImportance !== null && filters.minImportance !== '') {
+    where.push('CAST(memory_fts.importance AS INTEGER) >= ?');
+    params.push(Number(filters.minImportance));
+  }
+
+  if (filters.maxImportance !== undefined && filters.maxImportance !== null && filters.maxImportance !== '') {
+    where.push('CAST(memory_fts.importance AS INTEGER) <= ?');
+    params.push(Number(filters.maxImportance));
+  }
+
+  const safeLimit = Math.min(2000, Math.max(10, Number(filters.limit) || 200));
+  params.push(safeLimit);
+
+  try {
+    const rows = db.prepare(`
+      SELECT m.*, bm25(memory_fts, 0.0, 0.0, 0.0, 0.0, 1.0) AS ftsRank
+      FROM memory_fts
+      JOIN memories m ON m.id = memory_fts.memoryId
+      WHERE ${where.join(' AND ')}
+      ORDER BY ftsRank ASC, m.importance DESC, CAST(m.memoryTime AS INTEGER) DESC
+      LIMIT ?
+    `).all(...params);
+
+    return {
+      available: true,
+      attempted: true,
+      fallback: false,
+      error: null,
+      matchQuery,
+      memories: rows.map(row => ({
+        ...normalizeMemory(row),
+        _ftsRank: Number(row.ftsRank || 0),
+        _searchMode: 'fts5-keyword-candidate'
+      }))
+    };
+  } catch (error) {
+    return {
+      available: true,
+      attempted: true,
+      fallback: true,
+      error: error.message || String(error),
+      matchQuery,
+      memories: []
+    };
+  }
+}
+
+function getMemoryFtsStatus(options = {}) {
+  const total = db.prepare('SELECT COUNT(*) AS count FROM memories').get().count;
+  let integrity = null;
+  let error = memoryFtsStartupError || null;
+
+  if (memoryFtsAvailable && options.integrityCheck !== false) {
+    try {
+      flushMemoryFtsPending();
+      const ftsCount = db.prepare('SELECT COUNT(*) AS count FROM memory_fts').get().count;
+      const pendingCount = db.prepare('SELECT COUNT(*) AS count FROM memory_fts_pending').get().count;
+      const orphanCount = db.prepare(`
+        SELECT COUNT(*) AS count FROM memory_fts f
+        LEFT JOIN memories m ON m.id = f.memoryId
+        WHERE m.id IS NULL
+      `).get().count;
+      const missingCount = db.prepare(`
+        SELECT COUNT(*) AS count FROM memories m
+        LEFT JOIN memory_fts f ON f.memoryId = m.id
+        WHERE f.memoryId IS NULL
+      `).get().count;
+      integrity = Number(ftsCount) === Number(total) &&
+        Number(pendingCount) === 0 &&
+        Number(orphanCount) === 0 &&
+        Number(missingCount) === 0
+        ? 'ok'
+        : 'mismatch';
+      if (integrity !== 'ok') {
+        error = `FTS5 mismatch: memories=${total}, indexed=${ftsCount}, pending=${pendingCount}, orphan=${orphanCount}, missing=${missingCount}`;
+      }
+    } catch (integrityError) {
+      integrity = 'error';
+      error = integrityError.message || String(integrityError);
+    }
+  }
+
+  const lastRebuilt = getMemoryIndexMeta('memory_fts_last_rebuilt_at');
+  const indexedCount = getMemoryIndexMeta('memory_fts_indexed_count');
+
+  return {
+    available: memoryFtsAvailable,
+    tokenizer: memoryFtsTokenizer,
+    schemaVersion: getMemoryIndexMeta('memory_fts_schema_version')?.value || '',
+    totalMemories: Number(total || 0),
+    indexedCountAtLastRebuild: Number(indexedCount?.value || 0),
+    lastRebuiltAt: Number(lastRebuilt?.value || 0),
+    integrity,
+    error
+  };
+}
+
 function normalizeMemorySearchLog(row) {
   if (!row) return null;
 
@@ -450,6 +883,7 @@ function normalizeMemorySearchLog(row) {
     resultMemoryIds: safeJsonParse(row.resultMemoryIds, []),
     resultsTop: safeJsonParse(row.resultsTop, []),
     chroma: safeJsonParse(row.chroma, { attempted: false }),
+    fts: safeJsonParse(row.fts, { attempted: false }),
     status: row.status || 'candidates',
     injectedAt: injectedAt || null,
     injectedAtISO: injectedAt ? new Date(injectedAt).toISOString() : '',
@@ -470,8 +904,8 @@ function createMemorySearchLog(info = {}) {
     INSERT INTO memory_search_logs (
       id, chatId, source, query, queryVariants, requestedSearchEngine,
       searchMode, requestedLimit, candidateLimit, resultCount,
-      resultMemoryIds, resultsTop, chroma, status, createdAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidates', ?)
+      resultMemoryIds, resultsTop, chroma, fts, status, createdAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidates', ?)
   `).run(
     id,
     String(info.chatId || ''),
@@ -486,6 +920,7 @@ function createMemorySearchLog(info = {}) {
     safeJsonStringify(resultMemoryIds),
     safeJsonStringify(Array.isArray(info.resultsTop) ? info.resultsTop.slice(0, 10) : []),
     safeJsonStringify(info.chroma || { attempted: false }),
+    safeJsonStringify(info.fts || { attempted: false }),
     now
   );
 
@@ -755,6 +1190,10 @@ module.exports = {
   addMemory,
   listMemories,
   getMemoryById,
+  getMemoriesByIds,
+  searchMemoriesFts,
+  getMemoryFtsStatus,
+  rebuildMemoryFts,
   deleteMemory,
   clearAllMemories,
   getMemoryStats,

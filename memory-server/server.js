@@ -8,6 +8,10 @@ const {
   addMemory,
   listMemories,
   getMemoryById,
+  getMemoriesByIds,
+  searchMemoriesFts,
+  getMemoryFtsStatus,
+  rebuildMemoryFts,
   deleteMemory,
   clearAllMemories,
   getMemoryStats,
@@ -89,6 +93,7 @@ function compactMemorySearchPreview(memory) {
 function updateLastMemorySearchState(info = {}) {
   const results = Array.isArray(info.results) ? info.results : [];
   const chroma = info.chroma || { attempted: false };
+  const fts = info.fts || { attempted: false };
   const query = String(info.query || '');
 
   lastMemorySearchState = {
@@ -110,6 +115,14 @@ function updateLastMemorySearchState(info = {}) {
       addedCandidates: typeof chroma.addedCandidates === 'undefined' ? null : Number(chroma.addedCandidates || 0),
       fallback: typeof chroma.fallback === 'undefined' ? false : Boolean(chroma.fallback),
       error: chroma.error || null
+    },
+    fts: {
+      available: typeof fts.available === 'undefined' ? null : Boolean(fts.available),
+      attempted: Boolean(fts.attempted),
+      returned: typeof fts.returned === 'undefined' ? null : Number(fts.returned || 0),
+      fallback: Boolean(fts.fallback),
+      tokenizer: String(fts.tokenizer || ''),
+      error: fts.error || null
     },
     resultsTop: results.slice(0, 10).map(compactMemorySearchPreview).filter(Boolean)
   };
@@ -3513,7 +3526,8 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, {
       ok: true,
       storage: 'sqlite',
-      stats
+      stats,
+      fts: getMemoryFtsStatus({ integrityCheck: false })
     });
     return;
   }
@@ -3525,6 +3539,38 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, {
         ok: true,
         chroma: status
+      });
+    } catch (error) {
+      sendJson(res, 500, {
+        ok: false,
+        error: error.message || String(error)
+      });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/fts/status' && req.method === 'GET') {
+    try {
+      sendJson(res, 200, {
+        ok: true,
+        fts: getMemoryFtsStatus({ integrityCheck: true })
+      });
+    } catch (error) {
+      sendJson(res, 500, {
+        ok: false,
+        error: error.message || String(error)
+      });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/fts/rebuild' && req.method === 'POST') {
+    try {
+      const rebuild = rebuildMemoryFts();
+      sendJson(res, 200, {
+        ok: true,
+        rebuild,
+        fts: getMemoryFtsStatus({ integrityCheck: true })
       });
     } catch (error) {
       sendJson(res, 500, {
@@ -3719,13 +3765,42 @@ const server = http.createServer(async (req, res) => {
       const safeLimit = clampNumber(body.limit || 20, 1, 200, 20);
       const debugQueries = buildMemorySearchQueries(q, body.queryVariants || body.cleanedQueries || body.queries || []);
 
-      let memories = listMemories({
+      const memoryFilters = {
         chatId: body.chatId || '',
         category: body.category || '',
         minImportance: body.minImportance || '',
-        maxImportance: body.maxImportance || '',
-        limit: Math.min(10000, Math.max(1000, Number(body.candidateLimit || process.env.MEMORY_SEARCH_CANDIDATE_LIMIT || 6000) || 6000))
+        maxImportance: body.maxImportance || ''
+      };
+      const fallbackCandidateLimit = Math.min(
+        10000,
+        Math.max(1000, Number(body.candidateLimit || process.env.MEMORY_SEARCH_CANDIDATE_LIMIT || 6000) || 6000)
+      );
+      const ftsCandidateLimit = clampNumber(
+        body.ftsCandidateLimit || process.env.MEMORY_FTS_CANDIDATE_LIMIT || Math.max(safeLimit * 20, 200),
+        safeLimit,
+        2000,
+        Math.max(safeLimit * 20, 200)
+      );
+      const ftsResult = searchMemoriesFts(debugQueries, {
+        ...memoryFilters,
+        limit: ftsCandidateLimit
       });
+      const ftsMeta = {
+        available: ftsResult.available,
+        attempted: ftsResult.attempted,
+        returned: ftsResult.memories.length,
+        fallback: ftsResult.fallback,
+        tokenizer: getMemoryFtsStatus({ integrityCheck: false }).tokenizer,
+        error: ftsResult.error || null
+      };
+
+      // FTS5 searches the whole SQLite store. The most recent N rows are retained
+      // only as a compatibility fallback when FTS5 is unavailable or the query is
+      // too short to produce a useful indexed term.
+      const usedFtsCandidates = ftsResult.memories.length > 0;
+      let memories = ftsResult.memories.length
+        ? ftsResult.memories
+        : listMemories({ ...memoryFilters, limit: fallbackCandidateLimit });
 
       const embeddingConfig = {
         endpoint: body.embeddingEndpoint || process.env.EMBEDDING_ENDPOINT || '',
@@ -3764,12 +3839,12 @@ const server = http.createServer(async (req, res) => {
               nResults: chromaNResults
             });
 
-            const candidateById = new Map(
-              memories.map(memory => [String(memory.id), memory])
-            );
-
             const ids = chromaResult?.ids?.[0] || [];
             const distances = chromaResult?.distances?.[0] || [];
+            const fullStoreCandidates = getMemoriesByIds(ids, memoryFilters);
+            const candidateById = new Map(
+              fullStoreCandidates.map(memory => [String(memory.id), memory])
+            );
             const chromaMemories = [];
             const seen = new Set();
 
@@ -3824,6 +3899,7 @@ const server = http.createServer(async (req, res) => {
                     returned: ids.length,
                     matchedCandidates: chromaMemories.length
                   },
+                  fts: ftsMeta,
                   memories: chromaMemories
                 };
 
@@ -3839,6 +3915,7 @@ const server = http.createServer(async (req, res) => {
                     candidateLimit: memories.length,
                     resultCount: chromaMemories.length,
                     chroma: responsePayload.chroma,
+                    fts: responsePayload.fts,
                     results: chromaMemories
                   });
                 }
@@ -3897,6 +3974,9 @@ const server = http.createServer(async (req, res) => {
 
             const ids = chromaResult?.ids?.[0] || [];
             chromaHybridMeta.returned = ids.length;
+            const chromaCandidateById = new Map(
+              getMemoriesByIds(ids, memoryFilters).map(memory => [String(memory.id), memory])
+            );
 
             const existingIds = new Set(memories.map(memory => String(memory.id)));
             const addedMemories = [];
@@ -3934,7 +4014,7 @@ const server = http.createServer(async (req, res) => {
                 continue;
               }
 
-              const memory = getMemoryById(memoryId);
+              const memory = chromaCandidateById.get(memoryId);
               if (!matchesFilters(memory)) continue;
 
               existingIds.add(memoryId);
@@ -3963,15 +4043,28 @@ const server = http.createServer(async (req, res) => {
         scoreWeights: body.scoreWeights || body.weights || {}
       });
 
+      let searchMode = '';
+      if (preferHybrid && chromaAttempted && !chromaHybridMeta?.fallback) {
+        searchMode = usedFtsCandidates ? 'chroma-fts5-rerank' : 'chroma-hybrid-rerank';
+      } else if (chromaAttempted) {
+        searchMode = usedFtsCandidates ? 'fts5-fallback-after-chroma' : 'sqlite-fallback-after-chroma';
+      } else if (usedFtsCandidates) {
+        searchMode = embeddingConfig.endpoint && embeddingConfig.apiKey
+          ? 'fts5-semantic-rerank'
+          : 'fts5-keyword-rerank';
+      } else {
+        searchMode = embeddingConfig.endpoint && embeddingConfig.apiKey
+          ? 'semantic-hybrid-fallback'
+          : 'keyword-fallback';
+      }
+
       const responsePayload = {
         ok: true,
         query: q,
         debugQueries,
         cleanedQueries: debugQueries.slice(1),
         count: results.length,
-        searchMode: preferHybrid
-          ? (chromaAttempted ? 'chroma-hybrid-rerank' : (embeddingConfig.endpoint && embeddingConfig.apiKey ? 'semantic-hybrid' : 'keyword-fallback'))
-          : (chromaAttempted ? 'sqlite-fallback-after-chroma' : (embeddingConfig.endpoint && embeddingConfig.apiKey ? 'semantic-hybrid' : 'keyword-fallback')),
+        searchMode,
         chroma: chromaHybridMeta || (chromaAttempted ? {
           attempted: true,
           fallback: true,
@@ -3979,6 +4072,7 @@ const server = http.createServer(async (req, res) => {
         } : {
           attempted: false
         }),
+        fts: ftsMeta,
         memories: results
       };
 
@@ -3994,6 +4088,7 @@ const server = http.createServer(async (req, res) => {
           candidateLimit: memories.length,
           resultCount: results.length,
           chroma: responsePayload.chroma,
+          fts: responsePayload.fts,
           results
         });
       }
