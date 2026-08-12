@@ -346,19 +346,33 @@ class VariableMemoryManager {
     }
   }
 
-  async saveFragmentToExternalServer(chat, fragment) {
+  async saveFragmentToExternalServer(chat, fragment, options = {}) {
     if (!this.isExternalMemoryEnabled(chat)) return null;
 
     try {
+      const temporaryEmbedding = Array.isArray(options.embedding) && options.embedding.length > 0
+        ? options.embedding
+        : null;
       console.log('[debug save external]', {
         id: fragment.id,
-        embedding: Array.isArray(fragment.embedding) ? fragment.embedding.length : fragment.embedding,
-        model: fragment.embeddingModel,
-        dim: fragment.embeddingDim
+        embedding: temporaryEmbedding ? temporaryEmbedding.length : null,
+        model: options.embeddingModel || fragment.embeddingModel,
+        dim: temporaryEmbedding ? temporaryEmbedding.length : fragment.embeddingDim
       });
-      
+
+      const { embedding: discardedEmbedding, ...fragmentWithoutEmbedding } = fragment;
+      delete fragment.embedding;
       const saveFragment = {
-        ...fragment
+        ...fragmentWithoutEmbedding,
+        embedding: temporaryEmbedding,
+        clearEmbedding: options.clearEmbedding === true,
+        embeddingModel: temporaryEmbedding
+          ? String(options.embeddingModel || this.getCurrentEmbeddingModel(chat) || '')
+          : String(fragment.embeddingModel || ''),
+        embeddingDim: temporaryEmbedding ? temporaryEmbedding.length : Number(fragment.embeddingDim || 0),
+        embeddingUpdatedAt: temporaryEmbedding
+          ? String(options.embeddingUpdatedAt || Date.now())
+          : String(fragment.embeddingUpdatedAt || '')
       };
 
       const result = await this.externalMemoryRequest(chat, '/memory/add', {
@@ -370,7 +384,6 @@ class VariableMemoryManager {
         const saved = result.memory || {};
         const hasEmbedding = saved.hasEmbedding === true || saved._hasEmbedding === true;
 
-        fragment.embedding = null;
         fragment.hasEmbedding = hasEmbedding;
         fragment._hasEmbedding = hasEmbedding;
         fragment._embeddingDim = Number(saved._embeddingDim || saved.embeddingDim || fragment.embeddingDim || 0);
@@ -454,7 +467,7 @@ class VariableMemoryManager {
     const vm = this.getVariableMemory(chat);
     const id = 'mem_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
 
-    const embedding = Array.isArray(data.embedding) && data.embedding.length > 0
+    const temporaryEmbedding = Array.isArray(data.embedding) && data.embedding.length > 0
       ? data.embedding
       : null;
 
@@ -470,10 +483,11 @@ class VariableMemoryManager {
       memoryTime: data.memoryTime || Date.now(), // 发生时间（可自由修改）
       lastRecalled: 0,
       recallCount: 0,
-      embedding,
-      embeddingModel: embedding ? this.getCurrentEmbeddingModel(chat) : '',
-      embeddingDim: embedding ? embedding.length : 0,
-      embeddingUpdatedAt: embedding ? Date.now() : '',
+      hasEmbedding: false,
+      _hasEmbedding: false,
+      embeddingModel: '',
+      embeddingDim: 0,
+      embeddingUpdatedAt: '',
       linkedMemories: data.linkedMemories || [],
       source: data.source || 'auto',
       context: data.context || ''
@@ -482,7 +496,11 @@ class VariableMemoryManager {
     vm.fragments.push(fragment);
 
     if (this.isExternalMemoryEnabled(chat)) {
-      this.saveFragmentToExternalServer(chat, fragment);
+      this.saveFragmentToExternalServer(chat, fragment, {
+        embedding: temporaryEmbedding,
+        embeddingModel: temporaryEmbedding ? this.getCurrentEmbeddingModel(chat) : '',
+        embeddingUpdatedAt: temporaryEmbedding ? Date.now() : ''
+      });
     }
 
     vm.stats.totalFragments = vm.fragments.length;
@@ -517,38 +535,42 @@ class VariableMemoryManager {
     }
 
     if (contentChanged) {
-      frag.embedding = null;
+      delete frag.embedding;
+      frag.hasEmbedding = false;
+      frag._hasEmbedding = false;
       frag.embeddingModel = '';
       frag.embeddingDim = 0;
       frag.embeddingUpdatedAt = '';
 
+      let temporaryEmbedding = null;
+
       try {
-        const embedding = await this.getEmbedding(frag.content, chat);
+        temporaryEmbedding = await this.getEmbedding(frag.content, chat);
 
-        if (Array.isArray(embedding) && embedding.length > 0) {
-          frag.embedding = embedding;
-          frag.embeddingModel = this.getCurrentEmbeddingModel(chat);
-          frag.embeddingDim = embedding.length;
-          frag.embeddingUpdatedAt = Date.now();
-
-          console.log('[变量记忆] 编辑后已重新生成 embedding:', frag.id, 'dim=', embedding.length);
+        if (Array.isArray(temporaryEmbedding) && temporaryEmbedding.length > 0) {
+          console.log('[变量记忆] 编辑后已重新生成临时 embedding:', frag.id, 'dim=', temporaryEmbedding.length);
         } else {
+          temporaryEmbedding = null;
           console.warn('[变量记忆] 编辑后未能生成 embedding，继续保存为 BM25:', frag.id);
         }
       } catch (error) {
         console.warn('[变量记忆] 编辑后重新生成 embedding 失败:', error.message);
-        frag.embedding = null;
-        frag.embeddingModel = '';
-        frag.embeddingDim = 0;
-        frag.embeddingUpdatedAt = '';
+        temporaryEmbedding = null;
       }
+
+      if (this.isExternalMemoryEnabled(chat)) {
+        await this.saveFragmentToExternalServer(chat, frag, {
+          embedding: temporaryEmbedding,
+          clearEmbedding: !temporaryEmbedding,
+          embeddingModel: temporaryEmbedding ? this.getCurrentEmbeddingModel(chat) : '',
+          embeddingUpdatedAt: temporaryEmbedding ? Date.now() : ''
+        });
+      }
+    } else if (this.isExternalMemoryEnabled(chat)) {
+      await this.saveFragmentToExternalServer(chat, frag);
     }
 
     vm.stats.lastUpdated = Date.now();
-
-    if (this.isExternalMemoryEnabled(chat)) {
-      this.saveFragmentToExternalServer(chat, frag);
-    }
 
     return true;
   }
@@ -794,23 +816,25 @@ class VariableMemoryManager {
 
           if (Array.isArray(embedding) && embedding.length > 0) {
 
-            const saveFrag = {
-              ...frag,
-              embedding,
-              embeddingModel: this.getCurrentEmbeddingModel(chat),
-              embeddingDim: embedding.length,
-              embeddingUpdatedAt: Date.now()
-            };
+            const embeddingModel = this.getCurrentEmbeddingModel(chat);
+            const embeddingUpdatedAt = Date.now();
+            let savedResult = null;
 
             if (this.isExternalMemoryEnabled(chat)) {
-              await this.saveFragmentToExternalServer(chat, saveFrag);
+              savedResult = await this.saveFragmentToExternalServer(chat, frag, {
+                embedding,
+                embeddingModel,
+                embeddingUpdatedAt
+              });
             }
 
-            // 前端只保留元信息
-            frag.embedding = null;
-            frag.embeddingModel = saveFrag.embeddingModel;
-            frag.embeddingDim = saveFrag.embeddingDim;
-            frag.embeddingUpdatedAt = saveFrag.embeddingUpdatedAt;
+            // 临时向量绝不进入前端记忆对象；只有服务器确认后才算成功。
+            delete frag.embedding;
+
+            if (!savedResult?.ok || !this.hasFragmentEmbedding(frag)) {
+              console.warn('[变量记忆] 服务器未确认向量写入，继续保留为 BM25:', frag.id);
+              continue;
+            }
 
             count++;
 
@@ -1426,16 +1450,11 @@ ${output}`;
     return newIds;
   }
 
-  // 统一判断是否已向量化：只看后端确认的 hasEmbedding/_hasEmbedding，
-  // 或实际存在的 embedding 数组；不再用 embeddingModel/embeddingDim 作为依据
+  // 统一判断是否已向量化：只看后端确认的状态，不依赖或保存真实向量数组。
   hasFragmentEmbedding(frag) {
     if (!frag) return false;
 
     if (frag.hasEmbedding === true || frag._hasEmbedding === true) {
-      return true;
-    }
-
-    if (Array.isArray(frag.embedding) && frag.embedding.length > 0) {
       return true;
     }
 

@@ -3623,7 +3623,32 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/memory/add' && req.method === 'POST') {
     try {
       const body = await readRequestBody(req);
-      const memory = normalizeMemoryFragment(body);
+      let memory = normalizeMemoryFragment(body);
+      const existingMemory = memory.id ? getMemoryById(memory.id) : null;
+      const receivedEmbedding = Array.isArray(memory.embedding) && memory.embedding.length > 0;
+      const clearEmbedding = body.clearEmbedding === true;
+
+      // Metadata-only edits must not erase the server-side vector merely because
+      // the browser intentionally does not keep a copy of the 4096d array.
+      if (existingMemory && !receivedEmbedding && !clearEmbedding) {
+        memory = {
+          ...memory,
+          embedding: existingMemory.embedding,
+          embeddingModel: existingMemory.embeddingModel,
+          embeddingDim: existingMemory.embeddingDim,
+          embeddingUpdatedAt: existingMemory.embeddingUpdatedAt
+        };
+      }
+
+      if (clearEmbedding) {
+        memory = {
+          ...memory,
+          embedding: null,
+          embeddingModel: '',
+          embeddingDim: 0,
+          embeddingUpdatedAt: ''
+        };
+      }
 
       await backupSqliteDb();
 
@@ -3632,7 +3657,11 @@ const server = http.createServer(async (req, res) => {
         updatedAt: now()
       });
 
-      await tryUpsertMemoryToChroma(savedMemory);
+      if (Array.isArray(savedMemory.embedding) && savedMemory.embedding.length > 0) {
+        await tryUpsertMemoryToChroma(savedMemory);
+      } else if (existingMemory?.embedding) {
+        await tryDeleteMemoryFromChroma(savedMemory.id);
+      }
 
       const hasEmbedding =
         Array.isArray(savedMemory?.embedding) && savedMemory.embedding.length > 0;

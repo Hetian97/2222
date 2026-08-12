@@ -85,6 +85,43 @@ async function main() {
   assert(recalled.some(result => result.fragment.id === 'dynamic'));
   assert(!recalled.some(result => result.fragment.category === 'C'));
 
+  let sentBody = null;
+  chat.variableMemory.settings.externalMemoryEnabled = true;
+  manager.getCurrentEmbeddingModel = () => 'test-model';
+  manager.externalMemoryRequest = async (_chat, _path, options) => {
+    sentBody = options.body;
+    return {
+      ok: true,
+      memory: {
+        id: options.body.id,
+        hasEmbedding: true,
+        _hasEmbedding: true,
+        embeddingModel: 'test-model',
+        embeddingDim: 4,
+        _embeddingDim: 4,
+        embeddingUpdatedAt: 987654321
+      }
+    };
+  };
+
+  const createdId = manager.createFragment(chat, {
+    content: '临时向量不得写入前端对象',
+    category: 'E',
+    embedding: [0.1, 0.2, 0.3, 0.4]
+  });
+  const created = manager.getFragment(chat, createdId);
+  assert.equal(Object.prototype.hasOwnProperty.call(created, 'embedding'), false);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(sentBody.embedding, [0.1, 0.2, 0.3, 0.4]);
+  assert.equal(Object.prototype.hasOwnProperty.call(created, 'embedding'), false);
+  assert.equal(created.hasEmbedding, true);
+  assert.equal(created.embeddingDim, 4);
+
+  manager.getEmbedding = async () => [0.5, 0.6, 0.7, 0.8];
+  await manager.editFragment(chat, createdId, { content: '编辑后的正文仍不保存前端向量' });
+  assert.equal(Object.prototype.hasOwnProperty.call(created, 'embedding'), false);
+  assert.equal(created.hasEmbedding, true);
+
   console.log('Vector memory UI tests passed');
 }
 

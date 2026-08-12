@@ -153,6 +153,39 @@ async function main() {
     assert.equal(repeatedCommit.body.alreadyCommitted, true);
     assert.equal(repeatedCommit.body.recallUpdates[0].recallCount, 1);
 
+    const vectorCreate = await request('POST', '/memory/add', {
+      id: 'metadata_edit_vector',
+      chatId: 'chat-1',
+      content: '带有服务端向量的记忆',
+      category: 'E',
+      embedding: [0.1, 0.2, 0.3],
+      embeddingModel: 'test-model',
+      embeddingDim: 3
+    });
+    assert.equal(vectorCreate.body.memory.hasEmbedding, true);
+    assert.equal(Object.prototype.hasOwnProperty.call(vectorCreate.body.memory, 'embedding'), false);
+
+    const metadataOnlyEdit = await request('POST', '/memory/add', {
+      id: 'metadata_edit_vector',
+      chatId: 'chat-1',
+      content: '带有服务端向量的记忆',
+      category: 'R',
+      tags: ['仅修改分类和标签']
+    });
+    assert.equal(metadataOnlyEdit.body.memory.hasEmbedding, true);
+    assert.equal(metadataOnlyEdit.body.memory.embeddingDim, 3);
+    assert.equal(Object.prototype.hasOwnProperty.call(metadataOnlyEdit.body.memory, 'embedding'), false);
+
+    const clearVector = await request('POST', '/memory/add', {
+      id: 'metadata_edit_vector',
+      chatId: 'chat-1',
+      content: '正文改变但向量化失败',
+      category: 'R',
+      clearEmbedding: true
+    });
+    assert.equal(clearVector.body.memory.hasEmbedding, false);
+    assert.equal(clearVector.body.memory.embeddingDim, 0);
+
     const rebuild = await request('POST', '/memory/fts/rebuild');
     assert.equal(rebuild.status, 200);
     assert.equal(rebuild.body.fts.integrity, 'ok');
