@@ -3955,6 +3955,15 @@ const server = http.createServer(async (req, res) => {
         ...memoryFilters,
         limit: ftsCandidateLimit
       });
+      // Shadow gets a small, independent full-store FTS lane driven only by the
+      // latest user message. It cannot alter live Top-N; it merely prevents precise
+      // current-intent candidates from disappearing before the policy can judge them.
+      const shadowPrimaryQuery = String(body.shadowPrimaryQuery || q).trim();
+      const precisionFtsResult = searchMemoriesFts([shadowPrimaryQuery], {
+        ...memoryFilters,
+        limit: Math.min(40, Math.max(12, safeLimit * 2))
+      });
+      const precisionFtsIds = new Set(precisionFtsResult.memories.map(memory => String(memory.id)));
       const ftsMeta = {
         available: ftsResult.available,
         attempted: ftsResult.attempted,
@@ -4232,18 +4241,41 @@ const server = http.createServer(async (req, res) => {
         200,
         Math.max(safeLimit * 5, 60)
       );
-      const rankedCandidates = await simpleSearch(memories, q, shadowCandidateLimit, {
+      const extendedRankLimit = Math.min(200, Math.max(shadowCandidateLimit, shadowCandidateLimit + precisionFtsIds.size));
+      const rankedCandidatesExtended = await simpleSearch(memories, q, extendedRankLimit, {
         embedding: embeddingConfig,
         queryVariants: debugQueries.slice(1),
         participantNames: body.participantNames || [],
         scoreWeights: body.scoreWeights || body.weights || {}
       });
+      const rankedCandidates = rankedCandidatesExtended.slice(0, shadowCandidateLimit);
+      const shadowCandidateById = new Map(rankedCandidates.map(memory => [String(memory.id), memory]));
+      const precisionRankedCandidates = await simpleSearch(
+        precisionFtsResult.memories,
+        shadowPrimaryQuery,
+        precisionFtsResult.memories.length || 1,
+        {
+          embedding: embeddingConfig,
+          participantNames: body.participantNames || [],
+          scoreWeights: body.scoreWeights || body.weights || {}
+        }
+      );
+      for (const memory of precisionRankedCandidates) {
+        const id = String(memory.id);
+        if (!shadowCandidateById.has(id)) {
+          shadowCandidateById.set(id, { ...memory, _shadowPrecisionCandidate: true });
+        }
+      }
+      for (const memory of rankedCandidates) {
+        if (precisionFtsIds.has(String(memory.id))) memory._shadowPrecisionCandidate = true;
+      }
+      const shadowCandidates = [...shadowCandidateById.values()].slice(0, 200);
       // Shadow mode observes a wider ranked pool, but the live response remains the
       // exact same top-N slice as before stage 3.
       const results = rankedCandidates.slice(0, safeLimit);
-      const shadowPolicy = runRecallShadowPolicy(rankedCandidates, {
+      const shadowPolicy = runRecallShadowPolicy(shadowCandidates, {
         targetLimit: safeLimit,
-        candidateLimit: shadowCandidateLimit,
+        candidateLimit: shadowCandidates.length,
         query: q,
         primaryQuery: body.shadowPrimaryQuery || q,
         contextQueries: body.shadowContextQueries || debugQueries.slice(1)

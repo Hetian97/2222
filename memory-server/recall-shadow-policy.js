@@ -43,6 +43,27 @@ function lexicalTokens(value) {
   return tokens;
 }
 
+function longestCjkOverlap(leftValue, rightValue) {
+  const leftRuns = String(leftValue || '').normalize('NFKC').toLowerCase().match(/[\u3400-\u9fff]+/g) || [];
+  const right = normalizeText(rightValue);
+  let longest = 0;
+  for (const run of leftRuns) {
+    const maximum = Math.min(12, run.length);
+    for (let size = maximum; size >= 2 && size > longest; size--) {
+      let matched = false;
+      for (let index = 0; index <= run.length - size; index++) {
+        if (right.includes(run.slice(index, index + size))) {
+          longest = size;
+          matched = true;
+          break;
+        }
+      }
+      if (matched) break;
+    }
+  }
+  return longest;
+}
+
 function parseTags(value) {
   if (Array.isArray(value)) return value;
   if (typeof value !== 'string') return [];
@@ -172,6 +193,21 @@ function buildShadowEvidence(candidates, options = {}) {
       keyword = Math.max(keyword, Math.sqrt(coverage) * coverage);
     }
 
+    const searchableText = [memory.content, memory.context, ...parseTags(memory.tags)].filter(Boolean).join(' ');
+    const longestPhraseOverlap = segments.reduce(
+      (maximum, segment) => Math.max(maximum, longestCjkOverlap(segment, searchableText)),
+      0
+    );
+    // A lone two-character overlap is often conversational glue rather than evidence.
+    // Cap it generically; longer contiguous phrases, identifiers and exact tags can still pass.
+    if (longestPhraseOverlap < 3 && !/[a-z][a-z0-9_.:/-]{2,}/iu.test(primaryQuery)) {
+      keyword = Math.min(keyword, 0.28);
+    } else if (longestPhraseOverlap === 3) {
+      keyword = Math.min(keyword, 0.62);
+    } else if (longestPhraseOverlap === 4) {
+      keyword = Math.min(keyword, 0.78);
+    }
+
     let anchor = 0;
     let anchorTerm = '';
     const normalizedSegments = segments.map(normalizeText);
@@ -191,8 +227,8 @@ function buildShadowEvidence(candidates, options = {}) {
 
     const category = String(memory.category || '').toUpperCase();
     const hasExplicitFact = /(?:\d{1,4}(?:[-/.年月日号时点]|$)|[a-z][a-z0-9_.:/-]{2,})/iu.test(String(memory.content || ''));
-    const protectedEvidence = (keyword >= 0.42 || anchor >= 0.58) && (
-      hasExplicitFact || category === 'P' || category === 'T'
+    const protectedEvidence = anchor >= 0.58 || (
+      keyword >= 0.58 && (hasExplicitFact || category === 'P' || category === 'T' || longestPhraseOverlap >= 5)
     );
 
     const normalizedTags = parseTags(memory.tags).map(normalizeText).filter(Boolean);
@@ -220,6 +256,7 @@ function buildShadowEvidence(candidates, options = {}) {
       keyword: clamp01(keyword),
       anchor: clamp01(anchor),
       anchorTerm,
+      longestPhraseOverlap,
       protectedEvidence,
       bestFacetId: bestFacet.id,
       bestFacetScore: bestFacet.score,
@@ -376,6 +413,7 @@ function runRecallShadowPolicy(candidates, options = {}) {
   const decisions = safeCandidates.map((memory, index) => ({
     memory,
     ...evaluateAdmission(memory, calibratedEvidence[index]),
+    precisionCandidate: Boolean(memory?._shadowPrecisionCandidate),
     calibratedAnchorTerm: calibratedEvidence[index]?.anchorTerm || '',
     bestFacetId: calibratedEvidence[index]?.bestFacetId || '',
     bestFacetScore: Number((calibratedEvidence[index]?.bestFacetScore || 0).toFixed(6)),
@@ -405,6 +443,23 @@ function runRecallShadowPolicy(candidates, options = {}) {
     const category = String(decision.category || 'E').toUpperCase();
     categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
   };
+
+  // Candidate generation may explicitly reserve exact full-store FTS hits for Shadow.
+  // They still need admission evidence; this only prevents an admitted precise hit from
+  // being crowded out by the mixed-rank top 60 before diversity selection runs.
+  for (const decision of admitted.filter(item => item.precisionCandidate && item.signals.protectedEvidence > 0)) {
+    if (selected.length >= targetLimit) break;
+    const maxSimilarity = selected.reduce((maximum, selectedDecision) => Math.max(
+      maximum,
+      memorySimilarity(decision.memory, selectedDecision.memory)
+    ), 0);
+    if (maxSimilarity >= duplicateThreshold) continue;
+    selectDecision(decision, {
+      finalReason: 'selected_for_precision_evidence',
+      mmrScore: decision.admissionScore,
+      maxSimilarity
+    });
+  }
 
   const facetIds = [...new Set(decisions.flatMap(decision => decision.facetScores.map(facet => facet.id)))];
   for (const facetId of facetIds) {
@@ -515,7 +570,7 @@ function runRecallShadowPolicy(candidates, options = {}) {
 
   return {
     mode: 'shadow',
-    version: 'stage3-shadow-v1.3',
+    version: 'stage3-shadow-v1.4',
     behaviorChanged: false,
     evidenceMode: 'primary-intent-context-reference',
     primaryQuery: calibratedEvidence.primaryQuery || '',
@@ -525,6 +580,8 @@ function runRecallShadowPolicy(candidates, options = {}) {
     topicFacetSelectedCount: compactDecisions.filter(decision => decision.reservedForFacet).length,
     categoryQuotaMode: 'soft-penalty',
     candidateCount: safeCandidates.length,
+    precisionCandidateCount: compactDecisions.filter(decision => decision.precisionCandidate).length,
+    precisionSelectedCount: compactDecisions.filter(decision => decision.finalReason === 'selected_for_precision_evidence').length,
     admittedCount: compactDecisions.filter(decision => decision.admitted).length,
     rejectedCount: compactDecisions.filter(decision => !decision.admitted).length,
     selectedCount: selected.length,

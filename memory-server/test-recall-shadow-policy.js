@@ -237,6 +237,35 @@ const zeroRecall = runRecallShadowPolicy([
 assert.equal(zeroRecall.zeroRecall, true);
 assert.equal(zeroRecall.selectedCount, 0);
 
+const precisionProtection = runRecallShadowPolicy([
+  memory('precise-object', {
+    content: '她嫌我买回来的紫檀书签尺寸太大，应该换成窄一些的款式',
+    tags: ['紫檀书签', '尺寸不合'],
+    _vectorScore: 0.55,
+    _shadowPrecisionCandidate: true
+  }),
+  memory('generic-anxiety', {
+    content: '她心虚地期待到时候再告诉我',
+    tags: ['心虚', '期待'],
+    importance: 9,
+    emotionalWeight: 9,
+    _vectorScore: 0.69
+  })
+], {
+  query: '那个东西到时候怎么办，我有点心虚',
+  primaryQuery: '紫檀书签买得太大，应该怎么办',
+  targetLimit: 3
+});
+assert.equal(precisionProtection.version, 'stage3-shadow-v1.4');
+assert(precisionProtection.selectedMemoryIds.includes('precise-object'));
+assert.equal(
+  precisionProtection.decisions.find(decision => decision.id === 'precise-object').finalReason,
+  'selected_for_precision_evidence'
+);
+assert(!precisionProtection.selectedMemoryIds.includes('generic-anxiety'));
+assert.equal(precisionProtection.precisionCandidateCount, 1);
+assert.equal(precisionProtection.precisionSelectedCount, 1);
+
 const excludesCore = runRecallShadowPolicy([
   memory('core', { category: 'C', _vectorScore: 1 }),
   memory('event', { category: 'E', _vectorScore: 0.9 })

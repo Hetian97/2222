@@ -168,7 +168,7 @@ async function main() {
     assert(search.body.memories.some(memory => memory.id === 'very_old_beijing_trip'));
     assert(!search.body.memories.some(memory => memory.category === 'C'));
     assert.equal(search.body.shadowPolicy.mode, 'shadow');
-    assert.equal(search.body.shadowPolicy.version, 'stage3-shadow-v1.3');
+    assert.equal(search.body.shadowPolicy.version, 'stage3-shadow-v1.4');
     assert.equal(search.body.shadowPolicy.behaviorChanged, false);
     assert.equal(search.body.shadowPolicy.primaryQuery, '二十号出发');
     assert.equal(search.body.shadowPolicy.evidenceMode, 'primary-intent-context-reference');
@@ -189,7 +189,7 @@ async function main() {
 
     const persistedShadow = await request('GET', '/memory/search/last');
     assert.equal(persistedShadow.body.lastSearch.shadowPolicy.mode, 'shadow');
-    assert.equal(persistedShadow.body.lastSearch.shadowPolicy.version, 'stage3-shadow-v1.3');
+    assert.equal(persistedShadow.body.lastSearch.shadowPolicy.version, 'stage3-shadow-v1.4');
     assert.equal(persistedShadow.body.lastSearch.shadowPolicy.behaviorChanged, false);
     assert.equal(persistedShadow.body.lastSearch.turnId, 'turn-stage3-lifecycle');
     assert.equal(persistedShadow.body.lastSearch.attemptId, 'attempt-stage3-success');
