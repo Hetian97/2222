@@ -101,9 +101,9 @@ const quotaPolicy = runRecallShadowPolicy([
   })),
   memory('plan', { category: 'P', content: '北京行程计划', tags: ['北京行程'], _vectorScore: 0.79 })
 ], { targetLimit: 6, categoryQuotas: { E: 2 }, query: '回忆这些事情和北京行程' });
-assert(quotaPolicy.categoryCounts.E > 2);
+assert((quotaPolicy.categoryCounts.E || 0) > 0);
 assert(quotaPolicy.selectedMemoryIds.includes('plan'));
-assert(quotaPolicy.decisions.some(decision => Number(decision.softQuotaPenalty || 0) > 0));
+assert(quotaPolicy.selectedCount < 6 || quotaPolicy.decisions.some(decision => Number(decision.softQuotaPenalty || 0) > 0));
 assert(!quotaPolicy.decisions.some(decision => decision.finalReason === 'category_quota'));
 
 const saturatedLegacyScores = runRecallShadowPolicy([
@@ -178,12 +178,54 @@ const dualTopic = runRecallShadowPolicy([
   }))
 ], {
   query: '我看到那篇讨论真心的漂流瓶审核帖子时，小腹仍然一阵阵抽痛。',
+  primaryQuery: 'Galatea Garden 漂流瓶审核帖子；生理期小腹抽痛',
   queryVariants: ['Galatea Garden 漂流瓶审核帖子', '屈起膝盖缓解小腹抽痛'],
   targetLimit: 5
 });
 assert(dualTopic.selectedMemoryIds.includes('bottle-post'));
 assert(dualTopic.selectedMemoryIds.includes('period-pain'));
 assert(dualTopic.topicFacetSelectedCount >= 2);
+
+const primaryIntentOnly = runRecallShadowPolicy([
+  memory('room-id', {
+    content: '在 AISay 聊天室海棠树下使用 room_id 进入房间',
+    tags: ['AISay', '海棠树下聊天室', 'room_id'],
+    _vectorScore: 0.78
+  }),
+  memory('literal-tree', {
+    content: '在真实的海棠树下乘凉休息',
+    tags: ['海棠树'],
+    _vectorScore: 0.81
+  }),
+  memory('old-period', {
+    content: '以前生理期腹痛时使用热水袋',
+    tags: ['生理期', '腹痛'],
+    _vectorScore: 0.75
+  })
+], {
+  query: '以前肚子疼。现在我要搜索海棠树下聊天室的 room_id',
+  primaryQuery: '现在我要搜索海棠树下聊天室的 room_id',
+  contextQueries: ['以前肚子疼'],
+  targetLimit: 5
+});
+assert(primaryIntentOnly.selectedMemoryIds.includes('room-id'));
+assert(!primaryIntentOnly.topicFacets.some(facet => facet.text.includes('肚子疼')));
+assert.equal(primaryIntentOnly.primaryQuery, '现在我要搜索海棠树下聊天室的 room_id');
+assert.equal(primaryIntentOnly.contextReferenceCount, 1);
+assert.equal(primaryIntentOnly.decisions.find(decision => decision.id === 'room-id').finalReason, 'selected_for_topic_facet');
+assert.notEqual(primaryIntentOnly.decisions.find(decision => decision.id === 'literal-tree').finalReason, 'selected_for_topic_facet');
+
+const sparseRecall = runRecallShadowPolicy([
+  memory('weak-one', { content: '普通爱情告白', tags: ['爱情'], _vectorScore: 0.65 }),
+  memory('weak-two', { content: '午餐奖励甜点', tags: ['奖励'], _vectorScore: 0.64 }),
+  memory('weak-three', { content: '亲密互动后休息', tags: ['亲密'], _vectorScore: 0.63 })
+], {
+  query: '第一次讨论陶艺釉料配方',
+  primaryQuery: '第一次讨论陶艺釉料配方',
+  targetLimit: 12
+});
+assert(sparseRecall.selectedCount < 12);
+assert.equal(sparseRecall.zeroRecall, true);
 
 const semanticOnlyPhysicalFact = dualTopic.decisions.find(decision => decision.id === 'period-pain');
 assert.equal(semanticOnlyPhysicalFact.admitted, true);

@@ -2284,6 +2284,7 @@ ${linkedContents}
     if (!chatId) return;
     const chat = state.chats[chatId];
     if (!chat) return;
+    const memoryActionType = String(responseOptions.memoryActionType || 'reply');
 
       // role reply sanitizer v1: sanitize new assistant replies before saving/rendering.
       function escapeReplySanitizerRegExp(text) {
@@ -3791,7 +3792,10 @@ ${enabledEntries}
               .slice(-userMsgCountOffline)
               .map(getOfflineVectorContent)
               .filter(Boolean);
-            longTermMemoryContextOffline = await window.vectorMemoryManager.serializeForPrompt(chat, queryTextForVectorOffline, userQueryVariantsOffline);
+            longTermMemoryContextOffline = await window.vectorMemoryManager.serializeForPrompt(chat, queryTextForVectorOffline, userQueryVariantsOffline, {
+              primaryQuery: userQueryVariantsOffline.at(-1) || queryTextForVectorOffline,
+              actionType: memoryActionType
+            });
           } else if (memModeOffline === 'structured' && window.structuredMemoryManager) {
             longTermMemoryContextOffline = window.structuredMemoryManager.serializeForPrompt(chat);
           } else {
@@ -4640,7 +4644,10 @@ ${getActiveThoughtsPrompt()}
           const memModeSingle = chat.settings.memoryMode || (chat.settings.enableStructuredMemory ? 'structured' : 'diary');
           if (memModeSingle === 'vector' && window.vectorMemoryManager) {
             const queryTextForVectorSingle = filteredHistory.slice(-5).map(m => typeof m.content === 'string' ? m.content : '').join(' ');
-            resolvedMemoryContextForPrompt = await window.vectorMemoryManager.serializeForPrompt(chat, queryTextForVectorSingle);
+            resolvedMemoryContextForPrompt = await window.vectorMemoryManager.serializeForPrompt(chat, queryTextForVectorSingle, [], {
+              primaryQuery: filteredHistory.filter(message => message.role === 'user').slice(-1)[0]?.content || queryTextForVectorSingle,
+              actionType: memoryActionType
+            });
           } else {
             resolvedMemoryContextForPrompt = getMemoryContextForPrompt(chat);
           }
@@ -8408,7 +8415,7 @@ ${getActiveThoughtsPrompt()}
     await db.chats.put(chat);
     await renderChatInterface(state.activeChatId);
 
-    await triggerAiResponse();
+    await triggerAiResponse('', { memoryActionType: 'regenerate' });
   }
 
   async function handleRegenerateCallResponse() {
@@ -8578,7 +8585,10 @@ ${linkedContents}
           queryText = recentMsgs.map(getMessageContentForVector).filter(Boolean).join(' ');
         }
 
-        memoryContextForPrompt = await window.vectorMemoryManager.serializeForPrompt(chat, queryText, queryVariantsForVector);
+        memoryContextForPrompt = await window.vectorMemoryManager.serializeForPrompt(chat, queryText, queryVariantsForVector, {
+          primaryQuery: queryVariantsForVector.at(-1) || queryText,
+          actionType: 'propel'
+        });
       } else if (memoryMode === 'structured' && window.structuredMemoryManager) {
         memoryContextForPrompt = '# 长期记忆 (必须严格遵守)\n' + window.structuredMemoryManager.serializeForPrompt(chat);
       } else {

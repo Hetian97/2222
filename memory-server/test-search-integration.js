@@ -39,6 +39,15 @@ database.addMemory({
   emotionalWeight: 10,
   memoryTime: 3
 });
+database.addMemory({
+  id: 'arbitrary_phrase_memory',
+  chatId: 'chat-1',
+  category: 'I',
+  content: '她把紫檀书签收进了窗边的蓝色盒子里',
+  tags: [],
+  importance: 5,
+  memoryTime: 4
+});
 
 for (let index = 0; index < 30; index++) {
   database.addMemory({
@@ -117,11 +126,35 @@ async function main() {
     const status = await request('GET', '/memory/fts/status');
     assert.equal(status.status, 200);
     assert.equal(status.body.fts.integrity, 'ok');
-    assert.equal(status.body.fts.totalMemories, 33);
+    assert.equal(status.body.fts.totalMemories, 34);
+
+    const arbitraryPhraseSearch = await request('POST', '/memory/search', {
+      query: '窗边那个紫檀书签放在哪里了',
+      searchEngine: 'sqlite',
+      chatId: 'chat-1',
+      excludeCategories: ['C'],
+      limit: 3
+    });
+    assert.equal(arbitraryPhraseSearch.status, 200);
+    assert.equal(arbitraryPhraseSearch.body.memories[0].id, 'arbitrary_phrase_memory');
+
+    const participantTagSave = await request('POST', '/memory/add', {
+      id: 'participant_tag_filter',
+      chatId: 'chat-1',
+      content: '与乔教授在海棠树下聊天室讨论定位信标',
+      tags: ['夏以昼', '阿鹤', '夏太太', '乔教授', '海棠树下聊天室', '定位信标'],
+      participantNames: ['夏以昼', '阿鹤', '夏太太'],
+      category: 'E'
+    });
+    assert.equal(participantTagSave.status, 200);
+    assert.deepEqual(participantTagSave.body.memory.tags, ['乔教授', '海棠树下聊天室', '定位信标']);
 
     const search = await request('POST', '/memory/search', {
       query: '北京出差',
       queryVariants: ['二十号出发'],
+      shadowPrimaryQuery: '二十号出发',
+      shadowContextQueries: ['北京出差'],
+      actionType: 'reply',
       searchEngine: 'hybrid',
       chatId: 'chat-1',
       excludeCategories: ['C'],
@@ -135,8 +168,10 @@ async function main() {
     assert(search.body.memories.some(memory => memory.id === 'very_old_beijing_trip'));
     assert(!search.body.memories.some(memory => memory.category === 'C'));
     assert.equal(search.body.shadowPolicy.mode, 'shadow');
-    assert.equal(search.body.shadowPolicy.version, 'stage3-shadow-v1.2');
+    assert.equal(search.body.shadowPolicy.version, 'stage3-shadow-v1.3');
     assert.equal(search.body.shadowPolicy.behaviorChanged, false);
+    assert.equal(search.body.shadowPolicy.primaryQuery, '二十号出发');
+    assert.equal(search.body.shadowPolicy.evidenceMode, 'primary-intent-context-reference');
     assert(search.body.shadowPolicy.candidateCount >= search.body.memories.length);
     assert(search.body.memories.some(memory => memory.id === 'beijing_weather_noise'));
 
@@ -154,10 +189,11 @@ async function main() {
 
     const persistedShadow = await request('GET', '/memory/search/last');
     assert.equal(persistedShadow.body.lastSearch.shadowPolicy.mode, 'shadow');
-    assert.equal(persistedShadow.body.lastSearch.shadowPolicy.version, 'stage3-shadow-v1.2');
+    assert.equal(persistedShadow.body.lastSearch.shadowPolicy.version, 'stage3-shadow-v1.3');
     assert.equal(persistedShadow.body.lastSearch.shadowPolicy.behaviorChanged, false);
     assert.equal(persistedShadow.body.lastSearch.turnId, 'turn-stage3-lifecycle');
     assert.equal(persistedShadow.body.lastSearch.attemptId, 'attempt-stage3-success');
+    assert.equal(persistedShadow.body.lastSearch.actionType, 'reply');
     assert(Array.isArray(persistedShadow.body.lastSearch.shadowPolicy.decisions));
     assert(persistedShadow.body.lastSearch.resultsTop.some(item => item.shadow));
     const noiseDecision = persistedShadow.body.lastSearch.shadowPolicy.decisions

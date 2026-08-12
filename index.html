@@ -10055,6 +10055,8 @@
     const shadowReasonLabels = {
       selected_by_shadow: '进入模拟注入集合',
       selected_for_topic_facet: '为明确话题保留',
+      below_selection_floor: '相关性不足，停止继续填充',
+      no_distinct_candidate: '没有更多不重复的相关候选',
       near_duplicate: '与已选记忆近义重复',
       category_quota: '该类型已达到模拟配额',
       shadow_limit: '超过模拟注入数量',
@@ -10090,6 +10092,7 @@
     }
     if (last.turnId) lines.push('- turnId：' + last.turnId);
     if (last.attemptId) lines.push('- attemptId：' + last.attemptId);
+    if (last.actionType) lines.push('- actionType：' + last.actionType);
     if (last.generationCompletedAt) lines.push('- generationCompletedAt：' + new Date(last.generationCompletedAt).toLocaleString());
     if (last.generationError) lines.push('- generationError：' + last.generationError);
 
@@ -10121,6 +10124,11 @@
       if (shadow.version) lines.push('- version：' + shadow.version);
       lines.push('- behaviorChanged：' + String(Boolean(shadow.behaviorChanged)));
       if (shadow.evidenceMode) lines.push('- evidenceMode：' + shadow.evidenceMode);
+      if (shadow.primaryQuery) lines.push('- 当前主查询：' + shadow.primaryQuery);
+      if (typeof shadow.contextReferenceCount !== 'undefined') lines.push('- 指代参考上下文：' + shadow.contextReferenceCount + ' 条');
+      if (Array.isArray(shadow.topicFacets) && shadow.topicFacets.length) {
+        lines.push('- 当前话题分面：' + shadow.topicFacets.map(facet => facet.text || facet.id).join('｜'));
+      }
       if (shadow.categoryQuotaMode) lines.push('- categoryQuotaMode：' + shadow.categoryQuotaMode);
       if (typeof shadow.topicFacetCount !== 'undefined') lines.push('- 识别话题分面：' + shadow.topicFacetCount);
       if (typeof shadow.topicFacetSelectedCount !== 'undefined') lines.push('- 分面保留：' + shadow.topicFacetSelectedCount);
@@ -10128,6 +10136,7 @@
       lines.push('- admitted：' + (shadow.admittedCount ?? 0));
       lines.push('- rejected：' + (shadow.rejectedCount ?? 0));
       lines.push('- shadowSelected：' + (shadow.selectedCount ?? 0));
+      if (shadow.selectionStopReason) lines.push('- 停止继续选择：' + (shadowReasonLabels[shadow.selectionStopReason] || shadow.selectionStopReason));
       lines.push('- zeroRecall：' + String(Boolean(shadow.zeroRecall)));
       if (typeof shadow.legacySaturatedCount !== 'undefined') lines.push('- 旧分数饱和候选：' + shadow.legacySaturatedCount);
       if (typeof shadow.calibratedSaturatedCount !== 'undefined') lines.push('- 校准后饱和候选：' + shadow.calibratedSaturatedCount);

@@ -167,6 +167,7 @@ function updateLastMemorySearchState(info = {}) {
       queryVariants: info.queryVariants || [],
       turnId: info.turnId || '',
       attemptId: info.attemptId || '',
+      actionType: info.actionType || 'reply',
       results,
       resultsTop: lastMemorySearchState.resultsTop
     });
@@ -239,6 +240,9 @@ function normalizeCategory(category) {
 
 function normalizeTags(tags, namesToFilter = []) {
   const categoryLetters = new Set(['U', 'A', 'R', 'E', 'I', 'L', 'P', 'T', 'M', 'C']);
+  const excludedNames = new Set((Array.isArray(namesToFilter) ? namesToFilter : [])
+    .map(name => String(name || '').normalize('NFKC').trim().toLowerCase())
+    .filter(name => name.length >= 2));
 
   if (!Array.isArray(tags)) return [];
 
@@ -248,6 +252,7 @@ function normalizeTags(tags, namesToFilter = []) {
     .map(tag => tag.replace(/^#/, '').trim())
     .filter(Boolean)
     .filter(tag => !categoryLetters.has(tag.toUpperCase()))
+    .filter(tag => !excludedNames.has(tag.normalize('NFKC').toLowerCase()))
     .filter((tag, index, arr) => arr.indexOf(tag) === index)
     .slice(0, 12);
 }
@@ -282,7 +287,7 @@ function normalizeMemoryFragment(body) {
     id: body.id ? String(body.id) : makeId(),
     chatId: body.chatId ? String(body.chatId) : null,
     content,
-    tags: normalizeTags(body.tags),
+    tags: normalizeTags(body.tags, body.participantNames),
     category: normalizeCategory(body.category),
     importance: clampNumber(body.importance, 1, 10, 5),
     emotionalWeight: clampNumber(body.emotionalWeight, 1, 10, 3),
@@ -347,8 +352,7 @@ const GENERIC_MEMORY_SEARCH_TERMS = new Set([
   '这个', '那个', '一下', '一点', '什么', '不是', '没有',
   '今天', '明天', '昨天', '今晚', '早上', '中午', '下午', '晚上',
   '上次', '这次', '那次', '今年', '去年', '明年',
-  '春天', '夏天', '秋天', '冬天', '春夏秋冬',
-  '夏以昼', '阿鹤', '夏太太', '老婆', '老公', '哥哥'
+  '春天', '夏天', '秋天', '冬天', '春夏秋冬'
 ]);
 
 function normalizeExactAnchorTerm(value) {
@@ -384,7 +388,7 @@ function parseMemorySearchTags(value) {
   return [];
 }
 
-function buildExactAnchorTerms(searchQueries, memories = []) {
+function buildExactAnchorTerms(searchQueries, memories = [], excludedTerms = []) {
   const queries = Array.isArray(searchQueries) ? searchQueries : [searchQueries];
   const queryNorm = normalizeExactAnchorTerm(queries.join(' '));
   if (!queryNorm) return [];
@@ -393,9 +397,13 @@ function buildExactAnchorTerms(searchQueries, memories = []) {
   const maxCommonHits = Math.min(120, Math.max(8, Math.ceil(total * 0.08)));
 
   const candidates = new Map();
+  const excluded = new Set((Array.isArray(excludedTerms) ? excludedTerms : [])
+    .map(normalizeExactAnchorTerm)
+    .filter(Boolean));
 
   const addCandidate = (term) => {
     const normalized = normalizeExactAnchorTerm(term);
+    if (excluded.has(normalized)) return;
     if (isGenericMemorySearchTerm(normalized)) return;
     if (normalized.length > 18) return;
     if (!queryNorm.includes(normalized)) return;
@@ -506,7 +514,7 @@ function scoreExactAnchorTerms(anchorTerms, memory) {
   };
 }
 
-function keywordScore(query, memory) {
+function keywordScore(query, memory, excludedTerms = []) {
   const rawQuery = String(query || '');
   const q = rawQuery.toLowerCase();
   if (!q.trim()) return 0;
@@ -524,7 +532,13 @@ function keywordScore(query, memory) {
     return [];
   };
 
-  const tags = parseTags(memory.tags).map(t => String(t || '').trim()).filter(Boolean);
+  const excluded = new Set((Array.isArray(excludedTerms) ? excludedTerms : [])
+    .map(value => String(value || '').normalize('NFKC').trim().toLowerCase())
+    .filter(Boolean));
+  const tags = parseTags(memory.tags)
+    .map(t => String(t || '').trim())
+    .filter(Boolean)
+    .filter(tag => !excluded.has(tag.normalize('NFKC').toLowerCase()));
   const tagText = tags.join(' ');
   const content = String(memory.content || '');
   const context = String(memory.context || '');
@@ -558,16 +572,26 @@ function keywordScore(query, memory) {
     }
   }
 
-  // 中文事实型短语命中
-  const factPhrases = Array.from(new Set(rawQuery.match(/[\u4e00-\u9fffA-Za-z0-9]{2,18}/g) || []))
-    .map(t => t.toLowerCase())
-    .filter(t =>
-      /会议|教授|老师|大学|学院|医院|机场|签证|论文|项目|系统|手术|婚礼|计划|之行|英国|北京|上海|日本/.test(t)
-    );
-
-  for (const phrase of factPhrases) {
-    if (haystack.includes(phrase)) score += 0.22;
+  // 中文连续短语命中：按查询自身与候选正文的重合度判断，不依赖地点、职业或事件词表。
+  // 每个分句只采用最长命中，避免一段长文本因大量重叠 n-gram 重复加分。
+  const chineseRuns = Array.from(new Set(rawQuery.match(/[\u3400-\u9fff]{3,48}/g) || []));
+  let chinesePhraseScore = 0;
+  for (const run of chineseRuns) {
+    let longestMatch = 0;
+    const maximumSize = Math.min(8, run.length);
+    for (let size = maximumSize; size >= 3 && !longestMatch; size--) {
+      for (let index = 0; index <= run.length - size; index++) {
+        if (haystack.includes(run.slice(index, index + size).toLowerCase())) {
+          longestMatch = size;
+          break;
+        }
+      }
+    }
+    if (longestMatch >= 3) {
+      chinesePhraseScore += longestMatch >= 6 ? 0.22 : longestMatch === 5 ? 0.16 : longestMatch === 4 ? 0.12 : 0.08;
+    }
   }
+  score += Math.min(0.35, chinesePhraseScore);
 
   // 原有宽松词面匹配，保留少量普通关键词作用
   const looseTokens = Array.from(new Set(
@@ -700,6 +724,7 @@ function buildRawIngestPrompt({ combinedText, scene, timeRange, source, roleName
 - 同一话题下，如果信息点互相独立且未来可能被分别检索，应拆成多条；如果确实紧密相关，再合并成一条。宁可略多，不要过度合并导致信息丢失。不要把连续动作拆碎，但可以按“信息主题”拆分。
 - 每条记忆围绕一个核心主题，长度50-120字。当同一场景或同一话题中包含2个以上互相独立的信息点（例如：既发生了具体事件，又产生了新的承诺，又暴露了用户的某个偏好），应拆成多条，分别记录。不要为了“凑一条”而把多个独立信息强行打包。
 - 保留关键时间、地点、人物、承诺、关系变化、共同经历（包括普通但有记忆点的日常）和稳定偏好。
+- tags 只写能区分这条记忆的事件、第三方人物、地点、物品、规则或情绪关键词；不要把当前角色名、角色曾用名、用户昵称或双方日常称呼本身作为 tags。
 - 不要把一次性行为改写成“习惯”“总是”“长期如此”“以后都会”等长期模式，除非原文明确表达了持续性。
 - 如果同一主题已有旧记忆，本次对话中出现了旧记忆未包含的新信息（新细节、新情绪、新约定、新进展），则作为一条新的独立记忆补充添加，新旧并存；如果没有新信息，则不新增。旧记忆本身不需要修改或覆盖。
 - E 不是“低价值分类”，也不是“兜底分类”。如果一条记忆的核心是一次具体共同经历，优先归为 E。但注意：同一场景中可能同时产生多个独立信息，这些信息应拆分为多条记忆，分别归入对应分类，而不是全部打包进一条 E。具体分类规则见下方「10大精细分类说明」。
@@ -836,7 +861,7 @@ ${summaryText}
 请直接输出 JSON 数组。如果没有值得记录的内容，输出 []。`;
 }
 
-function parseExtractedMemoryItems(rawText) {
+function parseExtractedMemoryItems(rawText, namesToFilter = []) {
   const jsonMatch = String(rawText || '').match(/\[[\s\S]*\]/);
   if (!jsonMatch) return [];
 
@@ -848,7 +873,7 @@ function parseExtractedMemoryItems(rawText) {
     .map(item => {
       const normalized = {
         content: String(item.content || '').trim(),
-        tags: normalizeTags(item.tags || []),
+        tags: normalizeTags(item.tags || [], namesToFilter),
         category: normalizeCategory(item.category || 'E'),
         importance: clampNumber(item.importance, 1, 10, 5),
         emotionalWeight: clampNumber(item.emotionalWeight, 1, 10, 3)
@@ -1072,7 +1097,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
   const q = String(query || '').trim();
   const safeLimit = clampNumber(limit, 1, 200, 20);
   const searchQueries = buildMemorySearchQueries(q, options.queryVariants || options.cleanedQueries || options.queries || []);
-  const exactAnchorTerms = buildExactAnchorTerms(searchQueries, memories);
+  const exactAnchorTerms = buildExactAnchorTerms(searchQueries, memories, options.participantNames);
 
   const rawWeights = options.scoreWeights || options.weights || {};
   const readWeight = (name, fallback) => {
@@ -1142,7 +1167,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
       let keywordMatchedQuery = '';
 
       for (const searchQuery of keywordQueries) {
-        const currentScore = keywordScore(searchQuery, memory);
+        const currentScore = keywordScore(searchQuery, memory, options.participantNames);
         if (currentScore > textScore) {
           textScore = currentScore;
           keywordMatchedQuery = searchQuery;
@@ -2675,6 +2700,7 @@ async function handleMcpRequest(body) {
         const rankedCandidates = await simpleSearch(memories, args.query || '', shadowCandidateLimit, {
           embedding: embeddingConfig,
           queryVariants: debugQueries.slice(1),
+          participantNames: args.participantNames || [],
           scoreWeights: args.scoreWeights || args.weights || {}
         });
         const results = rankedCandidates.slice(0, safeMcpLimit);
@@ -2682,7 +2708,8 @@ async function handleMcpRequest(body) {
           targetLimit: safeMcpLimit,
           candidateLimit: shadowCandidateLimit,
           query: args.query || '',
-          queryVariants: debugQueries.slice(1)
+          primaryQuery: args.shadowPrimaryQuery || args.query || '',
+          contextQueries: args.shadowContextQueries || debugQueries.slice(1)
         });
 
         const mcpSearchMode = embeddingConfig.endpoint && embeddingConfig.apiKey ? 'semantic-hybrid' : 'keyword-fallback';
@@ -2870,13 +2897,20 @@ async function handleMcpRequest(body) {
         }
 
         let extractedItems = [];
+        const roleName = args.roleName || args.actor || args._actor || '角色';
+        const userName = args.userName || args.userNickname || '她';
+        const participantNames = [...new Set([
+          roleName,
+          userName,
+          ...(Array.isArray(args.participantNames) ? args.participantNames : [])
+        ].filter(Boolean))];
 
         try {
           const prompt = buildSummaryIngestPrompt({
             summaryText,
             source: args.source || 'njj_summary',
-            roleName: args.roleName || args.actor || args._actor || '角色',
-            userName: args.userName || args.userNickname || '她'
+            roleName,
+            userName
           });
 
           const rawExtraction = await createChatCompletion({
@@ -2896,7 +2930,7 @@ async function handleMcpRequest(body) {
             temperature: 0.2
           });
 
-                    extractedItems = parseExtractedMemoryItems(rawExtraction).slice(0, limit);
+          extractedItems = parseExtractedMemoryItems(rawExtraction, participantNames).slice(0, limit);
 
           if (!dryRun && extractedItems.length === 0) {
             console.warn('[mcp] ingest_summary extracted 0 items on write attempt, retry once.');
@@ -2918,7 +2952,7 @@ async function handleMcpRequest(body) {
               temperature: 0.1
             });
 
-            extractedItems = parseExtractedMemoryItems(retryExtraction).slice(0, limit);
+            extractedItems = parseExtractedMemoryItems(retryExtraction, participantNames).slice(0, limit);
           }
         } catch (error) {
           return mcpError(id, -32002, `ingest_summary extraction failed: ${error.message}`);
@@ -2982,6 +3016,7 @@ async function handleMcpRequest(body) {
 
           const memory = normalizeMemoryFragment({
             ...item,
+            participantNames,
             chatId: args.chatId || '',
             source: args.source || 'njj_summary',
             context: 'summary_ingest',
@@ -3070,6 +3105,13 @@ async function handleMcpRequest(body) {
         }
 
         let extractedItems = [];
+        const roleName = args.roleName || args.actor || args._actor || '角色';
+        const userName = args.userName || args.userNickname || '她';
+        const participantNames = [...new Set([
+          roleName,
+          userName,
+          ...(Array.isArray(args.participantNames) ? args.participantNames : [])
+        ].filter(Boolean))];
 
         try {
           const prompt = buildRawIngestPrompt({
@@ -3077,8 +3119,8 @@ async function handleMcpRequest(body) {
             scene: args.scene || '',
             timeRange: args.timeRange || '',
             source: args.source || 'njj',
-            roleName: args.roleName || args.actor || args._actor || '角色',
-            userName: args.userName || args.userNickname || '她'
+            roleName,
+            userName
           });
 
           const rawExtraction = await createChatCompletion({
@@ -3098,7 +3140,7 @@ async function handleMcpRequest(body) {
             temperature: 0.2
           });
 
-          extractedItems = parseExtractedMemoryItems(rawExtraction).slice(0, limit);
+          extractedItems = parseExtractedMemoryItems(rawExtraction, participantNames).slice(0, limit);
 
         } catch (error) {
           return mcpError(id, -32002, `ingest_raw extraction failed: ${error.message}`);
@@ -3164,6 +3206,7 @@ async function handleMcpRequest(body) {
 
           const memory = normalizeMemoryFragment({
             ...item,
+            participantNames,
             chatId: args.chatId || '',
             source: args.source || 'njj_raw',
             context: [
@@ -4001,7 +4044,7 @@ const server = http.createServer(async (req, res) => {
                 ? 1 / (1 + Math.max(0, distance))
                 : 0;
 
-              const textScore = keywordScore(q, memory);
+              const textScore = keywordScore(q, memory, body.participantNames);
               const importanceScore = (Number(memory.importance) || 0) / 10;
               const emotionScore = (Number(memory.emotionalWeight) || 0) / 10;
               const totalScore = vectorScore * 0.82 + textScore * 0.08 + importanceScore * 0.07 + emotionScore * 0.03;
@@ -4027,7 +4070,8 @@ const server = http.createServer(async (req, res) => {
                   targetLimit: safeLimit,
                   candidateLimit: chromaShadowCandidateLimit,
                   query: q,
-                  queryVariants: debugQueries.slice(1)
+                  primaryQuery: body.shadowPrimaryQuery || q,
+                  contextQueries: body.shadowContextQueries || debugQueries.slice(1)
                 });
                 const responsePayload = {
                   ok: true,
@@ -4051,6 +4095,7 @@ const server = http.createServer(async (req, res) => {
                     queryVariants: debugQueries.slice(1),
                     turnId: body.turnId || '',
                     attemptId: body.attemptId || '',
+                    actionType: body.actionType || 'reply',
                     chatId: body.chatId || '',
                     searchMode: responsePayload.searchMode,
                     requestedSearchEngine: memorySearchEngine,
@@ -4190,6 +4235,7 @@ const server = http.createServer(async (req, res) => {
       const rankedCandidates = await simpleSearch(memories, q, shadowCandidateLimit, {
         embedding: embeddingConfig,
         queryVariants: debugQueries.slice(1),
+        participantNames: body.participantNames || [],
         scoreWeights: body.scoreWeights || body.weights || {}
       });
       // Shadow mode observes a wider ranked pool, but the live response remains the
@@ -4199,7 +4245,8 @@ const server = http.createServer(async (req, res) => {
         targetLimit: safeLimit,
         candidateLimit: shadowCandidateLimit,
         query: q,
-        queryVariants: debugQueries.slice(1)
+        primaryQuery: body.shadowPrimaryQuery || q,
+        contextQueries: body.shadowContextQueries || debugQueries.slice(1)
       });
 
       let searchMode = '';
@@ -4243,6 +4290,7 @@ const server = http.createServer(async (req, res) => {
           queryVariants: debugQueries.slice(1),
           turnId: body.turnId || '',
           attemptId: body.attemptId || '',
+          actionType: body.actionType || 'reply',
           chatId: body.chatId || '',
           searchMode: responsePayload.searchMode,
           requestedSearchEngine: memorySearchEngine,

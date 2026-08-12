@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS memory_search_logs (
   shadowPolicy TEXT,
   turnId TEXT,
   attemptId TEXT,
+  actionType TEXT,
   status TEXT NOT NULL DEFAULT 'candidates',
   createdAt INTEGER NOT NULL,
   injectedAt INTEGER,
@@ -129,6 +130,7 @@ ensureColumn('memory_search_logs', 'fts', 'TEXT');
 ensureColumn('memory_search_logs', 'shadowPolicy', 'TEXT');
 ensureColumn('memory_search_logs', 'turnId', 'TEXT');
 ensureColumn('memory_search_logs', 'attemptId', 'TEXT');
+ensureColumn('memory_search_logs', 'actionType', 'TEXT');
 ensureColumn('memory_search_logs', 'generationCompletedAt', 'INTEGER');
 ensureColumn('memory_search_logs', 'generationError', 'TEXT');
 
@@ -927,6 +929,7 @@ function normalizeMemorySearchLog(row) {
     shadowPolicy: safeJsonParse(row.shadowPolicy, null),
     turnId: row.turnId || '',
     attemptId: row.attemptId || '',
+    actionType: row.actionType || 'reply',
     status: row.status || 'candidates',
     injectedAt: injectedAt || null,
     injectedAtISO: injectedAt ? new Date(injectedAt).toISOString() : '',
@@ -949,8 +952,8 @@ function createMemorySearchLog(info = {}) {
     INSERT INTO memory_search_logs (
       id, chatId, source, query, queryVariants, requestedSearchEngine,
       searchMode, requestedLimit, candidateLimit, resultCount,
-      resultMemoryIds, resultsTop, chroma, fts, shadowPolicy, turnId, attemptId, status, createdAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidates', ?)
+      resultMemoryIds, resultsTop, chroma, fts, shadowPolicy, turnId, attemptId, actionType, status, createdAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidates', ?)
   `).run(
     id,
     String(info.chatId || ''),
@@ -969,6 +972,7 @@ function createMemorySearchLog(info = {}) {
     safeJsonStringify(info.shadowPolicy || null),
     String(info.turnId || ''),
     String(info.attemptId || ''),
+    String(info.actionType || 'reply'),
     now
   );
 

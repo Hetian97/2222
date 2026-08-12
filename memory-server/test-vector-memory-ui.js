@@ -31,6 +31,10 @@ async function main() {
   const manager = sandbox.window.vectorMemoryManager;
   const chat = {
     id: 'chat-1',
+    originalName: '测试角色',
+    name: '角色备注名',
+    nameHistory: ['角色旧称'],
+    settings: { myNickname: '测试用户' },
     history: [],
     variableMemory: {
       fragments: [
@@ -69,6 +73,25 @@ async function main() {
       _migrated: true
     }
   };
+
+  sandbox.window.state = {
+    activeChatId: chat.id,
+    chats: { [chat.id]: chat },
+    qzoneSettings: { nickname: '用户全局昵称' }
+  };
+  assert.deepEqual(
+    Array.from(manager.filterMemoryTags(chat, [
+      '测试角色', '角色备注名', '角色旧称', '测试用户', '用户全局昵称',
+      '乔教授', '海棠树下聊天室', '#乔教授'
+    ])),
+    ['乔教授', '海棠树下聊天室']
+  );
+  const parsedTags = manager.parseExtractionResult(JSON.stringify([{
+    content: '测试用户在海棠树下聊天室提到了乔教授。',
+    tags: ['测试用户', '测试角色', '乔教授', '海棠树下聊天室'],
+    category: 'E'
+  }]), chat)[0].tags;
+  assert.deepEqual(Array.from(parsedTags), ['乔教授', '海棠树下聊天室']);
 
   const changed = manager.applyExternalRecallUpdates(chat, [{
     id: 'dynamic',
@@ -113,6 +136,9 @@ async function main() {
   assert.equal(Object.prototype.hasOwnProperty.call(created, 'embedding'), false);
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.deepEqual(sentBody.embedding, [0.1, 0.2, 0.3, 0.4]);
+  assert.deepEqual(Array.from(sentBody.participantNames), [
+    '测试角色', '角色备注名', '角色旧称', '测试用户', '用户全局昵称'
+  ]);
   assert.equal(Object.prototype.hasOwnProperty.call(created, 'embedding'), false);
   assert.equal(created.hasEmbedding, true);
   assert.equal(created.embeddingDim, 4);
@@ -138,6 +164,27 @@ async function main() {
     }
     return { ok: true };
   };
+  chat.history = [
+    { role: 'user', content: '旧话题只是上下文', timestamp: 100 },
+    { role: 'assistant', content: '回应旧话题', timestamp: 101 },
+    { role: 'user', content: '当前用户主问题', timestamp: 102 }
+  ];
+  manager.externalMemoryRequest = async (_chat, requestPath, options) => {
+    lifecycleCalls.push({ requestPath, body: options.body });
+    if (requestPath === '/memory/search') return { ok: true, memories: [{ id: 'dynamic', content: '记忆', _searchScore: 0.8 }], searchTraceId: 'trace-retrieve' };
+    if (requestPath === '/memory/search/commit') return { ok: true, log: { status: 'prompt_committed' }, recallUpdates: [] };
+    if (requestPath === '/memory/search/generation') return { ok: true, recallUpdates: options.body.outcome === 'succeeded' ? [{ id: 'dynamic', recallCount: 8, lastRecalled: 222 }] : [] };
+    return { ok: true };
+  };
+  await manager.retrieveRelevantFromExternalServer(chat, '旧话题只是上下文 当前用户主问题', 12, ['旧话题只是上下文', '当前用户主问题'], {
+    primaryQuery: '当前用户主问题',
+    actionType: 'regenerate'
+  });
+  const searchCall = lifecycleCalls.find(call => call.requestPath === '/memory/search');
+  assert.equal(searchCall.body.shadowPrimaryQuery, '当前用户主问题');
+  assert.deepEqual(searchCall.body.shadowContextQueries, ['旧话题只是上下文']);
+  assert.equal(searchCall.body.actionType, 'regenerate');
+  lifecycleCalls.length = 0;
   const recallCountBeforeCommit = chat.variableMemory.fragments[1].recallCount;
   await manager.commitExternalMemoryRecall(chat, 'trace-success', ['dynamic']);
   assert.equal(chat.variableMemory.fragments[1].recallCount, recallCountBeforeCommit);

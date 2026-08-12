@@ -2052,7 +2052,7 @@ async function executeVectorExtraction(chat, messages, updateTimestamp = false) 
     processedLastIndex = chat.history.findIndex(m => m.timestamp === lastMsg.timestamp);
   }
 
-  const extracted = window.vectorMemoryManager.parseExtractionResult(rawText);
+  const extracted = window.vectorMemoryManager.parseExtractionResult(rawText, chat);
   const parseFailed = !!window.vectorMemoryManager._lastExtractionParseFailed;
 
   if (extracted.length > 0) {
@@ -2683,7 +2683,7 @@ ${formattedMemories}
       const data = await response.json();
       const rawText = typeof getGeminiResponseText === 'function' ? getGeminiResponseText(data) : (data.choices?.[0]?.message?.content || '');
 
-      const extracted = window.vectorMemoryManager.parseExtractionResult(rawText);
+      const extracted = window.vectorMemoryManager.parseExtractionResult(rawText, chat);
       
       for (const item of extracted) {
         const embedding = await window.vectorMemoryManager.getEmbedding(item.content, chat);

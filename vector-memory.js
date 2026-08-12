@@ -108,6 +108,27 @@ class VariableMemoryManager {
     return vm;
   }
 
+  getMemoryParticipantNames(chat) {
+    const appState = typeof window !== 'undefined' ? window.state : null;
+    const values = [
+      chat?.originalName,
+      chat?.name,
+      ...(Array.isArray(chat?.nameHistory) ? chat.nameHistory : []),
+      chat?.settings?.myNickname,
+      appState?.qzoneSettings?.nickname
+    ];
+    return [...new Set(values.map(value => String(value || '').normalize('NFKC').trim()).filter(value => value.length >= 2))];
+  }
+
+  filterMemoryTags(chat, tags) {
+    const excluded = new Set(this.getMemoryParticipantNames(chat).map(value => value.toLowerCase()));
+    return [...new Set((Array.isArray(tags) ? tags : [])
+      .map(tag => String(tag || '').normalize('NFKC').replace(/^#/, '').trim())
+      .filter(Boolean)
+      .filter(tag => !excluded.has(tag.toLowerCase()))
+    )].slice(0, 12);
+  }
+
   _migrateFromVectorMemory(chat) {
     const old = chat.vectorMemory;
     const vm = chat.variableMemory;
@@ -365,6 +386,8 @@ class VariableMemoryManager {
       delete fragment.embedding;
       const saveFragment = {
         ...fragmentWithoutEmbedding,
+        tags: this.filterMemoryTags(chat, fragmentWithoutEmbedding.tags),
+        participantNames: this.getMemoryParticipantNames(chat),
         embedding: temporaryEmbedding,
         clearEmbedding: options.clearEmbedding === true,
         embeddingModel: temporaryEmbedding
@@ -476,7 +499,7 @@ class VariableMemoryManager {
       id,
       chatId: chat.id || chat.chatId || window.state?.activeChatId || null,
       content: data.content,
-      tags: data.tags || [],
+      tags: this.filterMemoryTags(chat, data.tags || []),
       category: data.category || 'E',
       importance: data.importance || 5,
       emotionalWeight: data.emotionalWeight || 3,
@@ -523,7 +546,7 @@ class VariableMemoryManager {
       frag.content = newContent;
     }
 
-    if (updates.tags !== undefined) frag.tags = updates.tags;
+    if (updates.tags !== undefined) frag.tags = this.filterMemoryTags(chat, updates.tags);
     if (updates.category !== undefined) frag.category = updates.category;
     if (updates.importance !== undefined) frag.importance = updates.importance;
     if (updates.emotionalWeight !== undefined) frag.emotionalWeight = updates.emotionalWeight;
@@ -971,7 +994,7 @@ class VariableMemoryManager {
   }
 
 
-  async retrieveRelevantFromExternalServer(chat, queryText, topN = null, queryVariants = []) {
+  async retrieveRelevantFromExternalServer(chat, queryText, topN = null, queryVariants = [], retrievalMeta = {}) {
     if (!this.isExternalMemoryEnabled(chat)) return null;
 
     const query = String(queryText || '').trim();
@@ -986,6 +1009,7 @@ class VariableMemoryManager {
     const safeQueryVariants = Array.isArray(queryVariants)
       ? queryVariants.map(v => String(v || '').trim()).filter(Boolean).slice(-5)
       : [];
+    const primaryQuery = String(retrievalMeta?.primaryQuery || safeQueryVariants.at(-1) || query).trim();
 
 
     try {
@@ -994,6 +1018,9 @@ class VariableMemoryManager {
         body: {
           query,
           queryVariants: safeQueryVariants,
+          participantNames: this.getMemoryParticipantNames(chat),
+          shadowPrimaryQuery: primaryQuery,
+          shadowContextQueries: safeQueryVariants.filter(value => value !== primaryQuery).slice(-4),
           limit,
           chatId: chat?.id || chat?.chatId || '',
           excludeCategories: ['C'],
@@ -1004,7 +1031,8 @@ class VariableMemoryManager {
             : (parseInt(vm.settings?.sqliteCandidateLimit, 10) || 6000),
           chromaNResults: parseInt(vm.settings?.chromaNResults, 10) || 200,
           turnId: String((chat?.history || []).filter(message => message?.role === 'user').slice(-1)[0]?.timestamp || ''),
-          attemptId: `attempt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+          attemptId: `attempt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          actionType: String(retrievalMeta?.actionType || 'reply')
         }
       });
 
@@ -1197,7 +1225,7 @@ class VariableMemoryManager {
 
   // ==================== 序列化为 Prompt ====================
 
-  async serializeForPrompt(chat, recentMessages = '', queryVariants = []) {
+  async serializeForPrompt(chat, recentMessages = '', queryVariants = [], retrievalMeta = {}) {
     const vm = this.getVariableMemory(chat);
     let output = '';
 
@@ -1210,7 +1238,7 @@ class VariableMemoryManager {
       let results = null;
 
       if (this.isExternalMemoryEnabled(chat)) {
-        results = await this.retrieveRelevantFromExternalServer(chat, recentMessages, null, queryVariants);
+        results = await this.retrieveRelevantFromExternalServer(chat, recentMessages, null, queryVariants, retrievalMeta);
       }
 
       const externalSearchTraceId = Array.isArray(results)
@@ -1291,6 +1319,7 @@ ${output}`;
 - 同一话题下，如果信息点互相独立且未来可能被分别检索，应拆成多条；如果确实紧密相关，再合并成一条。宁可略多，不要过度合并导致信息丢失。不要把连续动作拆碎，但可以按“信息主题”拆分。
 - 每条记忆围绕一个核心主题，长度50-120字。当同一场景或同一话题中包含2个以上互相独立的信息点（例如：既发生了具体事件，又产生了新的承诺，又暴露了用户的某个偏好），应拆成多条，分别记录。不要为了“凑一条”而把多个独立信息强行打包。
 - 保留关键时间、地点、人物、承诺、关系变化、共同经历（包括普通但有记忆点的日常）和稳定偏好。
+- tags 只写能区分这条记忆的事件、第三方人物、地点、物品、规则或情绪关键词；不要把当前角色名、角色曾用名、用户昵称或双方日常称呼本身作为 tags。
 - 不要把一次性行为改写成“习惯”“总是”“长期如此”“以后都会”等长期模式，除非原文明确表达了持续性。
 - 如果同一主题已有旧记忆，本次对话中出现了旧记忆未包含的新信息（新细节、新情绪、新约定、新进展），则作为一条新的独立记忆补充添加，新旧并存；如果没有新信息，则不新增。旧记忆本身不需要修改或覆盖。
 - E 不是“低价值分类”，也不是“兜底分类”。如果一条记忆的核心是一次具体共同经历，优先归为 E。但注意：同一场景中可能同时产生多个独立信息，这些信息应拆分为多条记忆，分别归入对应分类，而不是全部打包进一条 E。具体分类规则见下方「10大精细分类说明」。
@@ -1358,7 +1387,7 @@ ${output}`;
   }
 
 
-  parseExtractionResult(rawText) {
+  parseExtractionResult(rawText, chat = this.getActiveChatForExternalMemory()) {
     this._lastExtractionParseFailed = false;
     const cats = Object.keys(this.DEFAULT_CATEGORIES);
 
@@ -1366,7 +1395,7 @@ ${output}`;
       if (!Array.isArray(arr)) return [];
       return arr.filter(item => item && item.content).map(item => ({
         content: String(item.content).trim(),
-        tags: Array.isArray(item.tags) ? item.tags.map(t => String(t).trim()) : [],
+        tags: this.filterMemoryTags(chat, item.tags),
         category: cats.includes(item.category) ? item.category : 'E',
         importance: Math.min(10, Math.max(1, parseInt(item.importance) || 5)),
         emotionalWeight: Math.min(10, Math.max(1, parseInt(item.emotionalWeight) || 3))

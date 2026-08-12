@@ -54,8 +54,8 @@ function parseTags(value) {
   }
 }
 
-function buildQuerySegments(query, queryVariants = []) {
-  const values = [query, ...(Array.isArray(queryVariants) ? queryVariants : [])];
+function buildQuerySegments(query) {
+  const values = [query];
   const segments = [];
   const seen = new Set();
   const add = value => {
@@ -70,18 +70,19 @@ function buildQuerySegments(query, queryVariants = []) {
   for (const value of values) {
     const text = String(value || '').normalize('NFKC').trim();
     if (!text) continue;
-    if (text.length <= 96) add(text);
-    text.split(/[\n\r，,。.!?！？；;：:、|/\\]+/)
+    const parts = text.split(/[\n\r，,。.!?！？；;：:、|/\\]+/)
       .map(part => part.trim())
       .filter(part => part.length >= 2 && part.length <= 96)
-      .slice(-10)
-      .forEach(add);
+      .slice(-10);
+    if (parts.length <= 1 && text.length <= 96) add(text);
+    parts.forEach(add);
   }
   return segments.slice(0, 18);
 }
 
 function buildQueryFacets(segments, documentFrequency, total) {
   const candidates = [];
+  const structuralReferencePattern = /(?:\d{1,4}(?:[-/.年月日号时点]|$)|[a-z][a-z0-9_.:/-]{2,})/iu;
 
   for (const segment of segments) {
     const tokens = [...lexicalTokens(segment)].filter(token => {
@@ -89,6 +90,15 @@ function buildQueryFacets(segments, documentFrequency, total) {
       return frequency > 0 && (frequency <= Math.max(4, Math.ceil(total * 0.45)) || /[a-z0-9]/i.test(token));
     });
     if (!tokens.length) continue;
+
+    const normalized = normalizeText(segment);
+    const supportedRareTokens = tokens.filter(token => (documentFrequency.get(token) || total) <= Math.max(3, Math.ceil(total * 0.22)));
+    const hasStructuralReference = structuralReferencePattern.test(segment);
+    // Facets are evidence-driven rather than topic-word driven: a clause must contain
+    // several candidate-supported rare n-grams, or a generic date/identifier shape.
+    // No character name, place, event, emotion, or domain vocabulary is hard-coded here.
+    const minimumRareTokens = normalized.length >= 8 ? 3 : 4;
+    if (!hasStructuralReference && supportedRareTokens.length < minimumRareTokens) continue;
 
     const tokenSet = new Set(tokens);
     const specificity = tokens.reduce((sum, token) => {
@@ -132,7 +142,8 @@ function buildShadowEvidence(candidates, options = {}) {
   }
 
   const total = Math.max(1, candidates.length);
-  const segments = buildQuerySegments(options.query, options.queryVariants);
+  const primaryQuery = String(options.primaryQuery || options.query || '').trim();
+  const segments = buildQuerySegments(primaryQuery);
   const segmentTokens = segments.map(segment => lexicalTokens(segment));
   const facets = buildQueryFacets(segments, documentFrequency, total);
   const tagFrequency = new Map();
@@ -141,7 +152,7 @@ function buildShadowEvidence(candidates, options = {}) {
     for (const tag of uniqueTags) tagFrequency.set(tag, (tagFrequency.get(tag) || 0) + 1);
   }
 
-  return candidates.map((memory, index) => {
+  const evidence = candidates.map((memory, index) => {
     let keyword = 0;
     for (const queryTokens of segmentTokens) {
       const salient = [...queryTokens].filter(token => {
@@ -179,11 +190,12 @@ function buildShadowEvidence(candidates, options = {}) {
     }
 
     const category = String(memory.category || '').toUpperCase();
-    const hasExplicitFact = /(?:\d{1,4}[年/-]|\d{1,2}[月日号天周]|今天|明天|后天|出发|出差|行程|会议|计划|期限)/.test(String(memory.content || ''));
+    const hasExplicitFact = /(?:\d{1,4}(?:[-/.年月日号时点]|$)|[a-z][a-z0-9_.:/-]{2,})/iu.test(String(memory.content || ''));
     const protectedEvidence = (keyword >= 0.42 || anchor >= 0.58) && (
       hasExplicitFact || category === 'P' || category === 'T'
     );
 
+    const normalizedTags = parseTags(memory.tags).map(normalizeText).filter(Boolean);
     const facetScores = facets.map(facet => {
       let matchedWeight = 0;
       let facetWeight = 0;
@@ -194,9 +206,12 @@ function buildShadowEvidence(candidates, options = {}) {
         if (documents[index].has(token)) matchedWeight += weight;
       }
       const coverage = facetWeight > 0 ? matchedWeight / facetWeight : 0;
+      const normalizedFacet = normalizeText(facet.text);
+      const exactEntityAnchor = normalizedTags.some(tag => tag.length >= 4 && normalizedFacet.includes(tag));
       return {
         id: facet.id,
-        score: clamp01(Math.sqrt(coverage) * coverage)
+        score: clamp01(Math.max(Math.sqrt(coverage) * coverage, exactEntityAnchor ? 0.92 : 0)),
+        exactEntityAnchor
       };
     });
     const bestFacet = [...facetScores].sort((a, b) => b.score - a.score)[0] || { id: '', score: 0 };
@@ -211,6 +226,9 @@ function buildShadowEvidence(candidates, options = {}) {
       facetScores
     };
   });
+  evidence.facets = facets.map(facet => ({ id: facet.id, text: facet.text }));
+  evidence.primaryQuery = primaryQuery;
+  return evidence;
 }
 
 function jaccardSimilarity(left, right) {
@@ -242,8 +260,8 @@ function memorySimilarity(left, right) {
   const leftTags = new Set(parseTags(left.tags).map(normalizeText).filter(Boolean));
   const rightTags = new Set(parseTags(right.tags).map(normalizeText).filter(Boolean));
   const rawTagSimilarity = jaccardSimilarity(leftTags, rightTags);
-  // A single broad tag such as “北京” or “亲密” is not enough to declare two
-  // memories duplicates. Require multiple shared descriptors for tag-only folding.
+  // A single broad tag is not enough to declare two memories duplicates.
+  // Require multiple shared descriptors for tag-only folding.
   const sharedTags = [...leftTags].filter(tag => rightTags.has(tag));
   const tagSimilarity = sharedTags.length >= 2 ? rawTagSimilarity : 0;
   const preciseSharedTag = sharedTags.some(tag => tag.length >= 4);
@@ -363,7 +381,8 @@ function runRecallShadowPolicy(candidates, options = {}) {
     bestFacetScore: Number((calibratedEvidence[index]?.bestFacetScore || 0).toFixed(6)),
     facetScores: (calibratedEvidence[index]?.facetScores || []).map(facet => ({
       id: facet.id,
-      score: Number(facet.score.toFixed(6))
+      score: Number(facet.score.toFixed(6)),
+      exactEntityAnchor: Boolean(facet.exactEntityAnchor)
     })),
     selected: false,
     finalReason: ''
@@ -373,6 +392,7 @@ function runRecallShadowPolicy(candidates, options = {}) {
     .sort((left, right) => right.admissionScore - left.admissionScore);
   const selected = [];
   const categoryCounts = new Map();
+  let selectionStopReason = '';
 
   const selectDecision = (decision, meta = {}) => {
     decision.selected = true;
@@ -394,16 +414,20 @@ function runRecallShadowPolicy(candidates, options = {}) {
       .map(decision => ({
         decision,
         facetScore: decision.facetScores.find(facet => facet.id === facetId)?.score || 0,
+        exactEntityAnchor: Boolean(decision.facetScores.find(facet => facet.id === facetId)?.exactEntityAnchor),
         maxSimilarity: selected.reduce((maximum, selectedDecision) => Math.max(
           maximum,
           memorySimilarity(decision.memory, selectedDecision.memory)
         ), 0)
       }))
       .filter(item => item.maxSimilarity < duplicateThreshold)
-      .filter(item => item.facetScore >= 0.3)
+      .filter(item => item.facetScore >= 0.42)
+      .filter(item => item.exactEntityAnchor || (item.facetScore >= 0.55 && item.decision.admissionScore >= 0.55))
       .sort((left, right) => {
-        const leftScore = left.facetScore * 0.62 + left.decision.admissionScore * 0.38;
-        const rightScore = right.facetScore * 0.62 + right.decision.admissionScore * 0.38;
+        const leftExact = left.decision.facetScores.find(facet => facet.id === facetId)?.exactEntityAnchor ? 0.18 : 0;
+        const rightExact = right.decision.facetScores.find(facet => facet.id === facetId)?.exactEntityAnchor ? 0.18 : 0;
+        const leftScore = left.facetScore * 0.62 + left.decision.admissionScore * 0.38 + leftExact;
+        const rightScore = right.facetScore * 0.62 + right.decision.admissionScore * 0.38 + rightExact;
         return rightScore - leftScore;
       })[0];
     if (facetCandidate) {
@@ -451,7 +475,19 @@ function runRecallShadowPolicy(candidates, options = {}) {
       }
     }
 
-    if (!best) break;
+    if (!best) {
+      if (selected.length < targetLimit && admitted.some(decision => !decision.selected)) {
+        selectionStopReason = 'no_distinct_candidate';
+      }
+      break;
+    }
+    const minimumSelectionScore = selected.length < 3 ? 0.54 : selected.length < 7 ? 0.59 : 0.64;
+    const protectedEvidence = best.decision.signals.protectedEvidence > 0;
+    if (!protectedEvidence && best.mmrScore < minimumSelectionScore) {
+      best.decision.finalReason = 'below_selection_floor';
+      selectionStopReason = 'below_selection_floor';
+      break;
+    }
     selectDecision(best.decision, best);
   }
 
@@ -479,9 +515,12 @@ function runRecallShadowPolicy(candidates, options = {}) {
 
   return {
     mode: 'shadow',
-    version: 'stage3-shadow-v1.2',
+    version: 'stage3-shadow-v1.3',
     behaviorChanged: false,
-    evidenceMode: 'topic-facets-candidate-idf',
+    evidenceMode: 'primary-intent-context-reference',
+    primaryQuery: calibratedEvidence.primaryQuery || '',
+    contextReferenceCount: Array.isArray(options.contextQueries) ? options.contextQueries.length : 0,
+    topicFacets: calibratedEvidence.facets || [],
     topicFacetCount: facetIds.length,
     topicFacetSelectedCount: compactDecisions.filter(decision => decision.reservedForFacet).length,
     categoryQuotaMode: 'soft-penalty',
@@ -489,6 +528,7 @@ function runRecallShadowPolicy(candidates, options = {}) {
     admittedCount: compactDecisions.filter(decision => decision.admitted).length,
     rejectedCount: compactDecisions.filter(decision => !decision.admitted).length,
     selectedCount: selected.length,
+    selectionStopReason,
     zeroRecall: selected.length === 0,
     legacySaturatedCount,
     calibratedSaturatedCount,
