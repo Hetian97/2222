@@ -229,12 +229,16 @@
 
   function switchTab(tabId) {
     if (!cleanScreenEl) return;
-    cleanScreenEl.querySelectorAll('.cas-tab').forEach(tab =>
-      tab.classList.toggle('active', tab.dataset.tabId === tabId)
-    );
+    let activeTab = null;
+    cleanScreenEl.querySelectorAll('.cas-tab').forEach(tab => {
+      const isActive = tab.dataset.tabId === tabId;
+      tab.classList.toggle('active', isActive);
+      if (isActive) activeTab = tab;
+    });
     cleanScreenEl.querySelectorAll('.cas-panel').forEach(panel =>
       panel.classList.toggle('active', panel.id === 'cas-panel-' + tabId)
     );
+    if (activeTab) activeTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
   }
 
   function restoreElements() {

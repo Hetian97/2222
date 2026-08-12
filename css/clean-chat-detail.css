@@ -47,7 +47,10 @@
   display: flex;
   width: 100%;
   box-sizing: border-box;
-  overflow-x: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
   border-bottom: 1px solid var(--border-color, #eee);
   background: var(--primary-bg, #fff);
   flex-shrink: 0;
@@ -60,9 +63,9 @@
 }
 
 #clean-chat-detail-screen .ccd-tab {
-  flex: 1 1 0;
-  min-width: 0;
-  padding: 10px 2px;
+  flex: 0 0 auto;
+  min-width: max-content;
+  padding: 10px 14px;
   font-size: 13px;
   color: var(--text-secondary, #999);
   cursor: pointer;
@@ -70,6 +73,7 @@
   border-bottom: 2px solid transparent;
   transition: color 0.2s, border-color 0.2s;
   text-align: center;
+  scroll-margin-inline: 12px;
 }
 
 #clean-chat-detail-screen .ccd-tab.active {
