@@ -2,30 +2,246 @@
 const COUPLE_SPACE_STORAGE_KEY = 'coupleSpaces';
 
 async function getCoupleAlbumPhotos(charId) {
+  let indexedPhotos = [];
   try {
     if (window.db && db.coupleAlbumPhotos) {
       const records = await db.coupleAlbumPhotos
         .where('chatId')
         .equals(charId)
         .sortBy('timestamp');
-
-      if (records.length) {
-        return records.map(r => r.photo);
-      }
+      indexedPhotos = records.map(r => r.photo).filter(Boolean);
     }
   } catch(e) {
     console.error('读取IndexedDB相册失败', e);
   }
 
   // 兼容旧数据
+  let legacyPhotos = [];
   try {
-    return JSON.parse(
+    legacyPhotos = JSON.parse(
       localStorage.getItem('coupleAlbum_' + charId) || '[]'
     );
   } catch(e) {
-    return [];
+    legacyPhotos = [];
+  }
+
+  const merged = [];
+  const seen = new Set();
+  [...legacyPhotos, ...indexedPhotos].forEach(photo => {
+    if (!photo) return;
+    const key = photo.id != null
+      ? 'id:' + photo.id
+      : [photo.timestamp || '', photo.author || '', photo.description || '', photo.url || ''].join('|');
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(photo);
+  });
+  return merged.sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0));
+}
+
+function readCoupleSpaceJson(key, fallback) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key));
+    return value == null ? fallback : value;
+  } catch(e) {
+    return fallback;
   }
 }
+
+function getCoupleSpaceVisibleCount(settings, key, fallback) {
+  const value = Number(settings && settings[key]);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(0, Math.floor(value));
+}
+
+function truncateCoupleSpaceText(value, maxLength = 120) {
+  const text = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+  if (text.length <= maxLength) return text;
+  return text.slice(0, maxLength) + '…';
+}
+
+function formatCoupleSpaceDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString('zh-CN');
+}
+
+function takeRecentCoupleSpaceItems(items, author, count) {
+  if (count <= 0) return [];
+  return items.filter(item => item && item.author === author).slice(-count);
+}
+
+function getRelevantCoupleAnniversaries(items, count) {
+  if (count <= 0) return [];
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return items.map(item => {
+    const original = new Date(String(item.date || '') + 'T00:00:00');
+    const occurrence = new Date(now.getFullYear(), original.getMonth(), original.getDate());
+    if (occurrence < now) occurrence.setFullYear(occurrence.getFullYear() + 1);
+    const days = Number.isNaN(occurrence.getTime()) ? 99999 : Math.round((occurrence - now) / 86400000);
+    return { item, days };
+  }).sort((a, b) => a.days - b.days).slice(0, count);
+}
+
+/**
+ * 生成普通私聊和线下模式共用的情侣空间内容上下文。
+ * 总开关位于角色聊天设置；各模块的 chatContextEnabled 默认关闭。
+ */
+async function getCoupleSpaceContextForChat(charId) {
+  const chat = state && state.chats ? state.chats[charId] : null;
+  if (!chat || !chat.settings) return '';
+  if ((chat.settings.enableCoupleSpaceContent ?? chat.settings.coupleSpaceContent) !== true) return '';
+  if (!getCoupleSpaces().some(space => space.charId === charId)) return '';
+
+  const charName = chat.name || chat.originalName || '角色';
+  const userName = chat.settings.myNickname || '我';
+  const sections = [];
+  const addSection = (title, lines) => {
+    const usefulLines = lines.filter(Boolean);
+    if (usefulLines.length) sections.push(`## ${title}\n${usefulLines.join('\n')}`);
+  };
+
+  const diarySettings = readCoupleSpaceJson('coupleDiarySettings_' + charId, {});
+  if (diarySettings.chatContextEnabled === true) {
+    const diaries = readCoupleSpaceJson('coupleDiaries_' + charId, []);
+    const userCount = getCoupleSpaceVisibleCount(diarySettings, 'visibleUserDiaryCount', 3);
+    const charCount = getCoupleSpaceVisibleCount(diarySettings, 'visibleCharDiaryCount', 3);
+    const lines = [];
+    takeRecentCoupleSpaceItems(diaries, 'user', userCount).forEach(item => {
+      lines.push(`- ${userName}的日记｜${formatCoupleSpaceDate(item.timestamp || item.createdAt)}｜《${truncateCoupleSpaceText(item.title || '无题', 40)}》：${truncateCoupleSpaceText(item.content)}`);
+    });
+    takeRecentCoupleSpaceItems(diaries, 'char', charCount).forEach(item => {
+      lines.push(`- ${charName}的日记｜${formatCoupleSpaceDate(item.timestamp || item.createdAt)}｜《${truncateCoupleSpaceText(item.title || '无题', 40)}》：${truncateCoupleSpaceText(item.content)}`);
+    });
+    addSection('情侣空间·日记', lines);
+  }
+
+  const albumSettings = readCoupleSpaceJson('coupleAlbumSettings_' + charId, {});
+  if (albumSettings.chatContextEnabled === true) {
+    const photos = await getCoupleAlbumPhotos(charId);
+    const userCount = getCoupleSpaceVisibleCount(albumSettings, 'visibleUserPhotoCount', 3);
+    const charCount = getCoupleSpaceVisibleCount(albumSettings, 'visibleCharPhotoCount', 3);
+    const lines = [];
+    takeRecentCoupleSpaceItems(photos, 'user', userCount).forEach(item => {
+      const tags = Array.isArray(item.tags) && item.tags.length ? `｜标签：${item.tags.join('、')}` : '';
+      lines.push(`- ${userName}的照片｜${formatCoupleSpaceDate(item.timestamp || item.createdAt)}｜${truncateCoupleSpaceText(item.description || '无配文')}${tags}`);
+    });
+    takeRecentCoupleSpaceItems(photos, 'char', charCount).forEach(item => {
+      const tags = Array.isArray(item.tags) && item.tags.length ? `｜标签：${item.tags.join('、')}` : '';
+      lines.push(`- ${charName}的照片｜${formatCoupleSpaceDate(item.timestamp || item.createdAt)}｜${truncateCoupleSpaceText(item.description || '无配文')}${tags}`);
+    });
+    addSection('情侣空间·相册', lines);
+  }
+
+  const annivSettings = readCoupleSpaceJson('coupleAnnivSettings_' + charId, {});
+  if (annivSettings.chatContextEnabled === true) {
+    const anniversaries = readCoupleSpaceJson('coupleAnniv_' + charId, []);
+    const count = getCoupleSpaceVisibleCount(annivSettings, 'visibleAnniversaries', 10);
+    const ranked = getRelevantCoupleAnniversaries(anniversaries, count);
+    addSection('情侣空间·纪念日', ranked.map(({ item, days }) =>
+      `- ${truncateCoupleSpaceText(item.title || '未命名纪念日', 50)}｜${item.date || '日期未知'}${days < 99999 ? `｜距下次${days}天` : ''}${item.reason ? `｜${truncateCoupleSpaceText(item.reason, 80)}` : ''}`
+    ));
+  }
+
+  const simpleModules = [
+    {
+      title: '情侣空间·清单', dataKey: 'coupleChecklist_', settingsKey: 'coupleChecklistSettings_',
+      charKey: 'visibleCharItems', userKey: 'visibleUserItems', defaults: [10, 10],
+      format: item => `${item.done ? '已完成' : '待完成'}｜${truncateCoupleSpaceText(item.title || item.content, 100)}${item.category ? `｜${item.category}` : ''}`
+    },
+    {
+      title: '情侣空间·留言板', dataKey: 'coupleMessages_', settingsKey: 'coupleMessageSettings_',
+      charKey: 'visibleCharMessages', userKey: 'visibleUserMessages', defaults: [10, 10],
+      format: item => `${formatCoupleSpaceDate(item.createdAt || item.timestamp)}｜${truncateCoupleSpaceText(item.content || item.message || item.text)}`
+    },
+    {
+      title: '情侣空间·心情', dataKey: 'coupleMoods_', settingsKey: 'coupleMoodSettings_',
+      charKey: 'visibleCharMoods', userKey: 'visibleUserMoods', defaults: [10, 10],
+      format: item => `${formatCoupleSpaceDate(item.createdAt || item.timestamp)}｜${item.moodType || item.mood || '未标注'}：${truncateCoupleSpaceText(item.content || item.note)}`
+    },
+    {
+      title: '情侣空间·时间线', dataKey: 'coupleTimeline_', settingsKey: 'coupleTimelineSettings_',
+      charKey: 'visibleCharItems', userKey: 'visibleUserItems', defaults: [10, 10],
+      format: item => `${formatCoupleSpaceDate(item.createdAt || item.timestamp || item.date)}｜${truncateCoupleSpaceText(item.title || '未命名记录', 50)}：${truncateCoupleSpaceText(item.content)}`
+    },
+    {
+      title: '情侣空间·情书', dataKey: 'coupleLetters_', settingsKey: 'coupleLetterSettings_',
+      charKey: 'visibleCharLetters', userKey: 'visibleUserLetters', defaults: [5, 5],
+      format: item => `${formatCoupleSpaceDate(item.createdAt || item.timestamp)}｜《${truncateCoupleSpaceText(item.title || '无题', 50)}》：${truncateCoupleSpaceText(item.content)}`
+    },
+    {
+      title: '情侣空间·位置', dataKey: 'coupleLocations_', settingsKey: 'coupleLocSettings_',
+      charKey: 'visibleCharLocations', userKey: 'visibleUserLocations', defaults: [10, 10],
+      format: item => `${formatCoupleSpaceDate(item.createdAt || item.timestamp)}｜${truncateCoupleSpaceText(item.name || '未命名地点', 50)}${item.address ? `｜${truncateCoupleSpaceText(item.address, 80)}` : ''}${item.description ? `｜${truncateCoupleSpaceText(item.description, 80)}` : ''}`
+    },
+    {
+      title: '情侣空间·睡眠', dataKey: 'coupleSleep_', settingsKey: 'coupleSleepSettings_',
+      charKey: 'visibleCharSleeps', userKey: 'visibleUserSleeps', defaults: [10, 10],
+      format: item => `${formatCoupleSpaceDate(item.sleepAt || item.createdAt)}｜入睡：${truncateCoupleSpaceText(item.sleepNote || '无备注', 60)}${item.wakeNote ? `｜起床：${truncateCoupleSpaceText(item.wakeNote, 60)}` : ''}${item.quality ? `｜质量：${item.quality}` : ''}`
+    }
+  ];
+
+  simpleModules.forEach(config => {
+    const settings = readCoupleSpaceJson(config.settingsKey + charId, {});
+    if (settings.chatContextEnabled !== true) return;
+    const items = readCoupleSpaceJson(config.dataKey + charId, []);
+    const charCount = getCoupleSpaceVisibleCount(settings, config.charKey, config.defaults[0]);
+    const userCount = getCoupleSpaceVisibleCount(settings, config.userKey, config.defaults[1]);
+    const lines = [];
+    takeRecentCoupleSpaceItems(items, 'user', userCount).forEach(item => lines.push(`- ${userName}｜${config.format(item)}`));
+    takeRecentCoupleSpaceItems(items, 'char', charCount).forEach(item => lines.push(`- ${charName}｜${config.format(item)}`));
+    addSection(config.title, lines);
+  });
+
+  const gardenSettings = readCoupleSpaceJson('coupleGardenSettings_' + charId, {});
+  if (gardenSettings.chatContextEnabled === true) {
+    const garden = readCoupleSpaceJson('coupleGarden_' + charId, {});
+    const waters = Array.isArray(garden.waterLogs) ? garden.waterLogs : [];
+    const hasGardenData = waters.length > 0 || garden.treeName || Number(garden.totalCoins) > 0;
+    if (hasGardenData) {
+      const stages = [
+        { min: 0, name: '种子' }, { min: 1, name: '嫩芽' }, { min: 31, name: '小树苗' },
+        { min: 101, name: '小树' }, { min: 301, name: '大树' }, { min: 601, name: '开花' }, { min: 1001, name: '结果' }
+      ];
+      const totalCoins = Number(garden.totalCoins) || 0;
+      const stage = [...stages].reverse().find(item => totalCoins >= item.min) || stages[0];
+      const lines = [`- 概况｜${garden.treeName || '情侣树'}｜${stage.name}｜累计收益${totalCoins.toFixed(2)}元｜浇水${waters.length}次`];
+      const charCount = getCoupleSpaceVisibleCount(gardenSettings, 'visibleCharWaters', 10);
+      const userCount = getCoupleSpaceVisibleCount(gardenSettings, 'visibleUserWaters', 10);
+      takeRecentCoupleSpaceItems(waters, 'user', userCount).forEach(item => lines.push(`- ${userName}浇水｜${formatCoupleSpaceDate(item.createdAt || item.timestamp)}｜${truncateCoupleSpaceText(item.content)}`));
+      takeRecentCoupleSpaceItems(waters, 'char', charCount).forEach(item => lines.push(`- ${charName}浇水｜${formatCoupleSpaceDate(item.createdAt || item.timestamp)}｜${truncateCoupleSpaceText(item.content)}`));
+      addSection('情侣空间·爱情树', lines);
+    }
+  }
+
+  const financeSettings = readCoupleSpaceJson('coupleFinanceSettings_' + charId, {});
+  if (financeSettings.chatContextEnabled === true) {
+    const items = readCoupleSpaceJson('coupleFinance_' + charId, []);
+    if (items.length) {
+      const now = new Date();
+      const monthItems = items.filter(item => {
+        const date = new Date(item.date || item.createdAt || item.timestamp);
+        return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+      });
+      const income = monthItems.filter(item => item.type === 'income').reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+      const expense = monthItems.filter(item => item.type === 'expense').reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+      const lines = [`- 本月概况｜收入${income.toFixed(2)}元｜支出${expense.toFixed(2)}元`];
+      const charCount = getCoupleSpaceVisibleCount(financeSettings, 'visibleCharItems', 10);
+      const userCount = getCoupleSpaceVisibleCount(financeSettings, 'visibleUserItems', 10);
+      const formatFinance = item => `${formatCoupleSpaceDate(item.date || item.createdAt)}｜${item.type === 'income' ? '收入' : '支出'}${Number(item.amount || 0).toFixed(2)}元｜${truncateCoupleSpaceText(item.title || item.category || item.note, 80)}`;
+      takeRecentCoupleSpaceItems(items, 'user', userCount).forEach(item => lines.push(`- ${userName}｜${formatFinance(item)}`));
+      takeRecentCoupleSpaceItems(items, 'char', charCount).forEach(item => lines.push(`- ${charName}｜${formatFinance(item)}`));
+      addSection('情侣空间·共同财务', lines);
+    }
+  }
+
+  if (!sections.length) return '';
+  return '# 情侣空间内容\n以下内容仅在相关话题中自然引用，不要主动逐项汇报。\n\n' + sections.join('\n\n');
+}
+
+window.getCoupleSpaceContextForChat = getCoupleSpaceContextForChat;
 
 // 获取情侣空间API配置（优先使用情侣空间专用API，否则回退到主API）
 function getCoupleSpaceApiConfig() {
@@ -84,7 +300,7 @@ async function sendOrSaveCoupleSpaceData(charId, msgObj, storageKey, itemToSave)
       
       // 检查是否开启了后台更新弹窗提醒
       const chat = state.chats[charId];
-      if (chat && chat.settings && chat.settings.enableCoupleSpaceNotify) {
+      if (chat && chat.settings && (chat.settings.enableCoupleSpaceNotify ?? chat.settings.coupleSpaceNotify) === true) {
         let actionDesc = '留了点东西';
         if (msgObj.type === 'coupleSpaceDiaryAutoWritten') actionDesc = '写了一篇新日记';
         else if (msgObj.type === 'coupleSpaceAlbumAutoResult') actionDesc = '发了一张新照片';
@@ -366,7 +582,7 @@ async function unbindCoupleSpace(charId) {
   
   // 检查是否开启了基本感知
   const chat = state.chats[charId];
-  if (chat && chat.settings.enableCoupleSpacePrompt) {
+  if (chat && (chat.settings.enableCoupleSpacePrompt ?? chat.settings.coupleSpacePrompt) === true) {
     const myNickname = chat.settings.myNickname || '我';
     const charName = chat.name || '';
     const unbindMsg = {
@@ -393,7 +609,7 @@ function enterCoupleSpace(charId) {
   const userNickname = chat ? (chat.settings.myNickname || '我') : '我';
   const userAvatar = chat ? (chat.settings.myAvatar || state.qzoneSettings.avatar || defaultAvatar) : defaultAvatar;
   const iframe = document.getElementById('couple-space-iframe');
-  iframe.src = '330--main/index.html';
+  iframe.src = '330--main/index.html?v=0.0.37';
   iframe.onload = function() {
     const spaces = getCoupleSpaces();
     const space = spaces.find(s => s.charId === charId);
@@ -900,12 +1116,15 @@ function buildDiaryAiContext(chat) {
   try {
     const annivs = JSON.parse(localStorage.getItem('coupleAnniv_' + chat.id) || '[]');
     if (annivs.length > 0) {
+      const annivSettings = readCoupleSpaceJson('coupleAnnivSettings_' + chat.id, {});
+      const visibleCount = getCoupleSpaceVisibleCount(annivSettings, 'visibleAnniversaries', 10);
       const now = new Date(); now.setHours(0,0,0,0);
       const todayItems = [];
       const upcomingItems = [];
       const allItems = [];
 
-      annivs.forEach(a => {
+      const visibleAnnivs = getRelevantCoupleAnniversaries(annivs, visibleCount).map(entry => entry.item);
+      visibleAnnivs.forEach(a => {
         const d = new Date(a.date + 'T00:00:00');
         const thisYear = new Date(now.getFullYear(), d.getMonth(), d.getDate());
         const nextOcc = thisYear >= now ? thisYear : new Date(now.getFullYear() + 1, d.getMonth(), d.getDate());
@@ -944,19 +1163,16 @@ function buildDiaryAiContext(chat) {
   try {
     const clItems = JSON.parse(localStorage.getItem('coupleChecklist_' + chat.id) || '[]');
     if (clItems.length > 0) {
-      const pending = clItems.filter(i => !i.done);
-      const done = clItems.filter(i => i.done).slice(-5);
-      if (pending.length > 0) {
-        checklistContext += '待完成:\n' + pending.map(i =>
-          '- "' + i.title + '" (' + i.category + ', ' +
-          (i.author === 'char' ? charName : myNickname) + '创建)'
-        ).join('\n') + '\n';
-      }
-      if (done.length > 0) {
-        checklistContext += '最近完成:\n' + done.map(i =>
-          '- "' + i.title + '" (完成于' + new Date(i.doneAt).toLocaleDateString('zh-CN') + ')'
-        ).join('\n');
-      }
+      const settings = readCoupleSpaceJson('coupleChecklistSettings_' + chat.id, {});
+      const charCount = getCoupleSpaceVisibleCount(settings, 'visibleCharItems', 10);
+      const userCount = getCoupleSpaceVisibleCount(settings, 'visibleUserItems', 10);
+      const visible = [
+        ...takeRecentCoupleSpaceItems(clItems, 'char', charCount),
+        ...takeRecentCoupleSpaceItems(clItems, 'user', userCount)
+      ];
+      checklistContext = visible.map(i =>
+        `- ${i.done ? '已完成' : '待完成'} "${i.title}" (${i.category || '未分类'}, ${i.author === 'char' ? charName : myNickname}创建)`
+      ).join('\n');
     }
   } catch(e) {}
 
@@ -965,7 +1181,11 @@ function buildDiaryAiContext(chat) {
   try {
     const tlItems = JSON.parse(localStorage.getItem('coupleTimeline_' + chat.id) || '[]');
     if (tlItems.length > 0) {
-      const recent = tlItems.slice(-5);
+      const settings = readCoupleSpaceJson('coupleTimelineSettings_' + chat.id, {});
+      const recent = [
+        ...takeRecentCoupleSpaceItems(tlItems, 'char', getCoupleSpaceVisibleCount(settings, 'visibleCharItems', 10)),
+        ...takeRecentCoupleSpaceItems(tlItems, 'user', getCoupleSpaceVisibleCount(settings, 'visibleUserItems', 10))
+      ];
       timelineContext = '最近的时光记录:\n' + recent.map(i =>
         '- [' + (i.category || 'moment') + '] "' + i.title + '": ' + (i.content || '').substring(0, 80) +
         ' (' + (i.author === 'char' ? charName : myNickname) + '记录)'
@@ -978,8 +1198,9 @@ function buildDiaryAiContext(chat) {
   try {
     const moodItems = JSON.parse(localStorage.getItem('coupleMoods_' + chat.id) || '[]');
     if (moodItems.length > 0) {
-      const charMoods = moodItems.filter(i => i.author === 'char').slice(-5);
-      const userMoods = moodItems.filter(i => i.author === 'user').slice(-5);
+      const settings = readCoupleSpaceJson('coupleMoodSettings_' + chat.id, {});
+      const charMoods = takeRecentCoupleSpaceItems(moodItems, 'char', getCoupleSpaceVisibleCount(settings, 'visibleCharMoods', 10));
+      const userMoods = takeRecentCoupleSpaceItems(moodItems, 'user', getCoupleSpaceVisibleCount(settings, 'visibleUserMoods', 10));
       if (charMoods.length > 0) {
         moodContext += charName + '最近的心情:\n' + charMoods.map(i =>
           '- ' + i.moodType + ': "' + (i.content || '').substring(0, 80) + '" (' + new Date(i.createdAt).toLocaleDateString('zh-CN') + ')'
@@ -998,8 +1219,9 @@ function buildDiaryAiContext(chat) {
   try {
     const letterItems = JSON.parse(localStorage.getItem('coupleLetters_' + chat.id) || '[]');
     if (letterItems.length > 0) {
-      const charLetters = letterItems.filter(i => i.author === 'char').slice(-3);
-      const userLetters = letterItems.filter(i => i.author === 'user').slice(-3);
+      const settings = readCoupleSpaceJson('coupleLetterSettings_' + chat.id, {});
+      const charLetters = takeRecentCoupleSpaceItems(letterItems, 'char', getCoupleSpaceVisibleCount(settings, 'visibleCharLetters', 5));
+      const userLetters = takeRecentCoupleSpaceItems(letterItems, 'user', getCoupleSpaceVisibleCount(settings, 'visibleUserLetters', 5));
       if (charLetters.length > 0) {
         letterContext += charName + '最近写的信:\n' + charLetters.map(i =>
           '- "' + i.title + '": ' + (i.content || '').substring(0, 100) + '... (' + new Date(i.createdAt).toLocaleDateString('zh-CN') + ')'
@@ -1028,8 +1250,9 @@ function buildDiaryAiContext(chat) {
       let stageName = '种子';
       for (let i = stages.length - 1; i >= 0; i--) { if (totalCoins >= stages[i].min) { stageName = stages[i].name; break; } }
       gardenContext += treeName + ' (' + stageName + ', 总收入' + totalCoins.toFixed(2) + '元, 共浇水' + waterLogs.length + '次)\n';
-      const charWaters = waterLogs.filter(i => i.author === 'char').slice(-3);
-      const userWaters = waterLogs.filter(i => i.author === 'user').slice(-3);
+      const settings = readCoupleSpaceJson('coupleGardenSettings_' + chat.id, {});
+      const charWaters = takeRecentCoupleSpaceItems(waterLogs, 'char', getCoupleSpaceVisibleCount(settings, 'visibleCharWaters', 10));
+      const userWaters = takeRecentCoupleSpaceItems(waterLogs, 'user', getCoupleSpaceVisibleCount(settings, 'visibleUserWaters', 10));
       if (charWaters.length > 0) {
         gardenContext += charName + '最近的浇水:\n' + charWaters.map(i =>
           '- "' + (i.content || '').substring(0, 80) + '" (' + new Date(i.createdAt).toLocaleDateString('zh-CN') + ')'
@@ -1048,8 +1271,9 @@ function buildDiaryAiContext(chat) {
   try {
     const locItems = JSON.parse(localStorage.getItem('coupleLocations_' + chat.id) || '[]');
     if (locItems.length > 0) {
-      const charLocs = locItems.filter(i => i.author === 'char').slice(-5);
-      const userLocs = locItems.filter(i => i.author === 'user').slice(-5);
+      const settings = readCoupleSpaceJson('coupleLocSettings_' + chat.id, {});
+      const charLocs = takeRecentCoupleSpaceItems(locItems, 'char', getCoupleSpaceVisibleCount(settings, 'visibleCharLocations', 10));
+      const userLocs = takeRecentCoupleSpaceItems(locItems, 'user', getCoupleSpaceVisibleCount(settings, 'visibleUserLocations', 10));
       if (charLocs.length > 0) {
         locationContext += charName + '分享的地点:\n' + charLocs.map(i =>
           '- [' + (i.category || 'daily') + '] "' + i.name + '": ' + (i.description || '').substring(0, 80) +
@@ -1070,8 +1294,9 @@ function buildDiaryAiContext(chat) {
   try {
     const sleepItems = JSON.parse(localStorage.getItem('coupleSleep_' + chat.id) || '[]');
     if (sleepItems.length > 0) {
-      const charSleeps = sleepItems.filter(i => i.author === 'char').slice(-5);
-      const userSleeps = sleepItems.filter(i => i.author === 'user').slice(-5);
+      const settings = readCoupleSpaceJson('coupleSleepSettings_' + chat.id, {});
+      const charSleeps = takeRecentCoupleSpaceItems(sleepItems, 'char', getCoupleSpaceVisibleCount(settings, 'visibleCharSleeps', 10));
+      const userSleeps = takeRecentCoupleSpaceItems(sleepItems, 'user', getCoupleSpaceVisibleCount(settings, 'visibleUserSleeps', 10));
       if (charSleeps.length > 0) {
         sleepContext += charName + '最近的睡眠:\n' + charSleeps.map(i => {
           let line = '- ' + new Date(i.sleepAt || i.createdAt).toLocaleDateString('zh-CN');
@@ -1112,8 +1337,9 @@ function buildDiaryAiContext(chat) {
       const monthExpense = thisMonth.filter(i => i.type === 'expense').reduce((s, i) => s + (i.amount || 0), 0);
       const monthIncome = thisMonth.filter(i => i.type === 'income').reduce((s, i) => s + (i.amount || 0), 0);
       financeContext += '本月支出: ' + monthExpense.toFixed(2) + '元, 收入: ' + monthIncome.toFixed(2) + '元\n';
-      const charFin = finItems.filter(i => i.author === 'char').slice(-5);
-      const userFin = finItems.filter(i => i.author === 'user').slice(-5);
+      const settings = readCoupleSpaceJson('coupleFinanceSettings_' + chat.id, {});
+      const charFin = takeRecentCoupleSpaceItems(finItems, 'char', getCoupleSpaceVisibleCount(settings, 'visibleCharItems', 10));
+      const userFin = takeRecentCoupleSpaceItems(finItems, 'user', getCoupleSpaceVisibleCount(settings, 'visibleUserItems', 10));
       if (charFin.length > 0) {
         financeContext += charName + '最近记的账:\n' + charFin.map(i =>
           '- [' + i.type + '] ' + i.category + ' ¥' + i.amount + ' "' + i.title + '"'
@@ -1381,7 +1607,13 @@ async function triggerAutoDiaryWrite(charId, isTimer = false) {
     const recentDiaries = [];
     try {
       const diaries = JSON.parse(localStorage.getItem('coupleDiaries_' + charId)) || [];
-      diaries.slice(-5).forEach(d => {
+      const charCount = getCoupleSpaceVisibleCount(settings, 'visibleCharDiaryCount', 3);
+      const userCount = getCoupleSpaceVisibleCount(settings, 'visibleUserDiaryCount', 3);
+      const visibleDiaries = [
+        ...takeRecentCoupleSpaceItems(diaries, 'user', userCount),
+        ...takeRecentCoupleSpaceItems(diaries, 'char', charCount)
+      ];
+      visibleDiaries.forEach(d => {
         recentDiaries.push({
           author: d.author === 'char' ? chat.name : (chat.settings.myNickname || '我'),
           title: d.title,
@@ -1763,7 +1995,11 @@ async function triggerAutoAlbumPost(charId, isTimer = false) {
 
   for (let i = 0; i < postCount; i++) {
     try {
-      const recentPhotos = (await getCoupleAlbumPhotos(charId)).slice(-10);
+      const allPhotos = await getCoupleAlbumPhotos(charId);
+      const recentPhotos = [
+        ...takeRecentCoupleSpaceItems(allPhotos, 'user', getCoupleSpaceVisibleCount(albumSettings, 'visibleUserPhotoCount', 3)),
+        ...takeRecentCoupleSpaceItems(allPhotos, 'char', getCoupleSpaceVisibleCount(albumSettings, 'visibleCharPhotoCount', 3))
+      ];
       const result = await generateCoupleSpaceAlbumAi(chat, { charId, recentPhotos });
 
       let imageData = null;
@@ -1939,7 +2175,10 @@ async function handleCoupleSpaceAnnivCreateRequest(data) {
 
     const ctx = buildDiaryAiContext(chat);
     const existingAnnivs = data.existingAnnivs || JSON.parse(localStorage.getItem('coupleAnniv_' + data.charId) || '[]');
-    const existingList = existingAnnivs.map(a => `- "${a.title}" (${a.date})`).join('\n') || '(暂无)';
+    const annivSettings = readCoupleSpaceJson('coupleAnnivSettings_' + data.charId, {});
+    const visibleCount = getCoupleSpaceVisibleCount(annivSettings, 'visibleAnniversaries', 10);
+    const visibleAnnivs = getRelevantCoupleAnniversaries(existingAnnivs, visibleCount).map(entry => entry.item);
+    const existingList = visibleAnnivs.map(a => `- "${a.title}" (${a.date})`).join('\n') || '(暂无)';
     const todayStr = new Date().toISOString().split('T')[0];
 
     const prompt = `你是"${ctx.charName}"。你的伴侣"${ctx.myNickname}"让你创建一个纪念日。根据你们的对话和关系，想一个有意义的纪念日。
@@ -2066,7 +2305,9 @@ async function triggerAnnivDiscovery(charId) {
   const todayStr = new Date().toISOString().split('T')[0];
 
   const existingAnnivs = JSON.parse(localStorage.getItem('coupleAnniv_' + charId) || '[]');
-  const existingList = existingAnnivs.map(a => `- "${a.title}" (${a.date})`).join('\n') || '(暂无)';
+  const visibleCount = getCoupleSpaceVisibleCount(settings, 'visibleAnniversaries', 10);
+  const visibleAnnivs = getRelevantCoupleAnniversaries(existingAnnivs, visibleCount).map(entry => entry.item);
+  const existingList = visibleAnnivs.map(a => `- "${a.title}" (${a.date})`).join('\n') || '(暂无)';
 
   // If aiDecide is off, skip the discovery
   if (!settings.aiDecide) return;
@@ -2283,8 +2524,8 @@ async function generateCoupleSpaceChecklistAi(chat, data) {
   const maxUserVisible = clSettings.visibleUserItems ?? 10;
 
   const items = data.existingItems || [];
-  const charItems = items.filter(i => i.author === 'char').slice(-maxCharVisible);
-  const userItems = items.filter(i => i.author === 'user').slice(-maxUserVisible);
+  const charItems = takeRecentCoupleSpaceItems(items, 'char', maxCharVisible);
+  const userItems = takeRecentCoupleSpaceItems(items, 'user', maxUserVisible);
 
   let existingCharItemsText = '';
   if (charItems.length > 0) {
@@ -2644,8 +2885,8 @@ async function generateCoupleSpaceMessageAi(chat, data) {
   const maxUserVisible = msgSettings.visibleUserMessages ?? 10;
 
   const items = data.existingMessages || [];
-  const charMsgs = items.filter(i => i.author === 'char').slice(-maxCharVisible);
-  const userMsgs = items.filter(i => i.author === 'user').slice(-maxUserVisible);
+  const charMsgs = takeRecentCoupleSpaceItems(items, 'char', maxCharVisible);
+  const userMsgs = takeRecentCoupleSpaceItems(items, 'user', maxUserVisible);
 
   let existingCharMsgsText = '';
   if (charMsgs.length > 0) {
@@ -2996,8 +3237,8 @@ async function generateCoupleSpaceMoodAi(chat, data) {
   const maxCharVisible = moodSettings.visibleCharMoods ?? 10;
   const maxUserVisible = moodSettings.visibleUserMoods ?? 10;
   const items = data.existingMoods || [];
-  const charMoods = items.filter(i => i.author === 'char').slice(-maxCharVisible);
-  const userMoods = items.filter(i => i.author === 'user').slice(-maxUserVisible);
+  const charMoods = takeRecentCoupleSpaceItems(items, 'char', maxCharVisible);
+  const userMoods = takeRecentCoupleSpaceItems(items, 'user', maxUserVisible);
   let existingCharMoodsText = '';
   if (charMoods.length > 0) {
     existingCharMoodsText = charMoods.map(m => '- ' + m.moodType + ': "' + (m.content || '') + '"').join('\n');
@@ -3320,8 +3561,8 @@ async function generateCoupleSpaceTimelineAi(chat, data) {
   const maxUserVisible = tlSettings.visibleUserItems ?? 10;
 
   const items = data.existingItems || [];
-  const charItems = items.filter(i => i.author === 'char').slice(-maxCharVisible);
-  const userItems = items.filter(i => i.author === 'user').slice(-maxUserVisible);
+  const charItems = takeRecentCoupleSpaceItems(items, 'char', maxCharVisible);
+  const userItems = takeRecentCoupleSpaceItems(items, 'user', maxUserVisible);
 
   let existingCharItemsText = '';
   if (charItems.length > 0) {
@@ -3692,8 +3933,8 @@ async function generateCoupleSpaceLetterAi(chat, data) {
   const maxCharVisible = letterSettings.visibleCharLetters ?? 5;
   const maxUserVisible = letterSettings.visibleUserLetters ?? 5;
   const items = data.existingLetters || [];
-  const charLetters = items.filter(i => i.author === 'char').slice(-maxCharVisible);
-  const userLetters = items.filter(i => i.author === 'user').slice(-maxUserVisible);
+  const charLetters = takeRecentCoupleSpaceItems(items, 'char', maxCharVisible);
+  const userLetters = takeRecentCoupleSpaceItems(items, 'user', maxUserVisible);
 
   let existingCharLettersText = '';
   if (charLetters.length > 0) {
@@ -4469,8 +4710,8 @@ async function generateCoupleSpaceGardenAi(chat, data) {
   const maxCharVisible = gardenSettings.visibleCharWaters ?? 10;
   const maxUserVisible = gardenSettings.visibleUserWaters ?? 10;
   const items = data.existingWaters || [];
-  const charWaters = items.filter(i => i.author === 'char').slice(-maxCharVisible);
-  const userWaters = items.filter(i => i.author === 'user').slice(-maxUserVisible);
+  const charWaters = takeRecentCoupleSpaceItems(items, 'char', maxCharVisible);
+  const userWaters = takeRecentCoupleSpaceItems(items, 'user', maxUserVisible);
   let existingCharWatersText = '';
   if (charWaters.length > 0) {
     existingCharWatersText = charWaters.map(m => '- "' + (m.content || '') + '" (' + new Date(m.createdAt).toLocaleDateString('zh-CN') + ')').join('\n');
@@ -4799,8 +5040,8 @@ async function generateCoupleSpaceLocationAi(chat, data) {
   const maxCharVisible = locSettings.visibleCharLocations ?? 10;
   const maxUserVisible = locSettings.visibleUserLocations ?? 10;
   const items = data.existingLocations || [];
-  const charLocs = items.filter(i => i.author === 'char').slice(-maxCharVisible);
-  const userLocs = items.filter(i => i.author === 'user').slice(-maxUserVisible);
+  const charLocs = takeRecentCoupleSpaceItems(items, 'char', maxCharVisible);
+  const userLocs = takeRecentCoupleSpaceItems(items, 'user', maxUserVisible);
   let existingCharLocsText = '';
   if (charLocs.length > 0) {
     existingCharLocsText = charLocs.map(i => '- [' + (i.category || 'daily') + '] "' + i.name + '": ' + (i.description || '').substring(0, 80) + (i.address ? ' (' + i.address + ')' : '')).join('\n');
@@ -5107,8 +5348,8 @@ async function generateCoupleSpaceSleepAi(chat, data) {
   const maxCharVisible = sleepSettings.visibleCharSleeps ?? 10;
   const maxUserVisible = sleepSettings.visibleUserSleeps ?? 10;
   const items = data.existingSleeps || [];
-  const charSleeps = items.filter(i => i.author === 'char').slice(-maxCharVisible);
-  const userSleeps = items.filter(i => i.author === 'user').slice(-maxUserVisible);
+  const charSleeps = takeRecentCoupleSpaceItems(items, 'char', maxCharVisible);
+  const userSleeps = takeRecentCoupleSpaceItems(items, 'user', maxUserVisible);
 
   let existingCharSleepsText = '';
   if (charSleeps.length > 0) {
@@ -5655,8 +5896,8 @@ async function generateCoupleSpaceFinanceAi(chat, data) {
   const maxCharVisible = finSettings.visibleCharItems ?? 10;
   const maxUserVisible = finSettings.visibleUserItems ?? 10;
   const items = data.existingItems || [];
-  const charItems = items.filter(i => i.author === 'char').slice(-maxCharVisible);
-  const userItems = items.filter(i => i.author === 'user').slice(-maxUserVisible);
+  const charItems = takeRecentCoupleSpaceItems(items, 'char', maxCharVisible);
+  const userItems = takeRecentCoupleSpaceItems(items, 'user', maxUserVisible);
 
   // Build dynamic category list from user's custom categories
   const customCats = data.customCategories || [];

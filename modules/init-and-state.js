@@ -180,8 +180,8 @@ document.addEventListener('DOMContentLoaded', () => {
       systemNotification: {
         enabled: false,
         appName: 'EPhone',
-        notifyInChatPage: false,  // 在聊天页面也发送通知
-        disableInternalNotification: false,  // 禁用内部弹窗
+        notifyInForeground: false,  // 应用前台也发送系统通知
+        showInternalNotification: true,  // 应用前台显示内部消息横幅
         pushServer: {
           enabled: false,
           serverUrl: '',
@@ -190,11 +190,6 @@ document.addEventListener('DOMContentLoaded', () => {
         vibration: {
           enabled: false,
           pattern: 'short'
-        },
-        sound: {
-          enabled: false,
-          useGlobalSound: true,
-          customSoundUrl: ''
         }
       },
       gardenWake: {
@@ -224,22 +219,31 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!state.globalSettings.systemNotification) {
       state.globalSettings.systemNotification = defaultGlobalSettings.systemNotification;
     } else {
+      const savedSystemNotification = state.globalSettings.systemNotification;
       state.globalSettings.systemNotification = {
         ...defaultGlobalSettings.systemNotification,
-        ...state.globalSettings.systemNotification,
+        ...savedSystemNotification,
         pushServer: {
           ...defaultGlobalSettings.systemNotification.pushServer,
-          ...(state.globalSettings.systemNotification.pushServer || {})
+          ...(savedSystemNotification.pushServer || {})
         },
         vibration: {
           ...defaultGlobalSettings.systemNotification.vibration,
-          ...(state.globalSettings.systemNotification.vibration || {})
-        },
-        sound: {
-          ...defaultGlobalSettings.systemNotification.sound,
-          ...(state.globalSettings.systemNotification.sound || {})
+          ...(savedSystemNotification.vibration || {})
         }
       };
+      // 兼容旧版通知开关，迁移后统一使用正向、含义明确的字段。
+      if (!Object.prototype.hasOwnProperty.call(savedSystemNotification, 'notifyInForeground')) {
+        state.globalSettings.systemNotification.notifyInForeground =
+          !!savedSystemNotification.notifyInChatPage;
+      }
+      if (!Object.prototype.hasOwnProperty.call(savedSystemNotification, 'showInternalNotification')) {
+        state.globalSettings.systemNotification.showInternalNotification =
+          !savedSystemNotification.disableInternalNotification;
+      }
+      delete state.globalSettings.systemNotification.notifyInChatPage;
+      delete state.globalSettings.systemNotification.disableInternalNotification;
+      delete state.globalSettings.systemNotification.sound;
     }
 
     state.globalSettings.gardenWake = {

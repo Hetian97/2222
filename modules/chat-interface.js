@@ -1567,15 +1567,10 @@
     if (chat.pendingCartClearNotification && !chat.isGroup) {
       const notification = chat.pendingCartClearNotification;
       const itemCount = notification.items.reduce((sum, item) => sum + item.quantity, 0);
-      
-      // 构建物品列表
-      const itemsList = notification.items.map(item => 
-        `${item.name} x${item.quantity} (¥${(item.price * item.quantity).toFixed(2)})`
-      ).join('\n');
-      
+
       await showCustomAlert(
         `${chat.name} 帮你清空了购物车！`,
-        `${chat.name} 已经用自己的钱帮你购买了购物车中的所有商品！\n\n共 ${itemCount} 件商品，总价 ¥${notification.totalCost.toFixed(2)}\n\n${itemsList}\n\n所有物品都在路上啦~`
+        `共 ${itemCount} 件商品，总价 ¥${notification.totalCost.toFixed(2)}`
       );
       
       // 清除通知标记

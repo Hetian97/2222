@@ -1,49 +1,193 @@
-// ========== 整洁API设置 - Tab 分页版 ==========
-// 独立模块：当 state.globalSettings.cleanApiSettings 开启时，
-// 将原有 api-settings-screen 的内容按 Tab 分类展示在独立全屏面板中
-
+// ========== 整洁总设置：普通模式与分页模式共用同一分类顺序 ==========
 (function() {
   'use strict';
 
   let cleanScreenEl = null;
-  // 记录原始 DOM 顺序，用于还原
-  let originalOrder = [];
+  let movedElements = [];
+
+  const categoryOrder = [
+    { id: 'api', label: 'API' },
+    { id: 'ai', label: 'AI 设置' },
+    { id: 'media', label: '媒体服务' },
+    { id: 'storage', label: '存储与同步' },
+    { id: 'general', label: '显示与工具' },
+    { id: 'notify', label: '通知与唤醒' },
+    { id: 'about', label: '关于' }
+  ];
+
+  function directChildContaining(container, selector) {
+    const match = container && container.querySelector(selector);
+    if (!match) return null;
+    let node = match;
+    while (node.parentElement && node.parentElement !== container) node = node.parentElement;
+    return node.parentElement === container ? node : null;
+  }
+
+  function sectionAfterHeader(container, text) {
+    const header = Array.from(container.children).find(el =>
+      el.classList && el.classList.contains('settings-header') && el.textContent.includes(text)
+    );
+    if (!header) return null;
+    let node = header.nextElementSibling;
+    while (node && !(node.classList && node.classList.contains('settings-section'))) {
+      node = node.nextElementSibling;
+    }
+    return node;
+  }
+
+  function moveSettingUnit(selector, target) {
+    const match = document.querySelector(selector);
+    if (!match || !target) return;
+    const source = match.closest('.settings-section');
+    const unit = directChildContaining(source, selector);
+    if (unit) target.appendChild(unit);
+  }
+
+  function prepareApiSettingsStructure() {
+    const container = document.querySelector('#api-settings-screen .settings-container');
+    if (!container) return;
+
+    // “语言”没有灰色标题，显式标记为独立分组，避免被前一个分区吸收。
+    const languageSection = document.getElementById('language-select')?.closest('.settings-section');
+    if (languageSection) {
+      languageSection.dataset.cleanStandaloneGroup = 'true';
+      languageSection.dataset.cleanCategory = 'general';
+    }
+
+    const backgroundSection = document.getElementById('background-activity-switch')?.closest('.settings-section');
+    if (backgroundSection) {
+      const mainSwitch = directChildContaining(backgroundSection, '#background-activity-switch');
+      const interval = directChildContaining(backgroundSection, '#background-interval-input');
+      if (mainSwitch && interval) backgroundSection.insertBefore(interval, mainSwitch.nextSibling);
+    }
+
+    let proactiveSection = document.getElementById('global-proactive-behavior-section');
+    if (!proactiveSection) {
+      const header = document.createElement('div');
+      header.className = 'settings-header';
+      header.textContent = '角色主动行为（全局默认）';
+      header.dataset.cleanCategory = 'ai';
+      proactiveSection = document.createElement('div');
+      proactiveSection.id = 'global-proactive-behavior-section';
+      proactiveSection.className = 'settings-section';
+      const desc = document.createElement('div');
+      desc.className = 'settings-desc';
+      desc.textContent = '控制角色可主动执行的行为；可在每个角色的聊天设置中单独覆盖。';
+      const ttsHeader = Array.from(container.children).find(el =>
+        el.classList && el.classList.contains('settings-header') && el.getAttribute('data-lang-key') === 'apiTtsSettings'
+      );
+      container.insertBefore(header, ttsHeader || null);
+      container.insertBefore(proactiveSection, ttsHeader || null);
+      container.insertBefore(desc, ttsHeader || null);
+    }
+
+    moveSettingUnit('#global-enable-qzone-actions-switch', proactiveSection);
+    moveSettingUnit('#global-enable-view-myphone-switch', proactiveSection);
+    moveSettingUnit('#global-enable-view-myphone-bg-switch', proactiveSection);
+    moveSettingUnit('#global-view-myphone-chance-input', proactiveSection);
+    moveSettingUnit('#global-enable-cross-chat-switch', proactiveSection);
+
+    const promptHeader = Array.from(container.children).find(el =>
+      el.classList && el.classList.contains('settings-header') &&
+      (el.textContent.includes('AI行为控制') || el.textContent.includes('回复与提示词'))
+    );
+    if (promptHeader) {
+      promptHeader.textContent = '回复与提示词（全局默认）';
+      promptHeader.dataset.cleanCategory = 'ai';
+    }
+
+    const dataSection = sectionAfterHeader(container, '数据管理');
+    moveSettingUnit('#global-prompt-clear-memory-switch', dataSection);
+  }
+
+  function buildGroups(container) {
+    const groups = [];
+    let current = { headerEl: null, header: '', elements: [] };
+    Array.from(container.children).forEach(el => {
+      if (el.dataset && el.dataset.cleanStandaloneGroup === 'true') {
+        if (current.headerEl || current.elements.length) groups.push(current);
+        groups.push({
+          headerEl: null,
+          header: '',
+          elements: [el],
+          forcedCategory: el.dataset.cleanCategory || 'general'
+        });
+        current = { headerEl: null, header: '', elements: [] };
+        return;
+      }
+      if (el.classList && el.classList.contains('settings-header')) {
+        if (current.headerEl || current.elements.length) groups.push(current);
+        current = { headerEl: el, header: el.textContent.trim(), elements: [el] };
+      } else {
+        current.elements.push(el);
+      }
+    });
+    if (current.headerEl || current.elements.length) groups.push(current);
+    return groups;
+  }
+
+  function categoryFor(group) {
+    if (group.forcedCategory) return group.forcedCategory;
+    if (!group.headerEl) return 'general';
+    if (group.headerEl.dataset.cleanCategory) return group.headerEl.dataset.cleanCategory;
+    const key = group.headerEl.getAttribute('data-lang-key') || '';
+    const text = group.header;
+
+    if (['apiPresetManagement', 'apiPrimarySettings', 'apiSecondarySettings',
+      'apiBackgroundSettings', 'apiVisionSettings', 'apiCoupleSpaceSettings'].includes(key)) return 'api';
+    if (key === 'apiBgActivitySettings') return 'ai';
+    if (['apiTtsSettings', 'apiImageGenSettings'].includes(key)) return 'media';
+
+    if (/参数设置|高级参数|识图优化|AI行为控制|回复与提示词|角色主动行为|提示词管理/.test(text)) return 'ai';
+    if (/云服务与存储|数据管理/.test(text)) return 'storage';
+    if (/后台保活|系统级通知|自动唤醒/.test(text)) return 'notify';
+    if (/应用更新|许愿|反馈/.test(text)) return 'about';
+    if (/调试工具|悬浮球快捷工具|性能与显示|截图水印/.test(text)) return 'general';
+    return 'general';
+  }
+
+  function normalizeApiSettingsOrder() {
+    const container = document.querySelector('#api-settings-screen .settings-container');
+    if (!container) return;
+    prepareApiSettingsStructure();
+    const groups = buildGroups(container);
+    const buckets = Object.fromEntries(categoryOrder.map(category => [category.id, []]));
+    groups.forEach(group => {
+      const category = categoryFor(group);
+      group.category = category;
+      if (group.headerEl) group.headerEl.dataset.cleanCategory = category;
+      buckets[category].push(group);
+    });
+    categoryOrder.forEach(category => {
+      buckets[category.id].forEach(group => group.elements.forEach(el => container.appendChild(el)));
+    });
+  }
 
   function openCleanApiSettings() {
     buildCleanScreen();
   }
 
   function buildCleanScreen() {
-    // 如果已存在则先清理
-    if (cleanScreenEl) {
-      restoreElements();
-      cleanScreenEl.remove();
-      cleanScreenEl = null;
-    }
+    if (cleanScreenEl) closeCleanScreenOnly();
+    normalizeApiSettingsOrder();
 
     const oldScreen = document.getElementById('api-settings-screen');
-    const oldContainer = oldScreen ? oldScreen.querySelector('.settings-container') : null;
+    const oldContainer = oldScreen && oldScreen.querySelector('.settings-container');
     if (!oldContainer) return;
+    const groups = buildGroups(oldContainer);
+    const buckets = Object.fromEntries(categoryOrder.map(category => [category.id, []]));
+    groups.forEach(group => buckets[categoryFor(group)].push(...group.elements));
 
-    // 记录原始子元素顺序（用于还原）
-    originalOrder = Array.from(oldContainer.children);
-
-    // 隐藏原有 screen
     oldScreen.classList.remove('active');
     oldScreen.style.display = 'none';
-
-    // 创建新的全屏容器
     cleanScreenEl = document.createElement('div');
     cleanScreenEl.id = 'clean-api-settings-screen';
 
-    // Header
     const header = document.createElement('div');
     header.className = 'cas-header';
     header.innerHTML = '<span class="cas-back">\u2039</span>' +
-      '<span class="cas-title">\u8BBE\u7F6E</span>' +
-      '<span class="cas-save">\u5B8C\u6210</span>';
+      '<span class="cas-title">设置</span><span class="cas-save">完成</span>';
     cleanScreenEl.appendChild(header);
-
     header.querySelector('.cas-back').addEventListener('click', closeClean);
     header.querySelector('.cas-save').addEventListener('click', () => {
       const saveBtn = document.getElementById('save-api-settings-btn');
@@ -51,242 +195,70 @@
       closeClean();
     });
 
-    // Tab 栏
     const tabBar = document.createElement('div');
     tabBar.className = 'cas-tabs';
-    cleanScreenEl.appendChild(tabBar);
-
-    // 内容区
     const body = document.createElement('div');
     body.className = 'cas-body';
+    cleanScreenEl.appendChild(tabBar);
     cleanScreenEl.appendChild(body);
 
-    // 收集原有 settings-container 中的所有直接子元素
-    // 包括 settings-header, settings-section, settings-desc, p 等
-    const allChildren = Array.from(oldContainer.children);
-
-    // 按 settings-header 分组：每个 header 后面跟着的 section/desc 归为一组
-    const groups = buildGroups(allChildren);
-
-    // 将分组归类到 Tab
-    const tabPanels = buildTabs(groups);
-
-    tabPanels.forEach((panel, idx) => {
+    movedElements = [];
+    categoryOrder.filter(category => buckets[category.id].length).forEach((category, index) => {
       const tab = document.createElement('div');
-      tab.className = 'cas-tab' + (idx === 0 ? ' active' : '');
-      tab.textContent = panel.label;
-      tab.dataset.tabId = panel.id;
-      tab.addEventListener('click', () => switchTab(panel.id));
+      tab.className = 'cas-tab' + (index === 0 ? ' active' : '');
+      tab.textContent = category.label;
+      tab.dataset.tabId = category.id;
+      tab.addEventListener('click', () => switchTab(category.id));
       tabBar.appendChild(tab);
 
-      const panelEl = document.createElement('div');
-      panelEl.className = 'cas-panel' + (idx === 0 ? ' active' : '');
-      panelEl.id = 'cas-panel-' + panel.id;
-
+      const panel = document.createElement('div');
+      panel.className = 'cas-panel' + (index === 0 ? ' active' : '');
+      panel.id = 'cas-panel-' + category.id;
       const inner = document.createElement('div');
       inner.className = 'settings-container';
-      panel.elements.forEach(el => inner.appendChild(el));
-      panelEl.appendChild(inner);
-      body.appendChild(panelEl);
+      buckets[category.id].forEach(el => {
+        movedElements.push(el);
+        inner.appendChild(el);
+      });
+      panel.appendChild(inner);
+      body.appendChild(panel);
     });
 
     document.body.appendChild(cleanScreenEl);
   }
 
-  // 将 settings-container 的子元素按 settings-header 分组
-  // 返回 [{header: '标题文本', headerEl: el|null, elements: [el, ...]}, ...]
-  function buildGroups(allChildren) {
-    const groups = [];
-    let current = { header: '', headerEl: null, elements: [] };
-
-    allChildren.forEach(el => {
-      if (el.classList && el.classList.contains('settings-header')) {
-        // 遇到新 header，保存当前组（如果有内容），开始新组
-        if (current.elements.length > 0 || current.headerEl) {
-          groups.push(current);
-        }
-        current = { header: el.textContent.trim(), headerEl: el, elements: [] };
-      } else {
-        current.elements.push(el);
-      }
-    });
-    // 最后一组
-    if (current.elements.length > 0 || current.headerEl) {
-      groups.push(current);
-    }
-    return groups;
-  }
-
-  // 将分组归类到 Tab
-  function buildTabs(groups) {
-    const tabs = [];
-    const used = new Set();
-
-    function takeGroup(g) {
-      if (g && !used.has(g)) {
-        used.add(g);
-        return g;
-      }
-      return null;
-    }
-
-    // 收集各组的元素（包括 headerEl）
-    function collectElements(groupList) {
-      const els = [];
-      groupList.forEach(g => {
-        if (g.headerEl) els.push(g.headerEl);
-        g.elements.forEach(el => els.push(el));
-      });
-      return els;
-    }
-
-    // 用 data-lang-key 匹配（最可靠，不受语言切换影响）
-    function findByKey(key) {
-      return groups.find(g => !used.has(g) && g.headerEl && g.headerEl.getAttribute('data-lang-key') === key);
-    }
-    // 用原始文本匹配（没有 data-lang-key 的 header）
-    function findByText(text) {
-      return groups.find(g => !used.has(g) && g.header.includes(text));
-    }
-    // 按索引取（第 N 个 group）
-    function findByIndex(idx) {
-      return groups[idx] && !used.has(groups[idx]) ? groups[idx] : null;
-    }
-
-    // 第一个无 header 的组（语言设置），放到系统 Tab
-    const langGroup = groups.find(g => !g.headerEl && g.elements.length > 0);
-
-    // === Tab 1: API（配置预设 + 主API + 参数设置/温度） ===
-    var g;
-    const apiGroups = [];
-    g = takeGroup(findByKey('apiPresetManagement'));  // 配置预设
-    if (g) apiGroups.push(g);
-    g = takeGroup(findByKey('apiPrimarySettings'));   // 主 API (对话)
-    if (g) apiGroups.push(g);
-    g = takeGroup(findByText('参数设置'));              // 参数设置（温度）
-    if (g) apiGroups.push(g);
-    if (apiGroups.length) {
-      tabs.push({ id: 'api', label: 'API', elements: collectElements(apiGroups) });
-    }
-
-    // === Tab 2: AI行为（副API + 后台活动API + 识图API + 情侣空间API + 后台活动 + AI行为控制） ===
-    const aiGroups = [];
-    g = takeGroup(findByKey('apiSecondarySettings'));  // 副 API
-    if (g) aiGroups.push(g);
-    g = takeGroup(findByKey('apiBackgroundSettings')); // 后台活动 API 设置
-    if (g) aiGroups.push(g);
-    g = takeGroup(findByKey('apiVisionSettings'));     // 识图 API 设置
-    if (g) aiGroups.push(g);
-    g = takeGroup(findByKey('apiCoupleSpaceSettings')); // 情侣空间 API 设置
-    if (g) aiGroups.push(g);
-    g = takeGroup(findByKey('apiBgActivitySettings')); // 后台活动
-    if (g) aiGroups.push(g);
-    g = takeGroup(findByText('AI行为控制'));             // AI行为控制
-    if (g) aiGroups.push(g);
-    if (aiGroups.length) {
-      tabs.push({ id: 'ai', label: 'AI行为', elements: collectElements(aiGroups) });
-    }
-
-    // === Tab 3: 服务（TTS + 图像生成 + 云服务） ===
-    const serviceGroups = [];
-    g = takeGroup(findByKey('apiTtsSettings'));        // Minimax TTS 语音
-    if (g) serviceGroups.push(g);
-    g = takeGroup(findByKey('apiImageGenSettings'));   // 图像生成
-    if (g) serviceGroups.push(g);
-    g = takeGroup(findByText('云服务'));                 // 云服务与存储
-    if (g) serviceGroups.push(g);
-    if (serviceGroups.length) {
-      tabs.push({ id: 'service', label: '服务', elements: collectElements(serviceGroups) });
-    }
-
-    // === Tab 4: 通知（后台保活 + 系统级通知 + 外部服务自动唤醒） ===
-    const notifyGroups = [];
-    g = takeGroup(findByText('后台保活'));
-    if (g) notifyGroups.push(g);
-    g = takeGroup(findByText('系统级通知'));
-    if (g) notifyGroups.push(g);
-    g = takeGroup(findByText('Galatea Garden 自动唤醒'));
-    if (g) notifyGroups.push(g);
-    g = takeGroup(findByText('AISay 自动唤醒'));
-    if (g) notifyGroups.push(g);
-    if (notifyGroups.length) {
-      tabs.push({ id: 'notify', label: '通知', elements: collectElements(notifyGroups) });
-    }
-
-    // === Tab 5: 系统（语言 + 调试 + 性能 + 截图水印 + 提示词 + 更新） ===
-    const sysGroups = [];
-    g = takeGroup(langGroup);
-    if (g) sysGroups.push(g);
-    g = takeGroup(findByText('调试工具'));
-    if (g) sysGroups.push(g);
-    g = takeGroup(findByText('性能'));
-    if (g) sysGroups.push(g);
-    g = takeGroup(findByText('截图水印'));
-    if (g) sysGroups.push(g);
-    g = takeGroup(findByText('提示词管理'));
-    if (g) sysGroups.push(g);
-    g = takeGroup(findByText('应用更新'));
-    if (g) sysGroups.push(g);
-    if (sysGroups.length) {
-      tabs.push({ id: 'system', label: '系统', elements: collectElements(sysGroups) });
-    }
-
-    // === Tab 6: 数据（数据管理 + 许愿反馈） ===
-    const dataGroups = [];
-    g = takeGroup(findByText('数据管理'));
-    if (g) dataGroups.push(g);
-    g = takeGroup(findByText('许愿'));
-    if (g) dataGroups.push(g);
-    if (dataGroups.length) {
-      tabs.push({ id: 'data', label: '数据', elements: collectElements(dataGroups) });
-    }
-
-    // 收集剩余未分配的
-    const remaining = groups.filter(g => !used.has(g));
-    if (remaining.length) {
-      tabs.push({ id: 'other', label: '其他', elements: collectElements(remaining) });
-    }
-
-    return tabs.filter(t => t.elements.length > 0);
-  }
-
   function switchTab(tabId) {
     if (!cleanScreenEl) return;
-    cleanScreenEl.querySelectorAll('.cas-tab').forEach(t => {
-      t.classList.toggle('active', t.dataset.tabId === tabId);
-    });
-    cleanScreenEl.querySelectorAll('.cas-panel').forEach(p => {
-      p.classList.toggle('active', p.id === 'cas-panel-' + tabId);
-    });
+    cleanScreenEl.querySelectorAll('.cas-tab').forEach(tab =>
+      tab.classList.toggle('active', tab.dataset.tabId === tabId)
+    );
+    cleanScreenEl.querySelectorAll('.cas-panel').forEach(panel =>
+      panel.classList.toggle('active', panel.id === 'cas-panel-' + tabId)
+    );
+  }
+
+  function restoreElements() {
+    const container = document.querySelector('#api-settings-screen .settings-container');
+    if (!container) return;
+    movedElements.forEach(el => container.appendChild(el));
+    movedElements = [];
+    normalizeApiSettingsOrder();
+  }
+
+  function closeCleanScreenOnly() {
+    restoreElements();
+    if (cleanScreenEl) cleanScreenEl.remove();
+    cleanScreenEl = null;
   }
 
   function closeClean() {
-    restoreElements();
-    if (cleanScreenEl) {
-      cleanScreenEl.remove();
-      cleanScreenEl = null;
-    }
+    closeCleanScreenOnly();
     const oldScreen = document.getElementById('api-settings-screen');
     if (oldScreen) oldScreen.style.display = '';
     showScreen('home-screen');
   }
 
-  function restoreElements() {
-    const oldContainer = document.querySelector('#api-settings-screen .settings-container');
-    if (!oldContainer || !cleanScreenEl) return;
-
-    // 如果 oldContainer 中已经有了新元素（说明系统刚刚重新渲染了设置列表）
-    // 那么我们不需要（也不应该）把旧的 DOM 元素再塞回去，否则会导致元素重复且数量翻倍
-    if (oldContainer.children.length > 0) {
-      return;
-    }
-
-    // 按原始顺序还原所有子元素
-    originalOrder.forEach(el => {
-      oldContainer.appendChild(el);
-    });
-  }
-
+  normalizeApiSettingsOrder();
   window.openCleanApiSettings = openCleanApiSettings;
   window.closeCleanApiSettings = closeClean;
 })();

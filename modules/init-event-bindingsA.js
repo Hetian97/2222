@@ -3121,6 +3121,8 @@ window.initEventBindingsA = async function(state, db) {
       document.getElementById('ai-voice-id-group').style.display = isGroup ? 'none' : 'block';
       document.getElementById('inject-thought-group').style.display = isGroup ? 'none' : 'block';
       document.getElementById('todo-list-setting-group').style.display = isGroup ? 'none' : 'flex';
+      document.getElementById('purchased-items-prompt-setting-group').style.display = isGroup ? 'none' : 'flex';
+      document.getElementById('character-wallet-prompt-setting-group').style.display = isGroup ? 'none' : 'flex';
       document.getElementById('offline-mode-group').style.display = 'block'; // 群聊和单聊都显示线下模式
       document.getElementById('ai-cooldown-group').style.display = isGroup ? 'none' : 'block';
       document.getElementById('group-cooldown-group').style.display = isGroup ? 'block' : 'none';
@@ -3161,6 +3163,8 @@ window.initEventBindingsA = async function(state, db) {
       document.getElementById('lyrics-position-group').style.display = 'block';
 
       document.getElementById('single-char-background-activity-group').style.display = isGroup ? 'none' : 'block';
+      const singleCharReplySettingsGroup = document.getElementById('single-char-reply-settings-group');
+      if (singleCharReplySettingsGroup) singleCharReplySettingsGroup.style.display = isGroup ? 'none' : 'block';
       document.getElementById('group-background-activity-group').style.display = isGroup ? 'block' : 'none';
 
 
@@ -3260,6 +3264,8 @@ window.initEventBindingsA = async function(state, db) {
 
 
         document.getElementById('single-char-background-activity-group').style.display = 'none';
+        const singleCharReplySettingsGroup = document.getElementById('single-char-reply-settings-group');
+        if (singleCharReplySettingsGroup) singleCharReplySettingsGroup.style.display = 'none';
         renderGroupMemberSettings(chat.members);
 
         // 群聊也需要加载表情包识图与智能匹配设置
@@ -3287,6 +3293,8 @@ window.initEventBindingsA = async function(state, db) {
       } else {
 
         document.getElementById('single-char-background-activity-group').style.display = 'block';
+        const singleCharReplySettingsGroup = document.getElementById('single-char-reply-settings-group');
+        if (singleCharReplySettingsGroup) singleCharReplySettingsGroup.style.display = 'block';
         // group reply sanitizer v1: hide group-only reply sanitizer UI in single chat settings
         const groupReplySanitizerSwitchRowForSingle = document.getElementById('group-reply-sanitizer-switch-row');
         const groupReplySanitizerRulesRowForSingle = document.getElementById('group-reply-sanitizer-rules-row');
@@ -3294,6 +3302,8 @@ window.initEventBindingsA = async function(state, db) {
         if (groupReplySanitizerRulesRowForSingle) groupReplySanitizerRulesRowForSingle.style.setProperty('display', 'none', 'important');
 
         document.getElementById('enable-todo-list-switch').checked = chat.settings.enableTodoList || false;
+        document.getElementById('enable-purchased-items-prompt-switch').checked = chat.settings.enablePurchasedItemsPrompt === true;
+        document.getElementById('enable-character-wallet-prompt-switch').checked = chat.settings.enableCharacterWalletPrompt === true;
         // --- 修复天气设置回显逻辑 ---
         const weatherSection = document.getElementById('weather-settings-section');
         weatherSection.style.display = 'block';
@@ -3643,9 +3653,9 @@ window.initEventBindingsA = async function(state, db) {
         coupleSpacePromptGroup.style.display = 'flex';
         coupleSpaceContentGroup.style.display = 'flex';
         coupleSpaceNotifyGroup.style.display = 'flex';
-        document.getElementById('couple-space-prompt-toggle').checked = chat.settings.enableCoupleSpacePrompt || false;
-        document.getElementById('couple-space-content-toggle').checked = chat.settings.enableCoupleSpaceContent || false;
-        document.getElementById('couple-space-notify-toggle').checked = chat.settings.enableCoupleSpaceNotify || false;
+        document.getElementById('couple-space-prompt-toggle').checked = (chat.settings.enableCoupleSpacePrompt ?? chat.settings.coupleSpacePrompt) === true;
+        document.getElementById('couple-space-content-toggle').checked = (chat.settings.enableCoupleSpaceContent ?? chat.settings.coupleSpaceContent) === true;
+        document.getElementById('couple-space-notify-toggle').checked = (chat.settings.enableCoupleSpaceNotify ?? chat.settings.coupleSpaceNotify) === true;
       } else {
         coupleSpacePromptGroup.style.display = 'none';
         coupleSpaceContentGroup.style.display = 'none';
@@ -4154,7 +4164,10 @@ window.initEventBindingsA = async function(state, db) {
         chat.settings.enableAutoCartClear = document.getElementById('char-auto-cart-clear-switch').checked;
         chat.settings.autoCartClearProbability = parseInt(document.getElementById('char-auto-cart-clear-probability').value) || 30;
         chat.settings.enableAutoTodoSchedule = document.getElementById('char-auto-todo-schedule-switch').checked;
-        chat.settings.autoTodoScheduleProbability = parseInt(document.getElementById('char-auto-todo-schedule-probability').value) || 15;
+        const autoTodoScheduleProbabilityValue = parseInt(document.getElementById('char-auto-todo-schedule-probability').value, 10);
+        chat.settings.autoTodoScheduleProbability = Number.isFinite(autoTodoScheduleProbabilityValue)
+          ? Math.min(100, Math.max(0, autoTodoScheduleProbabilityValue))
+          : 15;
 
         // role reply sanitizer v1: save current chat reply sanitizer settings
         const replySanitizerSwitch = document.getElementById('char-reply-sanitizer-switch');
@@ -4173,6 +4186,8 @@ window.initEventBindingsA = async function(state, db) {
         chat.settings.viewMyPhoneChance = charViewMyPhoneChanceInput.value.trim() === '' ? null : parseInt(charViewMyPhoneChanceInput.value);
         
         chat.settings.enableTodoList = document.getElementById('enable-todo-list-switch').checked;
+        chat.settings.enablePurchasedItemsPrompt = document.getElementById('enable-purchased-items-prompt-switch').checked;
+        chat.settings.enableCharacterWalletPrompt = document.getElementById('enable-character-wallet-prompt-switch').checked;
         const newOfflineModeState = document.getElementById('offline-mode-toggle').checked;
         chat.settings.isOfflineMode = newOfflineModeState;
         const weatherEnabled = document.getElementById('enable-weather-switch').checked;

@@ -758,6 +758,7 @@ function buildExternalMcpProxyUrl(path) {
     refreshExternalMcpActivityRecord(chat, record);
     if (wasCreated) {
       const isViewingThisChat = state.activeChatId === chat.id &&
+        document.visibilityState === 'visible' &&
         document.getElementById('chat-interface-screen')?.classList.contains('active');
       if (isViewingThisChat && typeof appendMessage === 'function') {
         Promise.resolve(appendMessage(record, chat)).then(() => refreshExternalMcpActivityRecord(chat, record));
@@ -2355,7 +2356,7 @@ ${linkedContents}
         return aiMessage;
       }
 
-    let isViewingThisChat = document.getElementById('chat-interface-screen').classList.contains('active') && state.activeChatId === chatId;
+    let isViewingThisChat = document.visibilityState === 'visible' && document.getElementById('chat-interface-screen').classList.contains('active') && state.activeChatId === chatId;
 
     setAvatarActingState(chatId, true);
     const chatHeaderTitle = document.getElementById('chat-header-title');
@@ -3838,6 +3839,13 @@ ${enabledEntries}
           systemPrompt = replaceTemplateVars(systemPromptTemplate, contextMapOffline);
 
           systemPrompt = processPromptWithSettings(systemPrompt, 'offline');
+
+          if (window.getCoupleSpaceContextForChat && chat?.id) {
+            const coupleSpaceContextOffline = await window.getCoupleSpaceContextForChat(chat.id);
+            if (coupleSpaceContextOffline) {
+              systemPrompt += '\n\n' + coupleSpaceContextOffline;
+            }
+          }
           
           if (window.getPeriodPromptForChat && chat?.id) {
             const periodPrompt = await window.getPeriodPromptForChat(chat.id);
@@ -4380,6 +4388,7 @@ ${taskListString}
    - 如果不是用户明确要求，而是你根据聊天内容主动添加，使用 "trigger": "proactive"。这种情况受自动生成开关和概率限制。
    - 当前自动生成待办/日程设置：${chat.settings.enableAutoTodoSchedule ? '已开启' : '未开启'}。
    - 当前自动生成待办/日程概率为：${autoTodoScheduleProbability}%。
+   - 不要自行进行概率随机；程序会在收到 proactive 指令后统一校验概率。
    - 如果自动生成未开启，禁止主动生成 "trigger": "proactive" 的事项，但仍可响应用户明确要求生成 "trigger": "explicit" 的事项。
    - 你不要每次回复都主动生成。只有当聊天中出现明确的目标、提醒、约定、任务、出行、工作、学习、剧情行动或两人共同安排时才生成。
    - 如果只是普通闲聊、情绪回应、暧昧互动、日常寒暄，不要强行生成待办或行程。
@@ -4535,7 +4544,9 @@ ${getActiveThoughtsPrompt()}
 
           // 情侣空间感知上下文
           let coupleSpaceContext = '';
-          if (chat.settings.enableCoupleSpacePrompt) {
+          const coupleSpacePromptEnabled = (chat.settings.enableCoupleSpacePrompt ?? chat.settings.coupleSpacePrompt) === true;
+          const coupleSpaceContentEnabled = (chat.settings.enableCoupleSpaceContent ?? chat.settings.coupleSpaceContent) === true;
+          if (coupleSpacePromptEnabled) {
             const coupleSpaces = getCoupleSpaces();
             const hasCoupleSpace = coupleSpaces.find(s => s.charId === chatId);
             const pendingInvite = chat.history.findLast(m => m.type === 'couple_invite' && m.status === 'pending');
@@ -4564,125 +4575,10 @@ ${getActiveThoughtsPrompt()}
             }
           }
 
-          // 情侣空间内容注入（日记等功能内容）
-          if (chat.settings.enableCoupleSpaceContent) {
-            const coupleSpaces = getCoupleSpaces();
-            const hasCoupleSpace = coupleSpaces.find(s => s.charId === chatId);
-            if (hasCoupleSpace) {
-              // --- 日记功能上下文 ---
-              try {
-                const diaries = JSON.parse(localStorage.getItem('coupleDiaries_' + chatId) || '[]');
-                const diarySettings = JSON.parse(localStorage.getItem('coupleDiarySettings_' + chatId) || '{}');
-                const userDiaryCount = diarySettings.visibleUserDiaryCount || 3;
-                const charDiaryCount = diarySettings.visibleCharDiaryCount || 3;
-
-                // 今天是否已写日记
-                const todayStr = new Date().toISOString().split('T')[0];
-                const charDiariesToday = diaries.filter(d => d.author === 'char' && new Date(d.timestamp).toISOString().split('T')[0] === todayStr);
-                const wroteToday = charDiariesToday.length > 0;
-
-                coupleSpaceContext += `\n## 情侣空间 - 日记\n`;
-                coupleSpaceContext += `你和${myNickname}的情侣空间里有一个共享日记本，你们都可以写日记，也可以给对方的日记写评语。\n`;
-                coupleSpaceContext += `- 今天你${wroteToday ? '已经写过日记了，一天只能写一篇。' : '还没有写日记。'}\n`;
-
-                // 用户的日记（角色可见）
-                const userDiaries = diaries.filter(d => d.author === 'user').slice(-userDiaryCount);
-                if (userDiaries.length > 0) {
-                  coupleSpaceContext += `\n### ${myNickname}的日记（最近${userDiaryCount}篇）\n`;
-                  userDiaries.forEach(d => {
-                    const moodText = d.mood ? `(心情: ${d.mood})` : '';
-                    const preview = (d.content || '').substring(0, 120);
-                    coupleSpaceContext += `- [${new Date(d.timestamp).toLocaleDateString('zh-CN')}]《${d.title}》${moodText}: "${preview}..."\n`;
-                    if (d.comments && d.comments.length > 0) {
-                      d.comments.forEach(c => {
-                        const cName = c.author === 'char' ? chat.name : myNickname;
-                        coupleSpaceContext += `  评语 (${cName}): ${c.content}\n`;
-                      });
-                    }
-                  });
-                }
-
-                // 角色自己的日记
-                const charDiaries = diaries.filter(d => d.author === 'char').slice(-charDiaryCount);
-                if (charDiaries.length > 0) {
-                  coupleSpaceContext += `\n### 你写的日记（最近${charDiaryCount}篇）\n`;
-                  charDiaries.forEach(d => {
-                    const moodText = d.mood ? `(心情: ${d.mood})` : '';
-                    const preview = (d.content || '').substring(0, 120);
-                    coupleSpaceContext += `- [${new Date(d.timestamp).toLocaleDateString('zh-CN')}]《${d.title}》${moodText}: "${preview}..."\n`;
-                    if (d.comments && d.comments.length > 0) {
-                      d.comments.forEach(c => {
-                        const cName = c.author === 'char' ? chat.name : myNickname;
-                        coupleSpaceContext += `  评语 (${cName}): ${c.content}\n`;
-                      });
-                    }
-                  });
-                }
-
-                coupleSpaceContext += `你可以在对话中自然地提及日记里的内容。\n`;
-              } catch(e) {}
-
-              // 日记自动写入设置感知
-              try {
-                const diarySettings = JSON.parse(localStorage.getItem('coupleDiarySettings_' + chatId) || '{}');
-                if (diarySettings.autoEnabled || diarySettings.aiDecide) {
-                  coupleSpaceContext += `- 你有在情侣空间写日记的习惯。\n`;
-                }
-              } catch(e) {}
-
-              // --- 相册功能上下文 ---
-              try {
-                const albumPhotos = JSON.parse(localStorage.getItem('coupleAlbum_' + chatId) || '[]');
-                const albumSettings = JSON.parse(localStorage.getItem('coupleAlbumSettings_' + chatId) || '{}');
-                const visibleUserPhotoCount = albumSettings.visibleUserPhotoCount || 3;
-                const visibleCharPhotoCount = albumSettings.visibleCharPhotoCount || 3;
-
-                coupleSpaceContext += `\n## 情侣空间 - 相册\n`;
-                coupleSpaceContext += `你和${myNickname}的情侣空间里有一个共享相册，你们都可以上传照片和配文，也可以给对方的照片写评论。\n`;
-
-                // 用户的照片
-                const userPhotos = albumPhotos.filter(p => p.author === 'user').slice(-visibleUserPhotoCount);
-                if (userPhotos.length > 0) {
-                  coupleSpaceContext += `\n### ${myNickname}发的照片（最近${visibleUserPhotoCount}张）\n`;
-                  userPhotos.forEach(p => {
-                    const dateStr = new Date(p.timestamp).toLocaleDateString('zh-CN');
-                    const typeLabel = p.type === 'local' ? '📷' : '📝';
-                    const tags = p.tags && p.tags.length > 0 ? ' #' + p.tags.join(' #') : '';
-                    coupleSpaceContext += `- [${dateStr}] ${typeLabel} "${p.description || '(无描述)'}${tags}"\n`;
-                    if (p.comments && p.comments.length > 0) {
-                      p.comments.forEach(c => {
-                        const cName = c.author === 'char' ? chat.name : myNickname;
-                        coupleSpaceContext += `  评论 (${cName}): ${c.content}\n`;
-                      });
-                    }
-                  });
-                }
-
-                // 角色自己的照片
-                const charPhotos = albumPhotos.filter(p => p.author === 'char').slice(-visibleCharPhotoCount);
-                if (charPhotos.length > 0) {
-                  coupleSpaceContext += `\n### 你发的照片（最近${visibleCharPhotoCount}张）\n`;
-                  charPhotos.forEach(p => {
-                    const dateStr = new Date(p.timestamp).toLocaleDateString('zh-CN');
-                    const tags = p.tags && p.tags.length > 0 ? ' #' + p.tags.join(' #') : '';
-                    coupleSpaceContext += `- [${dateStr}] "${p.description || '(无描述)'}${tags}"\n`;
-                    if (p.comments && p.comments.length > 0) {
-                      p.comments.forEach(c => {
-                        const cName = c.author === 'char' ? chat.name : myNickname;
-                        coupleSpaceContext += `  评论 (${cName}): ${c.content}\n`;
-                      });
-                    }
-                  });
-                }
-
-                coupleSpaceContext += `你可以在对话中自然地提及相册里的照片。\n`;
-
-                // 相册自动发布设置感知
-                if (albumSettings.autoEnabled || albumSettings.aiDecide) {
-                  coupleSpaceContext += `- 你有在情侣空间相册发照片的习惯。\n`;
-                }
-              } catch(e) {}
-            }
+          // 普通私聊与线下模式共用同一个情侣空间内容生成器。
+          if (coupleSpaceContentEnabled && window.getCoupleSpaceContextForChat) {
+            const coupleContentContext = await window.getCoupleSpaceContextForChat(chatId);
+            if (coupleContentContext) coupleSpaceContext += '\n' + coupleContentContext;
           }
 
           let systemPromptTemplate = window.getActiveChatPrompt ? window.getActiveChatPrompt('single') : '';
@@ -4815,6 +4711,11 @@ ${getActiveThoughtsPrompt()}
           }
 
           systemPrompt = processPromptWithSettings(systemPrompt, 'single');
+
+          // 自定义/旧提示词若缺少情侣空间占位符，仍确保已授权内容能够生效。
+          if (coupleSpaceContext && !systemPrompt.includes('# 情侣空间')) {
+            systemPrompt += '\n\n' + coupleSpaceContext;
+          }
 
           if (window.getPeriodPromptForChat && chat?.id) {
             const periodPrompt = await window.getPeriodPromptForChat(chat.id);
@@ -5090,7 +4991,8 @@ ${getActiveThoughtsPrompt()}
       }
 
       const shouldEnableExternalMcpForThisChat = !chat.isGroup;
-      const externalMcpNoFakeToolClaimsPrompt = shouldEnableExternalMcpForThisChat ? [
+      const mcpToolDirectoryPromptForMainChat = shouldEnableExternalMcpForThisChat ? buildEnabledMcpServicesPrompt(chat, messagesPayload, responseOptions) : "";
+      const externalMcpNoFakeToolClaimsPrompt = mcpToolDirectoryPromptForMainChat ? [
         "【外部 MCP 工具真实性规则】",
         "你不能假装已经调用、访问、读取、写入、搜索、控制、购买、下单、发送、删除、更新或执行任何外部 MCP 工具。",
         "除系统明确给出的 external_mcp_tool_call 代码块格式外，你绝对不能输出任何其他工具调用格式。",
@@ -5110,8 +5012,6 @@ ${getActiveThoughtsPrompt()}
         console.log("[MCP Memory] 注入 systemPrompt:", externalMcpMemoryContextForMainChat.length);
         systemPrompt += '\n\n' + externalMcpMemoryContextForMainChat;
       }
-
-      const mcpToolDirectoryPromptForMainChat = shouldEnableExternalMcpForThisChat ? buildEnabledMcpServicesPrompt(chat, messagesPayload, responseOptions) : "";
 
       if (mcpToolDirectoryPromptForMainChat) {
         systemPrompt += '\n\n' + mcpToolDirectoryPromptForMainChat;
@@ -5599,12 +5499,13 @@ ${getActiveThoughtsPrompt()}
           }];
         }
       }
-      isViewingThisChat = document.getElementById('chat-interface-screen').classList.contains('active') && state.activeChatId === chatId;
+      isViewingThisChat = document.visibilityState === 'visible' && document.getElementById('chat-interface-screen').classList.contains('active') && state.activeChatId === chatId;
       let callHasBeenHandled = false;
       let messageTimestamp = Date.now();
       const responseMessageTimestamps = [];
       let newMessagesToRender = [];
       let notificationShown = false;
+      let proactiveTodoScheduleCount = 0;
       /** 用于兜底：从本轮的 thought_chain 中取第一个出现的群成员本名，缺 name 时优先用其补全 */
       let lastThoughtChainName = null;
 
@@ -5739,7 +5640,8 @@ ${getActiveThoughtsPrompt()}
           case 'add_todo': {
             if (!chat.settings.enableTodoList) continue;
 
-            const triggerType = msgData.trigger || msgData.trigger_type || 'explicit';
+            // 缺少触发类型时按“主动生成”处理，避免模型漏写 trigger 后绕过自动生成授权。
+            const triggerType = msgData.trigger || msgData.trigger_type || 'proactive';
             const isProactiveAdd = triggerType === 'proactive' || triggerType === 'auto';
 
             if (isProactiveAdd) {
@@ -5816,13 +5718,9 @@ ${getActiveThoughtsPrompt()}
                 '我的';
 
               const itemLabel = itemType === 'schedule' ? '行程' : '待办';
-              const actionText = todoStatus === 'completed'
-                ? `记录了一条已完成的${ownerLabel}${itemLabel}`
-                : `添加了一条${ownerLabel}${itemLabel}`;
-
-              visibleSystemMessage = {
-                content: `[${chat.name} ${actionText}: "${todoContent}"]`
-              };
+              if (isProactiveAdd) {
+                proactiveTodoScheduleCount += 1;
+              }
 
               console.log(`[TodoSchedule] AI 添加${ownerLabel}${itemLabel}: ${todoContent}, 状态: ${todoStatus}`);
             }
@@ -6064,7 +5962,7 @@ ${getActiveThoughtsPrompt()}
             break;
           }
           case 'couple_invite_request': {
-            if (!chat.settings.enableCoupleSpacePrompt) break;
+            if ((chat.settings.enableCoupleSpacePrompt ?? chat.settings.coupleSpacePrompt) !== true) break;
             
             const coupleSpaces = getCoupleSpaces();
             const hasCoupleSpace = coupleSpaces.find(s => s.charId === chatId);
@@ -6088,7 +5986,7 @@ ${getActiveThoughtsPrompt()}
             break;
           }
           case 'couple_space_unbind': {
-            if (!chat.settings.enableCoupleSpacePrompt) break;
+            if ((chat.settings.enableCoupleSpacePrompt ?? chat.settings.coupleSpacePrompt) !== true) break;
             
             const coupleSpaces = getCoupleSpaces();
             const hasCoupleSpace = coupleSpaces.find(s => s.charId === chatId);
@@ -8380,6 +8278,19 @@ ${getActiveThoughtsPrompt()}
         return;
       }
       await db.chats.put(chat);
+
+      if (proactiveTodoScheduleCount > 0) {
+        const title = proactiveTodoScheduleCount === 1
+          ? `${chat.name} 主动添加了待办/行程`
+          : `${chat.name} 主动添加了 ${proactiveTodoScheduleCount} 项待办/行程`;
+        const body = '可以前往“待办与行程”查看。';
+
+        if (typeof showCustomAlert === 'function') {
+          await showCustomAlert(title, body);
+        } else if (typeof showToast === 'function') {
+          showToast(title, 'info', 5000);
+        }
+      }
 
       const qzoneActionTaken = messagesArray.some(action =>
         action.type === 'qzone_post' ||

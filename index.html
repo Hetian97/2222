@@ -67,11 +67,11 @@
   <script src="modules/ui-loaders.js?v=0.0.36" defer></script>
   <!-- 第三层：核心聊天功能 -->
   <script src="modules/chat-list.js?v=0.0.36" defer></script>
-  <script src="modules/chat-interface.js?v=0.0.38" defer></script>
+  <script src="modules/chat-interface.js?v=0.0.39" defer></script>
   <script src="modules/chat-input.js?v=0.0.37" defer></script>
   <!-- 第四层：AI 核心 -->
-  <script src="modules/ai-response.js?v=0.0.98" defer></script>
-  <script src="modules/ai-group.js?v=0.0.38" defer></script>
+  <script src="modules/ai-response.js?v=0.0.102" defer></script>
+  <script src="modules/ai-group.js?v=0.0.39" defer></script>
   <!-- 第五层：功能模块 -->
   <script src="modules/music-player.js?v=0.0.36" defer></script>
   <script src="modules/qzone.js?v=0.0.36" defer></script>
@@ -82,15 +82,15 @@
   <script src="modules/nai-imagen.js?v=0.0.37" defer></script>
   <script src="modules/backup-import-export.js?v=0.0.41" defer></script>
   <script src="modules/settings-presets.js?v=0.0.39" defer></script>
-  <script src="modules/chat-settings-presets.js?v=0.0.36" defer></script>
-  <script src="modules/shopping.js?v=0.0.52" defer></script>
+  <script src="modules/chat-settings-presets.js?v=0.0.37" defer></script>
+  <script src="modules/shopping.js?v=0.0.54" defer></script>
   <script src="modules/rendering-rules.js?v=0.0.36" defer></script>
   <script src="modules/red-packet-poll.js?v=0.0.36" defer></script>
   <script src="modules/persona-library.js?v=0.0.36" defer></script>
   <script src="modules/avatar-library.js?v=0.0.36" defer></script>
   <script src="modules/gomoku.js?v=0.0.36" defer></script>
   <!-- 第六层：大型独立功能 -->
-  <script src="modules/alipay.js?v=0.0.42" defer></script>
+  <script src="modules/alipay.js?v=0.0.43" defer></script>
   <script src="modules/auction.js?v=0.0.36" defer></script>
   <script src="modules/green-river.js?v=0.0.36" defer></script>
   <script src="modules/cphone.js?v=0.0.36" defer></script>
@@ -102,7 +102,7 @@
   <!-- 第七层：其余功能 -->
   <script src="modules/tts-audio.js?v=0.0.36" defer></script>
   <script src="modules/appearance-theme.js?v=0.0.36" defer></script>
-  <script src="modules/notification-battery.js?v=0.0.36" defer></script>
+  <script src="modules/notification-battery.js?v=0.0.37" defer></script>
   <script src="modules/garden-wake.js?v=0.0.2" defer></script>
   <script src="modules/aisay-wake.js?v=0.0.2" defer></script>
   <script src="modules/background-activity.js?v=0.0.37" defer></script>
@@ -121,21 +121,21 @@
   <!-- PIN/城市（依赖 DOM） -->
   <script src="modules/init-pin-city.js?v=0.0.36" defer></script>
   <!-- 事件绑定和功能（依赖 state, db） -->
-  <script src="modules/init-event-bindingsA.js?v=0.0.41" defer></script>
-  <script src="modules/init-event-bindingsB.js?v=0.0.38" defer></script>
+  <script src="modules/init-event-bindingsA.js?v=0.0.44" defer></script>
+  <script src="modules/init-event-bindingsB.js?v=0.0.39" defer></script>
   <script src="modules/init-features.js?v=0.0.36" defer></script>
   <!-- 主入口（最后加载，调用 init） -->
-  <script src="modules/init-and-state.js?v=0.0.37" defer></script>
+  <script src="modules/init-and-state.js?v=0.0.38" defer></script>
   <!-- 第九层：DOMContentLoaded 外部的独立模块 -->
   <script src="modules/video-optimization.js?v=0.0.36" defer></script>
-  <script src="modules/clean-chat-detail.js?v=0.0.36" defer></script>
-  <script src="modules/clean-api-settings.js?v=0.0.38" defer></script>
+  <script src="modules/clean-chat-detail.js?v=0.0.38" defer></script>
+  <script src="modules/clean-api-settings.js?v=0.0.40" defer></script>
   <script src="modules/api-style-beautify.js?v=0.0.36" defer></script>
   <script src="modules/voice-recording.js?v=0.0.36" defer></script>
   <script src="period-tracker.js?v=0.0.37" defer></script>
   <script src="focus-timer.js?v=0.0.36" defer></script>
   <!-- 情侣空间（从内联 script 拆分） -->
-  <script src="couple-space.js?v=0.0.36"></script>
+  <script src="couple-space.js?v=0.0.38"></script>
   <script src="helper-assistant.js?v=0.0.36" defer></script>
   <script src="force-update.js?v=0.0.36" defer></script>
   <script src="modules/floating-ball.js?v=0.0.36" defer></script>
@@ -2635,7 +2635,7 @@
                 </div>
             </div>
         </div>
-        <div class="settings-desc">开启后台活动会增加 API 费用。MCP 活动占比表示角色每次被后台唤醒时，有多少概率把本轮活动用于已授权的 MCP；其余轮次继续聊天、空间或查手机。免打扰时段同时暂停线上/线下后台活动、后台 MCP 和 Garden/AISay 唤醒；时段内的外部唤醒不会在结束后逐条补发。后台查看手机：留空概率时AI自主决定，填写0-100则按概率触发。</div>
+        <div class="settings-desc">开启后台活动会增加 API 费用。MCP 活动占比表示角色每次被后台唤醒时，有多少概率把本轮活动用于已授权的 MCP；其余轮次继续聊天、空间或查手机。免打扰时段同时暂停线上/线下后台活动、后台 MCP 和 Garden/AISay 唤醒；时段内的外部唤醒不会在结束后逐条补发。</div>
 
         <!-- 语音设置 -->
         <div class="settings-header" data-lang-key="apiTtsSettings">Minimax TTS 语音</div>
@@ -3476,54 +3476,26 @@
                 </div>
                 
                 
-                <!-- 7. 提示音 -->
+                <!-- 7. 应用前台也发送系统通知 -->
                 <div class="settings-item">
-                    <label>自定义提示音</label>
+                    <label>
+                        <span style="display: block;">应用前台也发送系统通知</span>
+                        <span style="font-size: 12px; color: var(--text-secondary); display: block; margin-top: 4px;">默认仅在 PWA 进入后台或锁屏后发送</span>
+                    </label>
                     <label class="toggle-switch">
-                        <input type="checkbox" id="notification-sound-enabled-switch">
+                        <input type="checkbox" id="notify-in-foreground-switch">
                         <span class="slider"></span>
                     </label>
                 </div>
                 
-                <div id="notification-sound-details" style="display:none;">
-                    <div class="settings-item">
-                        <label>使用全局提示音</label>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="use-global-sound-switch" checked>
-                            <span class="slider"></span>
-                        </label>
-                    </div>
-                    
-                    <div id="custom-sound-input-wrapper" style="display:none;">
-                        <div class="settings-item">
-                            <label>自定义提示音 URL</label>
-                            <div class="settings-right">
-                                <input type="text" id="custom-notification-sound-url" placeholder="https://...">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- 8. 在聊天页面也发送系统级通知 -->
+                <!-- 8. 应用内消息横幅 -->
                 <div class="settings-item">
                     <label>
-                        <span style="display: block;">在聊天页面也发送通知</span>
-                        <span style="font-size: 12px; color: var(--text-secondary); display: block; margin-top: 4px;"></span>
+                        <span style="display: block;">显示应用内消息横幅</span>
+                        <span style="font-size: 12px; color: var(--text-secondary); display: block; margin-top: 4px;">在 EPhone 前台但未查看对应聊天时显示</span>
                     </label>
                     <label class="toggle-switch">
-                        <input type="checkbox" id="notify-in-chat-page-switch">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-                
-                <!-- 9. 禁用内部弹窗 -->
-                <div class="settings-item">
-                    <label>
-                        <span style="display: block;">仅系统级通知</span>
-                        <span style="font-size: 12px; color: var(--text-secondary); display: block; margin-top: 4px;">开启后只显示系统级通知，不显示应用内弹窗</span>
-                    </label>
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="disable-internal-notification-switch">
+                        <input type="checkbox" id="show-internal-notification-switch" checked>
                         <span class="slider"></span>
                     </label>
                 </div>
@@ -5202,7 +5174,7 @@
       <div class="settings-container">
         
         <!-- 第一组：基础信息 -->
-        <div class="settings-section">
+        <div class="settings-section" id="chat-basic-settings-section">
             <div class="settings-item" id="chat-name-group">
                 <label>备注名 / 群名</label>
                 <div class="settings-right">
@@ -5344,7 +5316,7 @@
         </div>
 
         <!-- 第二组：人设与剧情 (核心) -->
-        <div class="settings-section">
+        <div class="settings-section" id="chat-persona-settings-section">
             <div class="settings-item-block" id="ai-persona-group">
                 <label>对方人设 (AI Persona)</label>
                 <textarea id="ai-persona" rows="3" class="settings-textarea" placeholder="输入详细的角色设定..."></textarea>
@@ -5402,7 +5374,7 @@
         </div>
 
         <!-- 第三组：模型与智能设置 -->
-        <div class="settings-section">
+        <div class="settings-section" id="chat-reply-memory-section">
             <!-- 单聊独立后台 -->
             <div id="single-char-background-activity-group">
                 
@@ -5479,7 +5451,7 @@
                 <div class="settings-item" style="display: flex !important; justify-content: space-between !important; align-items: center !important; flex-direction: row !important;">
                      <div style="flex: 1; padding-right: 10px; display: flex; flex-direction: column; align-items: flex-start;">
                         <label style="margin-bottom: 2px;">允许自动生成待办/日程</label>
-                        <div class="settings-desc">角色可根据聊天、关系和当前情境主动添加待办或行程</div>
+                        <div class="settings-desc">角色可根据聊天、关系和当前情境主动添加；需同时开启“允许角色读取待办事项”</div>
                     </div>
                     <label class="toggle-switch" style="margin: 0;"> 
                         <input type="checkbox" id="char-auto-todo-schedule-switch"> 
@@ -6053,7 +6025,7 @@
         </div>
 
         <!-- 第四组：高级功能 (TTS, NAI, 线下模式) -->
-        <div class="settings-section">
+        <div class="settings-section" id="chat-media-mode-section">
              <!-- 时间戳显示格式 -->
              <div class="settings-item">
                  <div>
@@ -6173,12 +6145,34 @@
 
 <div class="settings-item" id="todo-list-setting-group">
     <div style="flex: 1; padding-right: 10px;">
-        <label style="margin-bottom: 2px;">启用待办事项同步</label>
-        <div class="settings-desc">开启后，AI将读取【今日】及【未完成】的待办事项。</div>
+        <label style="margin-bottom: 2px;">允许角色读取待办事项</label>
+        <div class="settings-desc">开启后，角色最多读取15条今日及未完成事项，并可在你明确要求时新增待办或日程；不会因此主动生成。</div>
     </div>
     <label class="toggle-switch" style="margin: 0;"> 
         <input type="checkbox" id="enable-todo-list-switch"> 
         <span class="slider"></span> 
+    </label>
+</div>
+
+<div class="settings-item" id="purchased-items-prompt-setting-group">
+    <div style="flex: 1; padding-right: 10px;">
+        <label style="margin-bottom: 2px;">允许角色读取已购买记录</label>
+        <div class="settings-desc">开启后，仅在存在记录时向当前角色提供最近8条已购买商品。</div>
+    </div>
+    <label class="toggle-switch" style="margin: 0;">
+        <input type="checkbox" id="enable-purchased-items-prompt-switch">
+        <span class="slider"></span>
+    </label>
+</div>
+
+<div class="settings-item" id="character-wallet-prompt-setting-group">
+    <div style="flex: 1; padding-right: 10px;">
+        <label style="margin-bottom: 2px;">允许角色读取钱包状态</label>
+        <div class="settings-desc">开启后，仅在钱包有余额或流水时提供当前余额与最近8条流水。</div>
+    </div>
+    <label class="toggle-switch" style="margin: 0;">
+        <input type="checkbox" id="enable-character-wallet-prompt-switch">
+        <span class="slider"></span>
     </label>
 </div>
              <!-- 表情包识图 -->
@@ -6334,7 +6328,7 @@
         </div>
 
         <!-- 第五组：外观与视觉 -->
-        <div class="settings-section">
+        <div class="settings-section" id="chat-appearance-section">
             <div class="settings-item">
                  <label>聊天背景</label>
                  <!-- 增加 full-width 类以保持右对齐，内部使用 avatar-btn-group 保持间距一致 -->
@@ -6431,7 +6425,7 @@
         </div>
 
         <!-- 第六组：数据与操作 (底部) -->
-        <div class="settings-section">
+        <div class="settings-section" id="chat-data-actions-section">
              <div class="settings-item clickable" id="search-history-btn">
                  <label>查找聊天记录</label>
                  <div class="settings-right">›</div>

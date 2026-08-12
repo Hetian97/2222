@@ -1275,6 +1275,7 @@ async function getCharacterWalletPromptForChat(chatId) {
   try {
     const chat = state.chats[chatId];
     if (!chat) return '';
+    if (chat.settings?.enableCharacterWalletPrompt !== true) return '';
 
     const wallet = chat.simulatedTaobaoHistory || {};
     const balance = Number(wallet.totalBalance || 0);

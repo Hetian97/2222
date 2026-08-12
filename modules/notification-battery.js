@@ -34,11 +34,12 @@
     const chat = state.chats[chatId];
     if (!chat) return;
 
-    // 检查是否禁用内部弹窗通知
-    const disableInternalNotification = state.globalSettings.systemNotification?.disableInternalNotification || false;
+    const config = state.globalSettings.systemNotification || {};
+    const isPageVisible = document.visibilityState === 'visible' && !document.hidden;
+    const showInternalNotification = config.showInternalNotification !== false;
 
-    // 如果未禁用内部弹窗，则显示内部弹窗
-    if (!disableInternalNotification) {
+    // 应用前台且未查看对应聊天时，使用 EPhone 内部横幅。
+    if (isPageVisible && showInternalNotification) {
       playNotificationSound();
 
       clearTimeout(notificationTimeout);
@@ -72,12 +73,14 @@
     console.log('[系统通知调试] showNotification 被调用:', {
       chatId,
       messageContent,
-      systemNotificationEnabled: state.globalSettings.systemNotification?.enabled,
-      disableInternalNotification: disableInternalNotification,
+      systemNotificationEnabled: config.enabled,
+      isPageVisible,
+      showInternalNotification,
       notificationPermission: typeof Notification !== 'undefined' ? Notification.permission : 'N/A'
     });
 
-    if (state.globalSettings.systemNotification?.enabled) {
+    // 页面进入后台时始终尝试系统通知；前台仅在用户明确开启时发送。
+    if (config.enabled && (!isPageVisible || config.notifyInForeground)) {
       console.log('[系统通知调试] 准备调用 handleSystemNotification');
       handleSystemNotification(chatId, messageContent);
     } else {
@@ -85,12 +88,11 @@
     }
   }
 
-  // 新增：在聊天页面也触发系统级通知（如果启用了相应选项）
+  // 正在查看对应聊天时，仅按“应用前台也发送系统通知”决定是否提醒。
   function triggerSystemNotificationInChatPage(chatId, messageContent) {
-    // 检查是否启用了"在聊天页面也发送通知"选项
-    const notifyInChatPage = state.globalSettings.systemNotification?.notifyInChatPage || false;
+    const notifyInForeground = state.globalSettings.systemNotification?.notifyInForeground || false;
 
-    if (notifyInChatPage && state.globalSettings.systemNotification?.enabled) {
+    if (notifyInForeground && state.globalSettings.systemNotification?.enabled) {
       console.log('[系统通知调试] 在聊天页面触发系统级通知:', {
         chatId,
         messageContent
@@ -241,29 +243,6 @@
     navigator.vibrate(patterns[pattern]);
   }
 
-  // 播放系统通知提示音
-  function playSystemNotificationSound() {
-    const soundConfig = state.globalSettings.systemNotification?.sound;
-
-    if (!soundConfig || !soundConfig.enabled) {
-      return;
-    }
-
-    let soundUrl;
-    if (soundConfig.useGlobalSound) {
-      soundUrl = state.globalSettings.notificationSoundUrl || DEFAULT_NOTIFICATION_SOUND;
-    } else {
-      soundUrl = soundConfig.customSoundUrl || DEFAULT_NOTIFICATION_SOUND;
-    }
-
-    if (soundUrl && soundUrl.trim()) {
-      const audio = new Audio(soundUrl);
-      // 应用音量设置
-      audio.volume = state.globalSettings.notificationVolume !== undefined ? state.globalSettings.notificationVolume : 1.0;
-      audio.play().catch(err => console.log('播放提示音失败:', err));
-    }
-  }
-
   // 显示系统通知（每条消息独立通知）- iOS优化版
   async function showSystemNotification(chatId, messageContent, options = {}) {
     console.log('[系统通知调试] showSystemNotification 被调用:', {
@@ -362,12 +341,6 @@
           console.warn('[系统通知调试] 无可用的通知方式');
           return;
         }
-      }
-
-      // 播放提示音
-      if (state.globalSettings.systemNotification.sound?.enabled) {
-        console.log('[系统通知调试] 播放提示音');
-        playSystemNotificationSound();
       }
 
       // 触发震动（使用通用的Vibration API）
@@ -489,10 +462,6 @@
 
       console.log('[系统通知调试] 测试通知创建成功');
 
-      if (state.globalSettings.systemNotification?.sound?.enabled) {
-        playSystemNotificationSound();
-      }
-
       if (state.globalSettings.systemNotification?.vibration?.enabled) {
         vibrateDevice();
       }
@@ -517,12 +486,6 @@
     const vibrationSwitch = document.getElementById('notification-vibration-enabled-switch');
     const vibrationSelector = document.getElementById('vibration-pattern-selector');
     const vibrationPattern = document.getElementById('vibration-pattern-select');
-
-    const soundSwitch = document.getElementById('notification-sound-enabled-switch');
-    const soundDetails = document.getElementById('notification-sound-details');
-    const useGlobalSound = document.getElementById('use-global-sound-switch');
-    const customSoundWrapper = document.getElementById('custom-sound-input-wrapper');
-    const customSoundUrl = document.getElementById('custom-notification-sound-url');
 
     if (enabledSwitch) {
       enabledSwitch.addEventListener('change', async () => {
@@ -585,39 +548,17 @@
       });
     }
 
-    if (soundSwitch) {
-      soundSwitch.addEventListener('change', () => {
-        state.globalSettings.systemNotification.sound.enabled = soundSwitch.checked;
-        soundDetails.style.display = soundSwitch.checked ? 'block' : 'none';
+    const notifyInForegroundSwitch = document.getElementById('notify-in-foreground-switch');
+    if (notifyInForegroundSwitch) {
+      notifyInForegroundSwitch.addEventListener('change', () => {
+        state.globalSettings.systemNotification.notifyInForeground = notifyInForegroundSwitch.checked;
       });
     }
 
-    if (useGlobalSound) {
-      useGlobalSound.addEventListener('change', () => {
-        state.globalSettings.systemNotification.sound.useGlobalSound = useGlobalSound.checked;
-        customSoundWrapper.style.display = useGlobalSound.checked ? 'none' : 'block';
-      });
-    }
-
-    if (customSoundUrl) {
-      customSoundUrl.addEventListener('input', () => {
-        state.globalSettings.systemNotification.sound.customSoundUrl = customSoundUrl.value.trim();
-      });
-    }
-
-    // 在聊天页面也发送通知
-    const notifyInChatPageSwitch = document.getElementById('notify-in-chat-page-switch');
-    if (notifyInChatPageSwitch) {
-      notifyInChatPageSwitch.addEventListener('change', () => {
-        state.globalSettings.systemNotification.notifyInChatPage = notifyInChatPageSwitch.checked;
-      });
-    }
-
-    // 禁用内部弹窗
-    const disableInternalNotificationSwitch = document.getElementById('disable-internal-notification-switch');
-    if (disableInternalNotificationSwitch) {
-      disableInternalNotificationSwitch.addEventListener('change', () => {
-        state.globalSettings.systemNotification.disableInternalNotification = disableInternalNotificationSwitch.checked;
+    const showInternalNotificationSwitch = document.getElementById('show-internal-notification-switch');
+    if (showInternalNotificationSwitch) {
+      showInternalNotificationSwitch.addEventListener('change', () => {
+        state.globalSettings.systemNotification.showInternalNotification = showInternalNotificationSwitch.checked;
       });
     }
   }
@@ -639,12 +580,6 @@
     const vibrationSwitch = document.getElementById('notification-vibration-enabled-switch');
     const vibrationSelector = document.getElementById('vibration-pattern-selector');
     const vibrationPattern = document.getElementById('vibration-pattern-select');
-
-    const soundSwitch = document.getElementById('notification-sound-enabled-switch');
-    const soundDetails = document.getElementById('notification-sound-details');
-    const useGlobalSound = document.getElementById('use-global-sound-switch');
-    const customSoundWrapper = document.getElementById('custom-sound-input-wrapper');
-    const customSoundUrl = document.getElementById('custom-notification-sound-url');
 
     // 加载主开关状态
     if (enabledSwitch) {
@@ -680,31 +615,14 @@
       vibrationPattern.value = config.vibration?.pattern || 'short';
     }
 
-    // 加载声音设置
-    if (soundSwitch) {
-      soundSwitch.checked = config.sound?.enabled || false;
-      soundDetails.style.display = config.sound?.enabled ? 'block' : 'none';
+    const notifyInForegroundSwitch = document.getElementById('notify-in-foreground-switch');
+    if (notifyInForegroundSwitch) {
+      notifyInForegroundSwitch.checked = config.notifyInForeground || false;
     }
 
-    if (useGlobalSound) {
-      useGlobalSound.checked = config.sound?.useGlobalSound !== false;
-      customSoundWrapper.style.display = config.sound?.useGlobalSound !== false ? 'none' : 'block';
-    }
-
-    if (customSoundUrl) {
-      customSoundUrl.value = config.sound?.customSoundUrl || '';
-    }
-
-    // 加载在聊天页面也发送通知设置
-    const notifyInChatPageSwitch = document.getElementById('notify-in-chat-page-switch');
-    if (notifyInChatPageSwitch) {
-      notifyInChatPageSwitch.checked = config.notifyInChatPage || false;
-    }
-
-    // 加载禁用内部弹窗设置
-    const disableInternalNotificationSwitch = document.getElementById('disable-internal-notification-switch');
-    if (disableInternalNotificationSwitch) {
-      disableInternalNotificationSwitch.checked = config.disableInternalNotification || false;
+    const showInternalNotificationSwitch = document.getElementById('show-internal-notification-switch');
+    if (showInternalNotificationSwitch) {
+      showInternalNotificationSwitch.checked = config.showInternalNotification !== false;
     }
 
     updateNotificationPermissionStatus();

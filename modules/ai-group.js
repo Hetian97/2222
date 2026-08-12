@@ -386,6 +386,7 @@ ${formatRules}
 
     let messageTimestamp = Date.now();
     const isViewingThisChat =
+      document.visibilityState === 'visible' &&
       state.activeChatId === chatId &&
       document.getElementById('chat-screen') &&
       document.getElementById('chat-screen').classList.contains('active');
@@ -527,17 +528,6 @@ ${formatRules}
       showNotification(chatId, messageContent);
     }
 
-    const disableInternalNotification = state.globalSettings.systemNotification?.disableInternalNotification || false;
-
-    if (disableInternalNotification && typeof playNotificationSound === 'function') {
-      setTimeout(() => {
-        try {
-          playNotificationSound();
-        } catch (error) {
-          console.warn('后台活动通知音播放失败:', error);
-        }
-      }, 0);
-    }
   }
 
   async function triggerInactiveAiAction(chatId) {

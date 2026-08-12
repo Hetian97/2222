@@ -78,6 +78,11 @@ window.initEventBindingsB = function(state, db) {
               enableBackgroundActivity: chat.settings.enableBackgroundActivity,
               actionCooldownMinutes: chat.settings.actionCooldownMinutes,
               enableTodoList: chat.settings.enableTodoList,
+              enablePurchasedItemsPrompt: chat.settings.enablePurchasedItemsPrompt,
+              enableCharacterWalletPrompt: chat.settings.enableCharacterWalletPrompt,
+              enableCoupleSpacePrompt: chat.settings.enableCoupleSpacePrompt ?? chat.settings.coupleSpacePrompt ?? false,
+              enableCoupleSpaceContent: chat.settings.enableCoupleSpaceContent ?? chat.settings.coupleSpaceContent ?? false,
+              enableCoupleSpaceNotify: chat.settings.enableCoupleSpaceNotify ?? chat.settings.coupleSpaceNotify ?? false,
               isOfflineMode: chat.settings.isOfflineMode,
               weather: chat.settings.weather ? JSON.parse(JSON.stringify(chat.settings.weather)) : null,
               enableSynthMusic: chat.settings.enableSynthMusic,
@@ -216,6 +221,11 @@ window.initEventBindingsB = function(state, db) {
         chat.settings.enableBackgroundActivity = savedSettings.enableBackgroundActivity;
         chat.settings.actionCooldownMinutes = savedSettings.actionCooldownMinutes;
         chat.settings.enableTodoList = savedSettings.enableTodoList;
+        chat.settings.enablePurchasedItemsPrompt = savedSettings.enablePurchasedItemsPrompt === true;
+        chat.settings.enableCharacterWalletPrompt = savedSettings.enableCharacterWalletPrompt === true;
+        chat.settings.enableCoupleSpacePrompt = (savedSettings.enableCoupleSpacePrompt ?? savedSettings.coupleSpacePrompt) === true;
+        chat.settings.enableCoupleSpaceContent = (savedSettings.enableCoupleSpaceContent ?? savedSettings.coupleSpaceContent) === true;
+        chat.settings.enableCoupleSpaceNotify = (savedSettings.enableCoupleSpaceNotify ?? savedSettings.coupleSpaceNotify) === true;
         chat.settings.isOfflineMode = savedSettings.isOfflineMode;
         chat.settings.weather = savedSettings.weather ? JSON.parse(JSON.stringify(savedSettings.weather)) : null;
         chat.settings.enableSynthMusic = savedSettings.enableSynthMusic;

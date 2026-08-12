@@ -2301,6 +2301,47 @@ function loadDiarySettings() {
   // no-op on init, settings loaded on demand
 }
 
+var COUPLE_CHAT_CONTEXT_SETTING_META = {
+  diary: { storage: 'coupleDiarySettings_', event: 'coupleSpaceDiarySettingsChanged' },
+  album: { storage: 'coupleAlbumSettings_', event: 'coupleSpaceAlbumSettingsChanged' },
+  anniversary: { storage: 'coupleAnnivSettings_', event: 'coupleSpaceAnnivSettingsChanged' },
+  checklist: { storage: 'coupleChecklistSettings_', event: 'coupleSpaceChecklistSettingsChanged' },
+  message: { storage: 'coupleMessageSettings_', event: 'coupleSpaceMessageSettingsChanged' },
+  mood: { storage: 'coupleMoodSettings_', event: 'coupleSpaceMoodSettingsChanged' },
+  timeline: { storage: 'coupleTimelineSettings_', event: 'coupleSpaceTimelineSettingsChanged' },
+  letter: { storage: 'coupleLetterSettings_', event: 'coupleSpaceLetterSettingsChanged' },
+  garden: { storage: 'coupleGardenSettings_', event: 'coupleSpaceGardenSettingsChanged' },
+  location: { storage: 'coupleLocSettings_', event: 'coupleSpaceLocationSettingsChanged' },
+  sleep: { storage: 'coupleSleepSettings_', event: 'coupleSpaceSleepSettingsChanged' },
+  finance: { storage: 'coupleFinanceSettings_', event: 'coupleSpaceFinanceSettingsChanged' }
+};
+
+function buildCoupleChatContextSetting(moduleKey, enabled) {
+  return '<div class="diary-setting-item">' +
+    '<div><div class="diary-setting-label">注入到日常聊天</div>' +
+    '<div class="diary-setting-desc">在普通私聊和线下模式中提供本功能内容；仍受角色设置中的总开关控制</div></div>' +
+    '<div class="diary-toggle' + (enabled ? ' on' : '') + '" id="' + moduleKey + '-toggle-chat-context" onclick="toggleCoupleChatContextSetting(\'' + moduleKey + '\')"></div>' +
+  '</div>';
+}
+
+function toggleCoupleChatContextSetting(moduleKey) {
+  var meta = COUPLE_CHAT_CONTEXT_SETTING_META[moduleKey];
+  if (!meta || !currentCharId) return;
+  var settings = {};
+  try { settings = JSON.parse(localStorage.getItem(meta.storage + currentCharId)) || {}; } catch(e) {}
+  settings.chatContextEnabled = settings.chatContextEnabled !== true;
+  localStorage.setItem(meta.storage + currentCharId, JSON.stringify(settings));
+  var toggle = document.getElementById(moduleKey + '-toggle-chat-context');
+  if (toggle) toggle.classList.toggle('on', settings.chatContextEnabled);
+  window.parent.postMessage({ type: meta.event, charId: currentCharId, settings: settings }, '*');
+}
+
+function getNonNegativeCountInput(id, fallback) {
+  var input = document.getElementById(id);
+  var value = input ? parseInt(input.value, 10) : NaN;
+  return Number.isFinite(value) ? Math.max(0, value) : fallback;
+}
+
 // --- Helpers ---
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function fmtDiaryDate(ts) {
@@ -2938,7 +2979,13 @@ function requestAiDiary() {
   renderDiaryList();
   // Send request to parent to generate AI diary
   var diaries = getDiaries();
-  var recentDiaries = diaries.slice(-5).map(function(d) {
+  var diarySettings = getDiarySettings();
+  var charCount = diarySettings.visibleCharDiaryCount ?? 3;
+  var userCount = diarySettings.visibleUserDiaryCount ?? 3;
+  var visibleDiaries = [];
+  if (userCount > 0) visibleDiaries = visibleDiaries.concat(diaries.filter(function(d) { return d.author === 'user'; }).slice(-userCount));
+  if (charCount > 0) visibleDiaries = visibleDiaries.concat(diaries.filter(function(d) { return d.author === 'char'; }).slice(-charCount));
+  var recentDiaries = visibleDiaries.map(function(d) {
     return { author: d.author === 'char' ? csCharName : csUserName, title: d.title, content: d.content.substring(0, 200), mood: d.mood, date: fmtDiaryDate(d.timestamp) };
   });
   window.parent.postMessage({
@@ -3101,14 +3148,15 @@ function openDiarySettings() {
   var aiDecide = settings.aiDecide || false;
   var aiDecideChatProb = settings.aiDecideChatProb ?? 15;
   var aiDecideBgProb = settings.aiDecideBgProb ?? 5;
-  var visibleUserDiaryCount = settings.visibleUserDiaryCount || 3;
-  var visibleCharDiaryCount = settings.visibleCharDiaryCount || 3;
+  var visibleUserDiaryCount = settings.visibleUserDiaryCount ?? 3;
+  var visibleCharDiaryCount = settings.visibleCharDiaryCount ?? 3;
   var enableCustomPrompt = settings.enableCustomPrompt || false;
   var promptText = settings.customPrompt || DEFAULT_DIARY_PROMPT;
 
   overlay.innerHTML = '<div class="diary-settings-sheet animate-slide-up">' +
     '<div class="diary-settings-handle"></div>' +
     '<div class="diary-settings-title">日记设置</div>' +
+    buildCoupleChatContextSetting('diary', settings.chatContextEnabled === true) +
 
     '<div class="diary-setting-item">' +
       '<div><div class="diary-setting-label">定时自动写日记</div>' +
@@ -3142,15 +3190,15 @@ function openDiarySettings() {
 
     '<div style="padding-top:16px;margin-top:8px;border-top:1px solid #f0efed">' +
       '<div class="diary-setting-item">' +
-        '<div><div class="diary-setting-label">角色可见的用户日记数</div>' +
-        '<div class="diary-setting-desc">注入到 AI 提示词中的用户日记条数</div></div>' +
+        '<div><div class="diary-setting-label">AI可见用户日记数</div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的用户日记数</div></div>' +
         '<select class="diary-time-select" id="diary-user-count" onchange="updateDiaryCountSetting()">' +
           buildCountOptions(visibleUserDiaryCount) +
         '</select>' +
       '</div>' +
       '<div class="diary-setting-item">' +
-        '<div><div class="diary-setting-label">角色可见的自己日记数</div>' +
-        '<div class="diary-setting-desc">注入到 AI 提示词中的角色日记条数</div></div>' +
+        '<div><div class="diary-setting-label">AI可见角色日记数</div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的角色日记数</div></div>' +
         '<select class="diary-time-select" id="diary-char-count" onchange="updateDiaryCountSetting()">' +
           buildCountOptions(visibleCharDiaryCount) +
         '</select>' +
@@ -3191,8 +3239,8 @@ function buildCountOptions(selected) {
 
 function updateDiaryCountSetting() {
   var settings = getDiarySettings();
-  settings.visibleUserDiaryCount = parseInt(document.getElementById('diary-user-count').value) || 0;
-  settings.visibleCharDiaryCount = parseInt(document.getElementById('diary-char-count').value) || 0;
+  settings.visibleUserDiaryCount = getNonNegativeCountInput('diary-user-count', 3);
+  settings.visibleCharDiaryCount = getNonNegativeCountInput('diary-char-count', 3);
   saveDiarySettings(settings);
   window.parent.postMessage({
     type: 'coupleSpaceDiarySettingsChanged',
@@ -3334,28 +3382,38 @@ var albumFabOpen = false;
 async function getAlbumPhotos() {
   if (!currentCharId) return [];
 
+  var indexedPhotos = [];
   try {
     if (window.parent.db && window.parent.db.coupleAlbumPhotos) {
       const records = await window.parent.db.coupleAlbumPhotos
         .where('chatId')
         .equals(currentCharId)
         .sortBy('timestamp');
-
-      if (records.length) {
-        return records.map(r => r.photo);
-      }
+      indexedPhotos = records.map(function(r) { return r.photo; }).filter(Boolean);
     }
   } catch(e) {
     console.error('读取IndexedDB相册失败', e);
   }
 
+  var legacyPhotos = [];
   try {
-    return JSON.parse(
+    legacyPhotos = JSON.parse(
       localStorage.getItem('coupleAlbum_' + currentCharId)
     ) || [];
   } catch(e) {
-    return [];
+    legacyPhotos = [];
   }
+
+  var seen = {};
+  return legacyPhotos.concat(indexedPhotos).filter(function(photo) {
+    if (!photo) return false;
+    var key = photo.id != null
+      ? 'id:' + photo.id
+      : [photo.timestamp || '', photo.author || '', photo.description || '', photo.url || ''].join('|');
+    if (seen[key]) return false;
+    seen[key] = true;
+    return true;
+  }).sort(function(a, b) { return (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0); });
 }
 function saveAlbumPhotos(list) {
   if (!currentCharId) return;
@@ -3841,13 +3899,20 @@ function editCurrentAlbumPhoto() {
 }
 
 // --- Request char to post ---
-function requestCharAlbumPost() {
+async function requestCharAlbumPost() {
   closeAlbumFab();
   showAlbumToast('正在让TA想想发什么...');
+  var settings = getAlbumSettings();
+  var photos = await getAlbumPhotos();
+  var charCount = settings.visibleCharPhotoCount ?? 3;
+  var userCount = settings.visibleUserPhotoCount ?? 3;
+  var recentPhotos = [];
+  if (userCount > 0) recentPhotos = recentPhotos.concat(photos.filter(function(p) { return p.author === 'user'; }).slice(-userCount));
+  if (charCount > 0) recentPhotos = recentPhotos.concat(photos.filter(function(p) { return p.author === 'char'; }).slice(-charCount));
   window.parent.postMessage({
     type: 'coupleSpaceAlbumAiRequest',
     charId: currentCharId,
-    recentPhotos: getAlbumPhotos().slice(-10)
+    recentPhotos: recentPhotos
   }, '*');
 }
 
@@ -3879,13 +3944,14 @@ function openAlbumSettings() {
   var aiDecide = settings.aiDecide || false;
   var aiDecideChatProb = settings.aiDecideChatProb ?? 15;
   var aiDecideBgProb = settings.aiDecideBgProb ?? 5;
-  var visibleUserPhotoCount = settings.visibleUserPhotoCount || 3;
-  var visibleCharPhotoCount = settings.visibleCharPhotoCount || 3;
+  var visibleUserPhotoCount = settings.visibleUserPhotoCount ?? 3;
+  var visibleCharPhotoCount = settings.visibleCharPhotoCount ?? 3;
   var imageGenMode = settings.imageGenMode || 'none';
 
   overlay.innerHTML = '<div class="diary-settings-sheet animate-slide-up">' +
     '<div class="diary-settings-handle"></div>' +
     '<div class="diary-settings-title">相册设置</div>' +
+    buildCoupleChatContextSetting('album', settings.chatContextEnabled === true) +
 
     '<div style="padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid #f0efed">' +
       '<div class="diary-setting-item">' +
@@ -3938,15 +4004,15 @@ function openAlbumSettings() {
 
     '<div style="padding-top:16px;margin-top:8px;border-top:1px solid #f0efed">' +
       '<div class="diary-setting-item">' +
-        '<div><div class="diary-setting-label">角色可见的用户照片数</div>' +
-        '<div class="diary-setting-desc">注入到 AI 提示词中的用户照片条数</div></div>' +
+        '<div><div class="diary-setting-label">AI可见用户照片数</div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的用户照片数</div></div>' +
         '<select class="diary-time-select" id="album-user-count" onchange="updateAlbumCountSetting()">' +
           buildCountOptions(visibleUserPhotoCount) +
         '</select>' +
       '</div>' +
       '<div class="diary-setting-item">' +
-        '<div><div class="diary-setting-label">角色可见的自己照片数</div>' +
-        '<div class="diary-setting-desc">注入到 AI 提示词中的角色照片条数</div></div>' +
+        '<div><div class="diary-setting-label">AI可见角色照片数</div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的角色照片数</div></div>' +
         '<select class="diary-time-select" id="album-char-count" onchange="updateAlbumCountSetting()">' +
           buildCountOptions(visibleCharPhotoCount) +
         '</select>' +
@@ -4022,8 +4088,8 @@ function updateAlbumAiDecideProb() {
 
 function updateAlbumCountSetting() {
   var settings = getAlbumSettings();
-  settings.visibleUserPhotoCount = parseInt(document.getElementById('album-user-count').value) || 0;
-  settings.visibleCharPhotoCount = parseInt(document.getElementById('album-char-count').value) || 0;
+  settings.visibleUserPhotoCount = getNonNegativeCountInput('album-user-count', 3);
+  settings.visibleCharPhotoCount = getNonNegativeCountInput('album-char-count', 3);
   saveAlbumSettings(settings);
   notifyAlbumSettingsChanged();
 }
@@ -4719,10 +4785,12 @@ function openAnnivSettings() {
 
   var autoEnabled = settings.autoEnabled || false;
   var aiDecide = settings.aiDecide || false;
+  var visibleAnniversaries = settings.visibleAnniversaries ?? 10;
 
   overlay.innerHTML = '<div class="diary-settings-sheet animate-slide-up">' +
     '<div class="diary-settings-handle"></div>' +
     '<div class="diary-settings-title">纪念日设置</div>' +
+    buildCoupleChatContextSetting('anniversary', settings.chatContextEnabled === true) +
 
     '<div class="diary-setting-item">' +
       '<div><div class="diary-setting-label">角色自动创建纪念日</div>' +
@@ -4734,6 +4802,12 @@ function openAnnivSettings() {
       '<div><div class="diary-setting-label">AI 自主决定</div>' +
       '<div class="diary-setting-desc">让 AI 自己判断是否有值得纪念的事件</div></div>' +
       '<div class="diary-toggle' + (aiDecide ? ' on' : '') + '" id="anniv-toggle-decide" onclick="toggleAnnivSetting(\'decide\')"></div>' +
+    '</div>' +
+
+    '<div class="diary-setting-item">' +
+      '<div><div class="diary-setting-label">AI可见纪念日数</div>' +
+      '<div class="diary-setting-desc">优先读取今天和即将到来的纪念日</div></div>' +
+      '<input type="number" class="diary-time-select" style="width:60px" id="anniv-visible-count" value="' + visibleAnniversaries + '" min="0" max="50" onchange="updateAnnivVisibility()" />' +
     '</div>' +
 
   '</div>';
@@ -4762,6 +4836,14 @@ function toggleAnnivSetting(key) {
     charId: currentCharId,
     settings: settings
   }, '*');
+}
+
+function updateAnnivVisibility() {
+  var settings = getAnnivSettings();
+  var value = parseInt(document.getElementById('anniv-visible-count').value, 10);
+  settings.visibleAnniversaries = Number.isFinite(value) ? Math.max(0, value) : 10;
+  saveAnnivSettings(settings);
+  window.parent.postMessage({ type: 'coupleSpaceAnnivSettingsChanged', charId: currentCharId, settings: settings }, '*');
 }
 
 function editCurrentAnniv() {
@@ -5581,6 +5663,7 @@ function openClSettings() {
   overlay.innerHTML = '<div class="diary-settings-sheet animate-slide-up">' +
     '<div class="diary-settings-handle"></div>' +
     '<div class="diary-settings-title">清单设置</div>' +
+    buildCoupleChatContextSetting('checklist', settings.chatContextEnabled === true) +
 
     '<div class="diary-setting-item">' +
       '<div><div class="diary-setting-label">角色自动推荐</div>' +
@@ -5614,13 +5697,13 @@ function openClSettings() {
 
     '<div class="diary-setting-item">' +
       '<div><div class="diary-setting-label">AI可见角色清单数</div>' +
-      '<div class="diary-setting-desc">AI能看到多少条角色创建的清单</div></div>' +
+      '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的角色清单数</div></div>' +
       '<input type="number" class="diary-time-select" style="width:60px" id="cl-vis-char" value="' + visCharItems + '" min="0" max="50" onchange="updateClVisibility()" />' +
     '</div>' +
 
     '<div class="diary-setting-item">' +
       '<div><div class="diary-setting-label">AI可见用户清单数</div>' +
-      '<div class="diary-setting-desc">AI能看到多少条你创建的清单</div></div>' +
+      '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的用户清单数</div></div>' +
       '<input type="number" class="diary-time-select" style="width:60px" id="cl-vis-user" value="' + visUserItems + '" min="0" max="50" onchange="updateClVisibility()" />' +
     '</div>' +
 
@@ -5659,8 +5742,8 @@ function updateClAutoTime() {
 
 function updateClVisibility() {
   var settings = getClSettings();
-  settings.visibleCharItems = parseInt(document.getElementById('cl-vis-char').value) || 10;
-  settings.visibleUserItems = parseInt(document.getElementById('cl-vis-user').value) || 10;
+  settings.visibleCharItems = getNonNegativeCountInput('cl-vis-char', 10);
+  settings.visibleUserItems = getNonNegativeCountInput('cl-vis-user', 10);
   saveClSettings(settings);
   notifyClSettingsChanged();
 }
@@ -6385,6 +6468,7 @@ function openMsgSettings() {
   overlay.innerHTML = '<div class="diary-settings-sheet animate-slide-up">' +
     '<div class="diary-settings-handle"></div>' +
     '<div class="diary-settings-title">留言设置</div>' +
+    buildCoupleChatContextSetting('message', settings.chatContextEnabled === true) +
 
     '<div class="diary-setting-item">' +
       '<div><div class="diary-setting-label">角色自动留言</div>' +
@@ -6419,12 +6503,12 @@ function openMsgSettings() {
     '<div style="padding-top:16px;margin-top:8px;border-top:1px solid #f0efed">' +
       '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">AI可见角色留言数</div>' +
-        '<div class="diary-setting-desc">AI能看到多少条角色的留言及评论</div></div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的角色留言数</div></div>' +
         '<input type="number" class="diary-time-select" style="width:60px" id="msg-vis-char" value="' + visCharMsgs + '" min="0" max="50" onchange="updateMsgVisibility()" />' +
       '</div>' +
       '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">AI可见用户留言数</div>' +
-        '<div class="diary-setting-desc">AI能看到多少条你的留言及评论</div></div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的用户留言数</div></div>' +
         '<input type="number" class="diary-time-select" style="width:60px" id="msg-vis-user" value="' + visUserMsgs + '" min="0" max="50" onchange="updateMsgVisibility()" />' +
       '</div>' +
     '</div>' +
@@ -6488,8 +6572,8 @@ function updateMsgAiDecideProb() {
 
 function updateMsgVisibility() {
   var settings = getMsgSettings();
-  settings.visibleCharMessages = parseInt(document.getElementById('msg-vis-char').value) || 10;
-  settings.visibleUserMessages = parseInt(document.getElementById('msg-vis-user').value) || 10;
+  settings.visibleCharMessages = getNonNegativeCountInput('msg-vis-char', 10);
+  settings.visibleUserMessages = getNonNegativeCountInput('msg-vis-user', 10);
   saveMsgSettings(settings);
   notifyMsgSettingsChanged();
 }
@@ -6667,8 +6751,10 @@ function requestAiTl() {
   renderTlList();
   var settings = getTlSettings();
   var items = getTlItems();
-  var charItems = items.filter(function(i) { return i.author === 'char'; }).slice(-( settings.visibleCharItems || 10));
-  var userItems = items.filter(function(i) { return i.author === 'user'; }).slice(-(settings.visibleUserItems || 10));
+  var charVisibleCount = settings.visibleCharItems ?? 10;
+  var userVisibleCount = settings.visibleUserItems ?? 10;
+  var charItems = charVisibleCount > 0 ? items.filter(function(i) { return i.author === 'char'; }).slice(-charVisibleCount) : [];
+  var userItems = userVisibleCount > 0 ? items.filter(function(i) { return i.author === 'user'; }).slice(-userVisibleCount) : [];
   window.parent.postMessage({
     type: 'coupleSpaceTimelineAiRequest',
     charId: currentCharId,
@@ -7023,6 +7109,7 @@ function openTlSettings() {
   overlay.innerHTML = '<div class="diary-settings-sheet animate-slide-up">' +
     '<div class="diary-settings-handle"></div>' +
     '<div class="diary-settings-title">时光轴设置</div>' +
+    buildCoupleChatContextSetting('timeline', settings.chatContextEnabled === true) +
 
     '<div class="diary-setting-item">' +
       '<div><div class="diary-setting-label">角色自动记录</div>' +
@@ -7057,12 +7144,12 @@ function openTlSettings() {
     '<div style="padding-top:16px;margin-top:8px;border-top:1px solid #f0efed">' +
       '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">AI可见角色记录数</div>' +
-        '<div class="diary-setting-desc">AI能看到多少条角色的时光记录</div></div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的角色记录数</div></div>' +
         '<input type="number" class="diary-time-select" style="width:60px" id="tl-vis-char" value="' + visCharItems + '" min="0" max="50" onchange="updateTlVisibility()" />' +
       '</div>' +
       '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">AI可见用户记录数</div>' +
-        '<div class="diary-setting-desc">AI能看到多少条你的时光记录</div></div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的用户记录数</div></div>' +
         '<input type="number" class="diary-time-select" style="width:60px" id="tl-vis-user" value="' + visUserItems + '" min="0" max="50" onchange="updateTlVisibility()" />' +
       '</div>' +
     '</div>' +
@@ -7126,8 +7213,8 @@ function updateTlAiDecideProb() {
 
 function updateTlVisibility() {
   var settings = getTlSettings();
-  settings.visibleCharItems = parseInt(document.getElementById('tl-vis-char').value) || 10;
-  settings.visibleUserItems = parseInt(document.getElementById('tl-vis-user').value) || 10;
+  settings.visibleCharItems = getNonNegativeCountInput('tl-vis-char', 10);
+  settings.visibleUserItems = getNonNegativeCountInput('tl-vis-user', 10);
   saveTlSettings(settings);
   notifyTlSettingsChanged();
 }
@@ -7741,6 +7828,7 @@ function openMoodSettings() {
   overlay.innerHTML = '<div class="diary-settings-sheet animate-slide-up">' +
     '<div class="diary-settings-handle"></div>' +
     '<div class="diary-settings-title">心情设置</div>' +
+    buildCoupleChatContextSetting('mood', settings.chatContextEnabled === true) +
     '<div class="diary-setting-item">' +
       '<div><div class="diary-setting-label">角色自动记录心情</div>' +
       '<div class="diary-setting-desc">角色会在设定时间自动记录心情</div></div>' +
@@ -7772,12 +7860,12 @@ function openMoodSettings() {
     '<div style="padding-top:16px;margin-top:8px;border-top:1px solid #f0efed">' +
       '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">AI可见角色心情数</div>' +
-        '<div class="diary-setting-desc">AI能看到多少条角色的心情</div></div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的角色心情数</div></div>' +
         '<input type="number" class="diary-time-select" style="width:60px" id="mood-vis-char" value="' + visCharMoods + '" min="0" max="50" onchange="updateMoodVisibility()" />' +
       '</div>' +
       '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">AI可见用户心情数</div>' +
-        '<div class="diary-setting-desc">AI能看到多少条你的心情</div></div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的用户心情数</div></div>' +
         '<input type="number" class="diary-time-select" style="width:60px" id="mood-vis-user" value="' + visUserMoods + '" min="0" max="50" onchange="updateMoodVisibility()" />' +
       '</div>' +
     '</div>' +
@@ -7835,8 +7923,8 @@ function updateMoodAiDecideProb() {
 }
 function updateMoodVisibility() {
   var settings = getMoodSettings();
-  settings.visibleCharMoods = parseInt(document.getElementById('mood-vis-char').value) || 10;
-  settings.visibleUserMoods = parseInt(document.getElementById('mood-vis-user').value) || 10;
+  settings.visibleCharMoods = getNonNegativeCountInput('mood-vis-char', 10);
+  settings.visibleUserMoods = getNonNegativeCountInput('mood-vis-user', 10);
   saveMoodSettings(settings);
   notifyMoodSettingsChanged();
 }
@@ -8355,6 +8443,7 @@ function openLetterSettings() {
   overlay.innerHTML = '<div class="diary-settings-sheet animate-slide-up">' +
     '<div class="diary-settings-handle"></div>' +
     '<div class="diary-settings-title">信件设置</div>' +
+    buildCoupleChatContextSetting('letter', settings.chatContextEnabled === true) +
 
     '<div class="diary-setting-item">' +
       '<div><div class="diary-setting-label">角色自动写信</div>' +
@@ -8389,12 +8478,12 @@ function openLetterSettings() {
     '<div style="padding-top:16px;margin-top:8px;border-top:1px solid #f0efed">' +
       '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">AI可见角色信件数</div>' +
-        '<div class="diary-setting-desc">AI能看到多少封角色的信件</div></div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的角色信件数</div></div>' +
         '<input type="number" class="diary-time-select" style="width:60px" id="letter-vis-char" value="' + visCharLetters + '" min="0" max="50" onchange="updateLetterVisibility()" />' +
       '</div>' +
       '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">AI可见用户信件数</div>' +
-        '<div class="diary-setting-desc">AI能看到多少封你的信件</div></div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的用户信件数</div></div>' +
         '<input type="number" class="diary-time-select" style="width:60px" id="letter-vis-user" value="' + visUserLetters + '" min="0" max="50" onchange="updateLetterVisibility()" />' +
       '</div>' +
     '</div>' +
@@ -8458,8 +8547,8 @@ function updateLetterAiDecideProb() {
 
 function updateLetterVisibility() {
   var settings = getLetterSettings();
-  settings.visibleCharLetters = parseInt(document.getElementById('letter-vis-char').value) || 5;
-  settings.visibleUserLetters = parseInt(document.getElementById('letter-vis-user').value) || 5;
+  settings.visibleCharLetters = getNonNegativeCountInput('letter-vis-char', 5);
+  settings.visibleUserLetters = getNonNegativeCountInput('letter-vis-user', 5);
   saveLetterSettings(settings);
   notifyLetterSettingsChanged();
 }
@@ -9370,6 +9459,7 @@ function openGardenSettings() {
   overlay.innerHTML = '<div class="diary-settings-sheet animate-slide-up">' +
     '<div class="diary-settings-handle"></div>' +
     '<div class="diary-settings-title">情侣树设置</div>' +
+    buildCoupleChatContextSetting('garden', settings.chatContextEnabled === true) +
     '<div class="diary-setting-item">' +
       '<div><div class="diary-setting-label">角色自动浇水</div>' +
       '<div class="diary-setting-desc">角色会在设定时间自动浇水</div></div>' +
@@ -9401,12 +9491,12 @@ function openGardenSettings() {
     '<div style="padding-top:16px;margin-top:8px;border-top:1px solid #f0efed">' +
       '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">AI可见角色浇水数</div>' +
-        '<div class="diary-setting-desc">AI能看到多少条角色的浇水记录</div></div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的角色浇水数</div></div>' +
         '<input type="number" class="diary-time-select" style="width:60px" id="garden-vis-char" value="' + visCharWaters + '" min="0" max="50" onchange="updateGardenVisibility()" />' +
       '</div>' +
       '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">AI可见用户浇水数</div>' +
-        '<div class="diary-setting-desc">AI能看到多少条你的浇水记录</div></div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的用户浇水数</div></div>' +
         '<input type="number" class="diary-time-select" style="width:60px" id="garden-vis-user" value="' + visUserWaters + '" min="0" max="50" onchange="updateGardenVisibility()" />' +
       '</div>' +
     '</div>' +
@@ -9471,8 +9561,8 @@ function updateGardenAiDecideProb() {
 }
 function updateGardenVisibility() {
   var settings = getGardenSettings();
-  settings.visibleCharWaters = parseInt(document.getElementById('garden-vis-char').value) || 10;
-  settings.visibleUserWaters = parseInt(document.getElementById('garden-vis-user').value) || 10;
+  settings.visibleCharWaters = getNonNegativeCountInput('garden-vis-char', 10);
+  settings.visibleUserWaters = getNonNegativeCountInput('garden-vis-user', 10);
   saveGardenSettings(settings);
   notifyGardenSettingsChanged();
 }
@@ -10472,6 +10562,7 @@ function openLocSettings() {
   overlay.innerHTML = '<div class="diary-settings-sheet animate-slide-up">' +
     '<div class="diary-settings-handle"></div>' +
     '<div class="diary-settings-title">\u5B9A\u4F4D\u8BBE\u7F6E</div>' +
+    buildCoupleChatContextSetting('location', settings.chatContextEnabled === true) +
     '<div class="diary-setting-item">' +
       '<div><div class="diary-setting-label">\u89D2\u8272\u81EA\u52A8\u5206\u4EAB\u5730\u70B9</div>' +
       '<div class="diary-setting-desc">\u89D2\u8272\u4F1A\u5728\u8BBE\u5B9A\u65F6\u95F4\u81EA\u52A8\u5206\u4EAB\u5730\u70B9</div></div>' +
@@ -10503,12 +10594,12 @@ function openLocSettings() {
     '<div style="padding-top:16px;margin-top:8px;border-top:1px solid #f0efed">' +
       '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">AI\u53EF\u89C1\u89D2\u8272\u5B9A\u4F4D\u6570</div>' +
-        '<div class="diary-setting-desc">AI\u80FD\u770B\u5230\u591A\u5C11\u6761\u89D2\u8272\u7684\u5B9A\u4F4D</div></div>' +
+        '<div class="diary-setting-desc">AI\u5728\u60C5\u4FA3\u7A7A\u95F4\u521B\u4F5C\u53CA\u65E5\u5E38\u804A\u5929\u4E2D\u6700\u591A\u8BFB\u53D6\u7684\u89D2\u8272\u5B9A\u4F4D\u6570</div></div>' +
         '<input type="number" class="diary-time-select" style="width:60px" id="loc-vis-char" value="' + visChar + '" min="0" max="50" onchange="updateLocVisibility()" />' +
       '</div>' +
       '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">AI\u53EF\u89C1\u7528\u6237\u5B9A\u4F4D\u6570</div>' +
-        '<div class="diary-setting-desc">AI\u80FD\u770B\u5230\u591A\u5C11\u6761\u4F60\u7684\u5B9A\u4F4D</div></div>' +
+        '<div class="diary-setting-desc">AI\u5728\u60C5\u4FA3\u7A7A\u95F4\u521B\u4F5C\u53CA\u65E5\u5E38\u804A\u5929\u4E2D\u6700\u591A\u8BFB\u53D6\u7684\u7528\u6237\u5B9A\u4F4D\u6570</div></div>' +
         '<input type="number" class="diary-time-select" style="width:60px" id="loc-vis-user" value="' + visUser + '" min="0" max="50" onchange="updateLocVisibility()" />' +
       '</div>' +
     '</div>' +
@@ -10561,8 +10652,8 @@ function updateLocAiDecideProb() {
 }
 function updateLocVisibility() {
   var s = getLocSettings();
-  s.visibleCharLocations = parseInt(document.getElementById('loc-vis-char').value) || 10;
-  s.visibleUserLocations = parseInt(document.getElementById('loc-vis-user').value) || 10;
+  s.visibleCharLocations = getNonNegativeCountInput('loc-vis-char', 10);
+  s.visibleUserLocations = getNonNegativeCountInput('loc-vis-user', 10);
   saveLocSettings(s);
 }
 function toggleLocPromptSetting() {
@@ -11765,6 +11856,7 @@ function openSleepSettings() {
   overlay.innerHTML = '<div class="diary-settings-sheet animate-slide-up">' +
     '<div class="diary-settings-handle"></div>' +
     '<div class="diary-settings-title">睡眠设置</div>' +
+    buildCoupleChatContextSetting('sleep', settings.chatContextEnabled === true) +
     '<div class="diary-setting-item">' +
       '<div><div class="diary-setting-label">角色自动记录睡眠</div>' +
       '<div class="diary-setting-desc">角色会在设定时间自动入睡和起床</div></div>' +
@@ -11800,12 +11892,12 @@ function openSleepSettings() {
     '<div style="padding-top:16px;margin-top:8px;border-top:1px solid #f0efed">' +
       '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">AI可见角色睡眠数</div>' +
-        '<div class="diary-setting-desc">AI能看到多少条角色的睡眠记录</div></div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的角色睡眠数</div></div>' +
         '<input type="number" class="diary-time-select" style="width:60px" id="sleep-vis-char" value="' + visChar + '" min="0" max="50" onchange="updateSleepVisibility()" />' +
       '</div>' +
       '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">AI可见用户睡眠数</div>' +
-        '<div class="diary-setting-desc">AI能看到多少条你的睡眠记录</div></div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的用户睡眠数</div></div>' +
         '<input type="number" class="diary-time-select" style="width:60px" id="sleep-vis-user" value="' + visUser + '" min="0" max="50" onchange="updateSleepVisibility()" />' +
       '</div>' +
     '</div>' +
@@ -11868,8 +11960,8 @@ function updateSleepAiDecideProb() {
 
 function updateSleepVisibility() {
   var settings = getSleepSettings();
-  settings.visibleCharSleeps = parseInt(document.getElementById('sleep-vis-char').value) || 10;
-  settings.visibleUserSleeps = parseInt(document.getElementById('sleep-vis-user').value) || 10;
+  settings.visibleCharSleeps = getNonNegativeCountInput('sleep-vis-char', 10);
+  settings.visibleUserSleeps = getNonNegativeCountInput('sleep-vis-user', 10);
   saveSleepSettings(settings);
   notifySleepSettingsChanged();
 }
@@ -12531,6 +12623,7 @@ function openFinSettings() {
   overlay.innerHTML = '<div class="diary-settings-sheet animate-slide-up">' +
     '<div class="diary-settings-handle"></div>' +
     '<div class="diary-settings-title">记账设置</div>' +
+    buildCoupleChatContextSetting('finance', settings.chatContextEnabled === true) +
     '<div class="diary-setting-item">' +
       '<div><div class="diary-setting-label">角色自动记账</div>' +
       '<div class="diary-setting-desc">角色会在设定时间自动记一笔账</div></div>' +
@@ -12562,12 +12655,12 @@ function openFinSettings() {
     '<div style="padding-top:16px;margin-top:8px;border-top:1px solid #f0efed">' +
       '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">AI可见角色记录数</div>' +
-        '<div class="diary-setting-desc">AI能看到多少条角色的记账</div></div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的角色账目数</div></div>' +
         '<input type="number" class="diary-time-select" style="width:60px" id="fin-vis-char" value="' + visCharItems + '" min="0" max="50" onchange="updateFinVisibility()" />' +
       '</div>' +
       '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">AI可见用户记录数</div>' +
-        '<div class="diary-setting-desc">AI能看到多少条你的记账</div></div>' +
+        '<div class="diary-setting-desc">AI在情侣空间创作及日常聊天中最多读取的用户账目数</div></div>' +
         '<input type="number" class="diary-time-select" style="width:60px" id="fin-vis-user" value="' + visUserItems + '" min="0" max="50" onchange="updateFinVisibility()" />' +
       '</div>' +
     '</div>' +
@@ -12624,8 +12717,8 @@ function updateFinAiDecideProb() {
 }
 function updateFinVisibility() {
   var settings = getFinSettings();
-  settings.visibleCharItems = parseInt(document.getElementById('fin-vis-char').value) || 10;
-  settings.visibleUserItems = parseInt(document.getElementById('fin-vis-user').value) || 10;
+  settings.visibleCharItems = getNonNegativeCountInput('fin-vis-char', 10);
+  settings.visibleUserItems = getNonNegativeCountInput('fin-vis-user', 10);
   saveFinSettings(settings);
   notifyFinSettingsChanged();
 }

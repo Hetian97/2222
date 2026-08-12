@@ -41,8 +41,12 @@
       linkedChatIds: chat.settings.linkedChatIds || [],
       showHiddenMessages: chat.settings.showHiddenMessages || false,
       phoneViewingAwareness: chat.settings.phoneViewingAwareness || false,
-      coupleSpacePrompt: chat.settings.coupleSpacePrompt || false,
-      coupleSpaceContent: chat.settings.coupleSpaceContent || false,
+      enableTodoList: chat.settings.enableTodoList === true,
+      enablePurchasedItemsPrompt: chat.settings.enablePurchasedItemsPrompt === true,
+      enableCharacterWalletPrompt: chat.settings.enableCharacterWalletPrompt === true,
+      enableCoupleSpacePrompt: (chat.settings.enableCoupleSpacePrompt ?? chat.settings.coupleSpacePrompt) === true,
+      enableCoupleSpaceContent: (chat.settings.enableCoupleSpaceContent ?? chat.settings.coupleSpaceContent) === true,
+      enableCoupleSpaceNotify: (chat.settings.enableCoupleSpaceNotify ?? chat.settings.coupleSpaceNotify) === true,
       
       // ===== AI行为控制 =====
       enableThoughts: chat.settings.enableThoughts || null,
@@ -84,7 +88,21 @@
     
     // 只应用功能性设置，不覆盖身份信息（名字、头像、人设等）
     // 使用 Object.assign 会保留原有的身份信息
-    const settingsToApply = preset.settings;
+    const settingsToApply = { ...preset.settings };
+
+    // 兼容旧模板曾使用的无 enable 前缀字段。
+    if (settingsToApply.enableCoupleSpacePrompt === undefined && settingsToApply.coupleSpacePrompt !== undefined) {
+      settingsToApply.enableCoupleSpacePrompt = settingsToApply.coupleSpacePrompt;
+    }
+    if (settingsToApply.enableCoupleSpaceContent === undefined && settingsToApply.coupleSpaceContent !== undefined) {
+      settingsToApply.enableCoupleSpaceContent = settingsToApply.coupleSpaceContent;
+    }
+    if (settingsToApply.enableCoupleSpaceNotify === undefined && settingsToApply.coupleSpaceNotify !== undefined) {
+      settingsToApply.enableCoupleSpaceNotify = settingsToApply.coupleSpaceNotify;
+    }
+    delete settingsToApply.coupleSpacePrompt;
+    delete settingsToApply.coupleSpaceContent;
+    delete settingsToApply.coupleSpaceNotify;
     
     // 逐个应用设置，确保不覆盖未包含在模板中的字段
     Object.keys(settingsToApply).forEach(key => {
