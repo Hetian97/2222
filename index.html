@@ -55,7 +55,7 @@
   <script src="notification-manager.js?v=0.0.36" defer></script>
   <script src="character-generator.js?v=0.0.36" defer></script>
   <script src="structured-memory.js?v=0.0.36" defer></script>
-  <script src="vector-memory.js?v=0.0.39" defer></script>
+  <script src="vector-memory.js?v=0.0.40" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <!-- 拆分后的模块（按依赖顺序加载） -->
@@ -10100,7 +10100,12 @@
 
         lines.push('');
         lines.push(String(index + 1) + '. [' + category + '] ' + (item.id || ''));
-        lines.push('   已注入：' + (injectedIds.has(String(item.id || '')) ? '✓' : '✗'));
+        if (String(category).toUpperCase() === 'C') {
+          lines.push('   核心常驻：✓');
+          lines.push('   动态注入：不适用');
+        } else {
+          lines.push('   已注入：' + (injectedIds.has(String(item.id || '')) ? '✓' : '✗'));
+        }
         lines.push('   Vector：' + (hasEmbedding ? ('✓ ' + dim + 'd') : '✗'));
         if (typeof item.searchScore !== 'undefined' && item.searchScore !== null) {
           lines.push('   Score：' + item.searchScore);

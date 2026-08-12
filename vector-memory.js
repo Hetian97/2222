@@ -967,6 +967,7 @@ class VariableMemoryManager {
           queryVariants: safeQueryVariants,
           limit,
           chatId: chat?.id || chat?.chatId || '',
+          excludeCategories: ['C'],
           scoreWeights: vm.settings?.scoreWeights || {},
           searchEngine: vm.settings?.searchEngine || 'sqlite',
           candidateLimit: ((vm.settings?.searchEngine || 'sqlite') === 'hybrid' || (vm.settings?.searchEngine || 'sqlite') === 'chroma-hybrid')
@@ -1027,17 +1028,48 @@ class VariableMemoryManager {
     if (!safeTraceId) return null;
 
     try {
-      return await this.externalMemoryRequest(chat, '/memory/search/commit', {
+      const result = await this.externalMemoryRequest(chat, '/memory/search/commit', {
         method: 'POST',
         body: {
           searchTraceId: safeTraceId,
           memoryIds: safeMemoryIds
         }
       });
+      this.applyExternalRecallUpdates(chat, result?.recallUpdates);
+      return result;
     } catch (error) {
       console.warn('[变量记忆] 外部记忆召回计数回写失败:', error.message);
       return null;
     }
+  }
+
+  applyExternalRecallUpdates(chat, updates) {
+    const safeUpdates = Array.isArray(updates) ? updates : [];
+    if (!safeUpdates.length) return 0;
+
+    const vm = this.getVariableMemory(chat);
+    const updateById = new Map(
+      safeUpdates
+        .map(update => [String(update?.id || '').trim(), update])
+        .filter(([id]) => id)
+    );
+    let changed = 0;
+
+    for (const fragment of vm.fragments || []) {
+      const update = updateById.get(String(fragment?.id || ''));
+      if (!update) continue;
+      fragment.recallCount = Number(update.recallCount || 0);
+      fragment.lastRecalled = Number(update.lastRecalled || 0);
+      changed++;
+    }
+
+    if (changed > 0) {
+      window.dispatchEvent(new CustomEvent('variable-memory-recall-updated', {
+        detail: { chatId: chat?.id || chat?.chatId || '', updates: safeUpdates }
+      }));
+    }
+
+    return changed;
   }
 
   async retrieveRelevant(chat, queryText, topN = null) {
@@ -1059,12 +1091,7 @@ class VariableMemoryManager {
     const queryEmbedding = await this.getEmbedding(queryText, chat);
     const queryTokens = this.tokenize(queryText);
 
-    const scored = vm.fragments.map(frag => {
-      // 核心记忆 C 类直接满分，保证绝对不被遗忘
-      if (frag.category === 'C') {
-        return { fragment: frag, score: 999 };
-      }
-
+    const scored = vm.fragments.filter(frag => frag.category !== 'C').map(frag => {
       // 语义得分
       const semanticScore = queryEmbedding && frag.embedding ? this.cosineSimilarity(queryEmbedding, frag.embedding) : 0;
       
@@ -1097,7 +1124,7 @@ class VariableMemoryManager {
 
     scored.sort((a, b) => b.score - a.score);
     // 过滤掉得分太低且不是核心的
-    let results = scored.slice(0, topN).filter(r => r.score > 0.1 || r.fragment.category === 'C');
+    let results = scored.slice(0, topN).filter(r => r.score > 0.1);
 
     // 更新统计
     for (const r of results) {
@@ -2133,6 +2160,7 @@ ${output}`;
       ['ID', frag.id || ''],
       ['chatId', frag.chatId || ''],
       ['分类', frag.category || ''],
+      ['记忆方式', frag.category === 'C' ? '核心常驻' : '动态召回'],
       ['重要度', frag.importance ?? ''],
       ['情绪权重', frag.emotionalWeight ?? ''],
       ['tags', Array.isArray(frag.tags) ? frag.tags.join(', ') : ''],
@@ -2145,7 +2173,7 @@ ${output}`;
       ['updatedAt', formatTime(frag.updatedAt)],
       ['memoryTime', formatTime(frag.memoryTime)],
       ['lastRecalled', formatTime(frag.lastRecalled)],
-      ['recallCount', frag.recallCount ?? 0],
+      ['动态召回次数', frag.category === 'C' ? '不适用' : (frag.recallCount ?? 0)],
       ['linkedMemories', Array.isArray(frag.linkedMemories) ? frag.linkedMemories.join(', ') : '']
     ];
 

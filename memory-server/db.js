@@ -450,6 +450,16 @@ function listMemories(filters = {}) {
     params.push(String(filters.category).trim().toUpperCase());
   }
 
+  const excludedCategories = [...new Set(
+    (Array.isArray(filters.excludeCategories) ? filters.excludeCategories : [])
+      .map(value => String(value || '').trim().toUpperCase())
+      .filter(Boolean)
+  )];
+  if (excludedCategories.length) {
+    where.push(`COALESCE(category, '') NOT IN (${excludedCategories.map(() => '?').join(', ')})`);
+    params.push(...excludedCategories);
+  }
+
   if (filters.minImportance !== undefined && filters.minImportance !== null && filters.minImportance !== '') {
     where.push('importance >= ?');
     params.push(Number(filters.minImportance));
@@ -675,6 +685,16 @@ function getMemoriesByIds(ids, filters = {}) {
     params.push(String(filters.category).trim().toUpperCase());
   }
 
+  const excludedCategories = [...new Set(
+    (Array.isArray(filters.excludeCategories) ? filters.excludeCategories : [])
+      .map(value => String(value || '').trim().toUpperCase())
+      .filter(Boolean)
+  )];
+  if (excludedCategories.length) {
+    where.push(`COALESCE(category, '') NOT IN (${excludedCategories.map(() => '?').join(', ')})`);
+    params.push(...excludedCategories);
+  }
+
   if (filters.minImportance !== undefined && filters.minImportance !== null && filters.minImportance !== '') {
     where.push('importance >= ?');
     params.push(Number(filters.minImportance));
@@ -761,6 +781,16 @@ function searchMemoriesFts(queries, filters = {}) {
   if (filters.category) {
     where.push('memory_fts.category = ?');
     params.push(String(filters.category).trim().toUpperCase());
+  }
+
+  const excludedCategories = [...new Set(
+    (Array.isArray(filters.excludeCategories) ? filters.excludeCategories : [])
+      .map(value => String(value || '').trim().toUpperCase())
+      .filter(Boolean)
+  )];
+  if (excludedCategories.length) {
+    where.push(`COALESCE(memory_fts.category, '') NOT IN (${excludedCategories.map(() => '?').join(', ')})`);
+    params.push(...excludedCategories);
   }
 
   if (filters.minImportance !== undefined && filters.minImportance !== null && filters.minImportance !== '') {

@@ -5,6 +5,48 @@ let chromaModulePromise = null;
 let clientPromise = null;
 let collectionPromise = null;
 
+function resetChromaConnectionCache() {
+  clientPromise = null;
+  collectionPromise = null;
+}
+
+function isRetryableChromaConnectionError(error) {
+  const message = [
+    error?.message,
+    error?.cause?.message,
+    error?.code,
+    error?.cause?.code
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  return /fetch|network|connect|connection|econn|socket|closed|terminated|reset|refused|timeout|timed out|unavailable|502|503|504/.test(message);
+}
+
+async function withChromaReconnect(operationName, operation, options = {}) {
+  const retryDelayMs = Math.max(0, Number(options.retryDelayMs ?? 250));
+
+  try {
+    return await operation();
+  } catch (error) {
+    if (!isRetryableChromaConnectionError(error)) throw error;
+
+    resetChromaConnectionCache();
+    console.warn(`[memory-server] chroma ${operationName} connection failed; rebuilding client and retrying once:`, error.message || String(error));
+
+    if (retryDelayMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+    }
+
+    try {
+      return await operation();
+    } catch (retryError) {
+      // Do not retain another rejected client/collection promise. The next request
+      // should be able to reconnect after Chroma has recovered.
+      resetChromaConnectionCache();
+      throw retryError;
+    }
+  }
+}
+
 function parseChromaUrl(urlText) {
   const url = new URL(urlText);
   return {
@@ -51,8 +93,10 @@ async function getChromaCollection() {
 }
 
 async function chromaHeartbeat() {
-  const client = await getChromaClient();
-  return client.heartbeat();
+  return withChromaReconnect('heartbeat', async () => {
+    const client = await getChromaClient();
+    return client.heartbeat();
+  });
 }
 
 function sanitizeMetadataValue(value) {
@@ -94,7 +138,6 @@ function memoryToChromaItem(memory) {
 
 async function upsertMemoriesToChroma(memories, options = {}) {
   const batchSize = Number(options.batchSize || 100);
-  const collection = await getChromaCollection();
 
   const items = (memories || [])
     .map(memoryToChromaItem)
@@ -105,11 +148,14 @@ async function upsertMemoriesToChroma(memories, options = {}) {
   for (let i = 0; i < items.length; i += batchSize) {
     const batch = items.slice(i, i + batchSize);
 
-    await collection.upsert({
-      ids: batch.map(item => item.id),
-      documents: batch.map(item => item.document),
-      embeddings: batch.map(item => item.embedding),
-      metadatas: batch.map(item => item.metadata)
+    await withChromaReconnect('upsert', async () => {
+      const collection = await getChromaCollection();
+      return collection.upsert({
+        ids: batch.map(item => item.id),
+        documents: batch.map(item => item.document),
+        embeddings: batch.map(item => item.embedding),
+        metadatas: batch.map(item => item.metadata)
+      });
     });
 
     upserted += batch.length;
@@ -129,13 +175,15 @@ async function queryChromaByEmbedding(queryEmbedding, options = {}) {
     throw new Error('queryEmbedding must be a non-empty array');
   }
 
-  const collection = await getChromaCollection();
   const nResults = Number(options.nResults || 20);
 
-  return collection.query({
-    queryEmbeddings: [queryEmbedding],
-    nResults,
-    include: ['documents', 'metadatas', 'distances']
+  return withChromaReconnect('query', async () => {
+    const collection = await getChromaCollection();
+    return collection.query({
+      queryEmbeddings: [queryEmbedding],
+      nResults,
+      include: ['documents', 'metadatas', 'distances']
+    });
   });
 }
 
@@ -150,10 +198,11 @@ async function deleteMemoryFromChroma(id) {
     };
   }
 
-  const collection = await getChromaCollection();
-
-  await collection.delete({
-    ids: [safeId]
+  await withChromaReconnect('delete', async () => {
+    const collection = await getChromaCollection();
+    return collection.delete({
+      ids: [safeId]
+    });
   });
 
   return {
@@ -178,7 +227,7 @@ async function resetChromaCollection() {
     );
   }
 
-  collectionPromise = null;
+  resetChromaConnectionCache();
 
   const collection = await getChromaCollection();
   const count = typeof collection.count === 'function'
@@ -193,21 +242,24 @@ async function resetChromaCollection() {
 }
 
 async function getChromaStatus() {
-  const heartbeat = await chromaHeartbeat();
-  const collection = await getChromaCollection();
+  return withChromaReconnect('status', async () => {
+    const client = await getChromaClient();
+    const heartbeat = await client.heartbeat();
+    const collection = await getChromaCollection();
 
-  let count = null;
-  if (collection && typeof collection.count === 'function') {
-    count = await collection.count();
-  }
+    let count = null;
+    if (collection && typeof collection.count === 'function') {
+      count = await collection.count();
+    }
 
-  return {
-    ok: true,
-    url: CHROMA_URL,
-    collection: CHROMA_COLLECTION,
-    heartbeat,
-    count
-  };
+    return {
+      ok: true,
+      url: CHROMA_URL,
+      collection: CHROMA_COLLECTION,
+      heartbeat,
+      count
+    };
+  });
 }
 
 module.exports = {
@@ -216,6 +268,9 @@ module.exports = {
   chromaHeartbeat,
   getChromaClient,
   getChromaCollection,
+  resetChromaConnectionCache,
+  isRetryableChromaConnectionError,
+  withChromaReconnect,
   queryChromaByEmbedding,
   deleteMemoryFromChroma,
   resetChromaCollection,

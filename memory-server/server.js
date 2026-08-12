@@ -3739,6 +3739,11 @@ const server = http.createServer(async (req, res) => {
         body.searchTraceId,
         body.memoryIds
       );
+      const recallUpdates = getMemoriesByIds(result.log?.injectedMemoryIds || []).map(memory => ({
+        id: memory.id,
+        recallCount: Number(memory.recallCount || 0),
+        lastRecalled: Number(memory.lastRecalled || 0)
+      }));
 
       sendJson(res, 200, {
         ok: true,
@@ -3746,7 +3751,8 @@ const server = http.createServer(async (req, res) => {
         alreadyCommitted: result.alreadyCommitted,
         searchTraceId: result.log?.id || '',
         injectedCount: result.log?.injectedCount || 0,
-        injectedMemoryIds: result.log?.injectedMemoryIds || []
+        injectedMemoryIds: result.log?.injectedMemoryIds || [],
+        recallUpdates
       });
     } catch (error) {
       const notFound = String(error.message || '').includes('not found');
@@ -3768,6 +3774,7 @@ const server = http.createServer(async (req, res) => {
       const memoryFilters = {
         chatId: body.chatId || '',
         category: body.category || '',
+        excludeCategories: Array.isArray(body.excludeCategories) ? body.excludeCategories : [],
         minImportance: body.minImportance || '',
         maxImportance: body.maxImportance || ''
       };

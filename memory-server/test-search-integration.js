@@ -20,6 +20,15 @@ database.addMemory({
   importance: 8,
   memoryTime: 1
 });
+database.addMemory({
+  id: 'core_beijing',
+  chatId: 'chat-1',
+  category: 'C',
+  content: '北京出差核心常驻记忆',
+  tags: ['北京'],
+  importance: 10,
+  memoryTime: 2
+});
 
 for (let index = 0; index < 30; index++) {
   database.addMemory({
@@ -98,13 +107,14 @@ async function main() {
     const status = await request('GET', '/memory/fts/status');
     assert.equal(status.status, 200);
     assert.equal(status.body.fts.integrity, 'ok');
-    assert.equal(status.body.fts.totalMemories, 31);
+    assert.equal(status.body.fts.totalMemories, 32);
 
     const search = await request('POST', '/memory/search', {
       query: '北京出差',
       queryVariants: ['二十号出发'],
       searchEngine: 'hybrid',
       chatId: 'chat-1',
+      excludeCategories: ['C'],
       limit: 5,
       candidateLimit: 10,
       diagnostic: true
@@ -113,6 +123,35 @@ async function main() {
     assert.equal(search.status, 200);
     assert.equal(search.body.fts.attempted, true);
     assert(search.body.memories.some(memory => memory.id === 'very_old_beijing_trip'));
+    assert(!search.body.memories.some(memory => memory.category === 'C'));
+
+    const realSearch = await request('POST', '/memory/search', {
+      query: '北京出差',
+      searchEngine: 'hybrid',
+      chatId: 'chat-1',
+      excludeCategories: ['C'],
+      limit: 5
+    });
+    assert(realSearch.body.searchTraceId);
+
+    const firstCommit = await request('POST', '/memory/search/commit', {
+      searchTraceId: realSearch.body.searchTraceId,
+      memoryIds: ['very_old_beijing_trip']
+    });
+    assert.equal(firstCommit.body.committed, true);
+    assert.deepEqual(firstCommit.body.recallUpdates, [{
+      id: 'very_old_beijing_trip',
+      recallCount: 1,
+      lastRecalled: firstCommit.body.recallUpdates[0].lastRecalled
+    }]);
+    assert(firstCommit.body.recallUpdates[0].lastRecalled > 0);
+
+    const repeatedCommit = await request('POST', '/memory/search/commit', {
+      searchTraceId: realSearch.body.searchTraceId,
+      memoryIds: ['very_old_beijing_trip']
+    });
+    assert.equal(repeatedCommit.body.alreadyCommitted, true);
+    assert.equal(repeatedCommit.body.recallUpdates[0].recallCount, 1);
 
     const rebuild = await request('POST', '/memory/fts/rebuild');
     assert.equal(rebuild.status, 200);

@@ -4,7 +4,7 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "test": "node test-fts.js && node test-search-integration.js",
+    "test": "node test-fts.js && node test-search-integration.js && node test-chroma-reconnect.js && node test-vector-memory-ui.js",
     "start": "node server.js"
   },
   "keywords": [],
