@@ -1253,7 +1253,8 @@ window.initEventBindingsB = function(state, db) {
         await db.chats.put(chat);
 
 
-        renderChatInterface(state.activeChatId);
+        document.querySelectorAll('#chat-messages [data-system-timestamp="true"]').forEach(element => element.remove());
+        await renderChatInterface(state.activeChatId);
         renderChatList();
       }
     });

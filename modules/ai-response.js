@@ -8279,6 +8279,12 @@ ${getActiveThoughtsPrompt()}
       }
       await db.chats.put(chat);
 
+      if (window.vectorMemoryManager?.finishExternalMemoryGeneration) {
+        const generationOutcome = responseMessageTimestamps.length > 0 ? 'succeeded' : 'failed';
+        const generationError = generationOutcome === 'failed' ? 'no_visible_assistant_message' : '';
+        await window.vectorMemoryManager.finishExternalMemoryGeneration(chat, generationOutcome, generationError);
+      }
+
       if (proactiveTodoScheduleCount > 0) {
         const title = proactiveTodoScheduleCount === 1
           ? `${chat.name} 主动添加了待办/行程`
@@ -8310,6 +8316,14 @@ ${getActiveThoughtsPrompt()}
     } catch (error) {
 
       chat.history = chat.history.filter(msg => !msg.isTemporary);
+
+      if (window.vectorMemoryManager?.finishExternalMemoryGeneration) {
+        await window.vectorMemoryManager.finishExternalMemoryGeneration(
+          chat,
+          'failed',
+          error?.name === 'AbortError' ? 'generation_aborted' : (error?.message || 'generation_failed')
+        );
+      }
 
       if (error.name === 'AbortError') {
         console.log('API调用已被用户取消');
@@ -8723,6 +8737,7 @@ ${linkedContents}
       }
 
       let messageTimestamp = Date.now();
+      let visibleResponseCount = 0;
       for (const msgData of processedActions) {
         const aiMessage = {
           role: 'assistant',
@@ -8749,15 +8764,24 @@ ${linkedContents}
           continue;
         }
         chat.history.push(aiMessage);
+        visibleResponseCount += 1;
         appendMessage(aiMessage, chat);
         await new Promise(resolve => setTimeout(resolve, Math.random() * 1000 + 800));
       }
 
       await db.chats.put(chat);
+      if (window.vectorMemoryManager?.finishExternalMemoryGeneration) {
+        const generationOutcome = visibleResponseCount > 0 ? 'succeeded' : 'failed';
+        const generationError = generationOutcome === 'failed' ? 'no_visible_assistant_message' : '';
+        await window.vectorMemoryManager.finishExternalMemoryGeneration(chat, generationOutcome, generationError);
+      }
       renderChatList();
 
     } catch (error) {
       console.error("推进剧情失败:", error);
+      if (window.vectorMemoryManager?.finishExternalMemoryGeneration) {
+        await window.vectorMemoryManager.finishExternalMemoryGeneration(chat, 'failed', error?.message || 'propel_generation_failed');
+      }
       await showCustomAlert('操作失败', `无法推进剧情: ${error.message}`);
     } finally {
       setAvatarActingState(chat.id, false);

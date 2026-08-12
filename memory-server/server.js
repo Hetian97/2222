@@ -19,6 +19,7 @@ const {
   createMemorySearchLog,
   getLatestMemorySearchLog,
   commitMemorySearchInjection,
+  finishMemorySearchGeneration,
   addGardenWakeEvent,
   claimGardenWakeEvent,
   finishGardenWakeEvent,
@@ -164,6 +165,8 @@ function updateLastMemorySearchState(info = {}) {
       ...lastMemorySearchState,
       chatId: info.chatId || '',
       queryVariants: info.queryVariants || [],
+      turnId: info.turnId || '',
+      attemptId: info.attemptId || '',
       results,
       resultsTop: lastMemorySearchState.resultsTop
     });
@@ -3819,10 +3822,19 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/memory/search/commit' && req.method === 'POST') {
     try {
       const body = await readRequestBody(req);
-      const result = commitMemorySearchInjection(
+      let result = commitMemorySearchInjection(
         body.searchTraceId,
         body.memoryIds
       );
+      if (Number(body.lifecycleVersion || 1) < 2 && result.committed) {
+        const legacyFinalized = finishMemorySearchGeneration(body.searchTraceId, 'succeeded');
+        result = {
+          ...result,
+          recallDeferred: false,
+          legacyLifecycle: true,
+          log: legacyFinalized.log
+        };
+      }
       const recallUpdates = getMemoriesByIds(result.log?.injectedMemoryIds || []).map(memory => ({
         id: memory.id,
         recallCount: Number(memory.recallCount || 0),
@@ -3833,6 +3845,8 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         committed: result.committed,
         alreadyCommitted: result.alreadyCommitted,
+        recallDeferred: Boolean(result.recallDeferred),
+        log: result.log || null,
         searchTraceId: result.log?.id || '',
         injectedCount: result.log?.injectedCount || 0,
         injectedMemoryIds: result.log?.injectedMemoryIds || [],
@@ -3844,6 +3858,28 @@ const server = http.createServer(async (req, res) => {
         ok: false,
         error: error.message || String(error)
       });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/search/generation' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      const result = finishMemorySearchGeneration(
+        body.searchTraceId,
+        body.outcome,
+        body.error || ''
+      );
+      const recallUpdates = result.recallApplied
+        ? getMemoriesByIds(result.log?.injectedMemoryIds || []).map(memory => ({
+            id: memory.id,
+            recallCount: Number(memory.recallCount || 0),
+            lastRecalled: Number(memory.lastRecalled || 0) || null
+          }))
+        : [];
+      sendJson(res, 200, { ok: true, ...result, recallUpdates });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message || String(error) });
     }
     return;
   }
@@ -4013,6 +4049,8 @@ const server = http.createServer(async (req, res) => {
                     source: '/memory/search',
                     query: q,
                     queryVariants: debugQueries.slice(1),
+                    turnId: body.turnId || '',
+                    attemptId: body.attemptId || '',
                     chatId: body.chatId || '',
                     searchMode: responsePayload.searchMode,
                     requestedSearchEngine: memorySearchEngine,
@@ -4203,6 +4241,8 @@ const server = http.createServer(async (req, res) => {
           source: '/memory/search',
           query: q,
           queryVariants: debugQueries.slice(1),
+          turnId: body.turnId || '',
+          attemptId: body.attemptId || '',
           chatId: body.chatId || '',
           searchMode: responsePayload.searchMode,
           requestedSearchEngine: memorySearchEngine,

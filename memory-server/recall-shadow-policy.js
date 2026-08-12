@@ -80,6 +80,44 @@ function buildQuerySegments(query, queryVariants = []) {
   return segments.slice(0, 18);
 }
 
+function buildQueryFacets(segments, documentFrequency, total) {
+  const candidates = [];
+
+  for (const segment of segments) {
+    const tokens = [...lexicalTokens(segment)].filter(token => {
+      const frequency = documentFrequency.get(token) || 0;
+      return frequency > 0 && (frequency <= Math.max(4, Math.ceil(total * 0.45)) || /[a-z0-9]/i.test(token));
+    });
+    if (!tokens.length) continue;
+
+    const tokenSet = new Set(tokens);
+    const specificity = tokens.reduce((sum, token) => {
+      const frequency = documentFrequency.get(token) || 0;
+      return sum + 1 + Math.log((total + 1) / (frequency + 1));
+    }, 0) / Math.sqrt(tokens.length);
+    candidates.push({
+      id: `facet_${candidates.length + 1}`,
+      text: segment,
+      tokens: tokenSet,
+      specificity
+    });
+  }
+
+  const selected = [];
+  for (const candidate of candidates.sort((a, b) => b.specificity - a.specificity)) {
+    const overlapsExisting = selected.some(existing => {
+      const similarity = jaccardSimilarity(candidate.tokens, existing.tokens);
+      const left = normalizeText(candidate.text);
+      const right = normalizeText(existing.text);
+      return similarity >= 0.55 || (left.length >= 5 && right.length >= 5 && (left.includes(right) || right.includes(left)));
+    });
+    if (!overlapsExisting) selected.push(candidate);
+    if (selected.length >= 4) break;
+  }
+
+  return selected.map((facet, index) => ({ ...facet, id: `facet_${index + 1}` }));
+}
+
 function buildShadowEvidence(candidates, options = {}) {
   const documents = candidates.map(memory => lexicalTokens([
     memory.content,
@@ -96,6 +134,7 @@ function buildShadowEvidence(candidates, options = {}) {
   const total = Math.max(1, candidates.length);
   const segments = buildQuerySegments(options.query, options.queryVariants);
   const segmentTokens = segments.map(segment => lexicalTokens(segment));
+  const facets = buildQueryFacets(segments, documentFrequency, total);
   const tagFrequency = new Map();
   for (const memory of candidates) {
     const uniqueTags = new Set(parseTags(memory.tags).map(normalizeText).filter(Boolean));
@@ -145,11 +184,31 @@ function buildShadowEvidence(candidates, options = {}) {
       hasExplicitFact || category === 'P' || category === 'T'
     );
 
+    const facetScores = facets.map(facet => {
+      let matchedWeight = 0;
+      let facetWeight = 0;
+      for (const token of facet.tokens) {
+        const frequency = documentFrequency.get(token) || 0;
+        const weight = 1 + Math.log((total + 1) / (frequency + 1));
+        facetWeight += weight;
+        if (documents[index].has(token)) matchedWeight += weight;
+      }
+      const coverage = facetWeight > 0 ? matchedWeight / facetWeight : 0;
+      return {
+        id: facet.id,
+        score: clamp01(Math.sqrt(coverage) * coverage)
+      };
+    });
+    const bestFacet = [...facetScores].sort((a, b) => b.score - a.score)[0] || { id: '', score: 0 };
+
     return {
       keyword: clamp01(keyword),
       anchor: clamp01(anchor),
       anchorTerm,
-      protectedEvidence
+      protectedEvidence,
+      bestFacetId: bestFacet.id,
+      bestFacetScore: bestFacet.score,
+      facetScores
     };
   });
 }
@@ -187,6 +246,7 @@ function memorySimilarity(left, right) {
   // memories duplicates. Require multiple shared descriptors for tag-only folding.
   const sharedTags = [...leftTags].filter(tag => rightTags.has(tag));
   const tagSimilarity = sharedTags.length >= 2 ? rawTagSimilarity : 0;
+  const preciseSharedTag = sharedTags.some(tag => tag.length >= 4);
 
   const dateTokens = value => new Set(String(value?.content || '').match(/\d{1,4}(?:年|月|日|号|天|周)?/g) || []);
   const leftDates = dateTokens(left);
@@ -194,7 +254,8 @@ function memorySimilarity(left, right) {
   const conflictingDates = leftDates.size && rightDates.size && ![...leftDates].some(token => rightDates.has(token));
 
   let similarity = Math.max(containment, textSimilarity, tagSimilarity * 0.9);
-  if (sharedTags.length >= 2 && textSimilarity >= 0.22) similarity = Math.max(similarity, 0.76);
+  if (sharedTags.length >= 2 && textSimilarity >= 0.12) similarity = Math.max(similarity, 0.76);
+  if (preciseSharedTag && textSimilarity >= 0.18) similarity = Math.max(similarity, 0.73);
   if (textSimilarity >= 0.38) similarity = Math.max(similarity, 0.74 + Math.min(0.16, (textSimilarity - 0.38) * 0.8));
   if (conflictingDates) similarity = Math.min(similarity, 0.58);
 
@@ -239,7 +300,7 @@ function evaluateAdmission(memory, calibratedEvidence = null) {
     admitted = true;
     route = 'explicit_anchor';
     reason = 'strong_keyword_evidence';
-  } else if (signals.vector >= 0.78) {
+  } else if (signals.vector >= 0.72) {
     admitted = true;
     route = 'composite_semantic';
     reason = 'very_high_semantic_match';
@@ -298,6 +359,12 @@ function runRecallShadowPolicy(candidates, options = {}) {
     memory,
     ...evaluateAdmission(memory, calibratedEvidence[index]),
     calibratedAnchorTerm: calibratedEvidence[index]?.anchorTerm || '',
+    bestFacetId: calibratedEvidence[index]?.bestFacetId || '',
+    bestFacetScore: Number((calibratedEvidence[index]?.bestFacetScore || 0).toFixed(6)),
+    facetScores: (calibratedEvidence[index]?.facetScores || []).map(facet => ({
+      id: facet.id,
+      score: Number(facet.score.toFixed(6))
+    })),
     selected: false,
     finalReason: ''
   }));
@@ -306,6 +373,48 @@ function runRecallShadowPolicy(candidates, options = {}) {
     .sort((left, right) => right.admissionScore - left.admissionScore);
   const selected = [];
   const categoryCounts = new Map();
+
+  const selectDecision = (decision, meta = {}) => {
+    decision.selected = true;
+    decision.finalReason = meta.finalReason || 'selected_by_shadow';
+    decision.mmrScore = Number((meta.mmrScore ?? decision.admissionScore).toFixed(6));
+    decision.maxSimilarity = Number((meta.maxSimilarity || 0).toFixed(6));
+    decision.softQuotaPenalty = Number((meta.softQuotaPenalty || 0).toFixed(6));
+    if (meta.facetId) decision.reservedForFacet = meta.facetId;
+    selected.push(decision);
+    const category = String(decision.category || 'E').toUpperCase();
+    categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
+  };
+
+  const facetIds = [...new Set(decisions.flatMap(decision => decision.facetScores.map(facet => facet.id)))];
+  for (const facetId of facetIds) {
+    if (selected.length >= targetLimit) break;
+    const facetCandidate = admitted
+      .filter(decision => !decision.selected && !decision.finalReason)
+      .map(decision => ({
+        decision,
+        facetScore: decision.facetScores.find(facet => facet.id === facetId)?.score || 0,
+        maxSimilarity: selected.reduce((maximum, selectedDecision) => Math.max(
+          maximum,
+          memorySimilarity(decision.memory, selectedDecision.memory)
+        ), 0)
+      }))
+      .filter(item => item.maxSimilarity < duplicateThreshold)
+      .filter(item => item.facetScore >= 0.3)
+      .sort((left, right) => {
+        const leftScore = left.facetScore * 0.62 + left.decision.admissionScore * 0.38;
+        const rightScore = right.facetScore * 0.62 + right.decision.admissionScore * 0.38;
+        return rightScore - leftScore;
+      })[0];
+    if (facetCandidate) {
+      selectDecision(facetCandidate.decision, {
+        finalReason: 'selected_for_topic_facet',
+        facetId,
+        mmrScore: facetCandidate.facetScore * 0.62 + facetCandidate.decision.admissionScore * 0.38,
+        maxSimilarity: facetCandidate.maxSimilarity
+      });
+    }
+  }
 
   while (selected.length < targetLimit) {
     let best = null;
@@ -343,14 +452,7 @@ function runRecallShadowPolicy(candidates, options = {}) {
     }
 
     if (!best) break;
-    best.decision.selected = true;
-    best.decision.finalReason = 'selected_by_shadow';
-    best.decision.mmrScore = Number(best.mmrScore.toFixed(6));
-    best.decision.maxSimilarity = Number(best.maxSimilarity.toFixed(6));
-    best.decision.softQuotaPenalty = Number(best.softQuotaPenalty.toFixed(6));
-    selected.push(best.decision);
-    const category = String(best.decision.category || 'E').toUpperCase();
-    categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
+    selectDecision(best.decision, best);
   }
 
   for (const decision of admitted) {
@@ -377,9 +479,11 @@ function runRecallShadowPolicy(candidates, options = {}) {
 
   return {
     mode: 'shadow',
-    version: 'stage3-shadow-v1.1',
+    version: 'stage3-shadow-v1.2',
     behaviorChanged: false,
-    evidenceMode: 'short-query-candidate-idf',
+    evidenceMode: 'topic-facets-candidate-idf',
+    topicFacetCount: facetIds.length,
+    topicFacetSelectedCount: compactDecisions.filter(decision => decision.reservedForFacet).length,
     categoryQuotaMode: 'soft-penalty',
     candidateCount: safeCandidates.length,
     admittedCount: compactDecisions.filter(decision => decision.admitted).length,

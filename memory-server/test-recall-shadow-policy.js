@@ -159,6 +159,35 @@ assert.equal(
   false
 );
 
+const dualTopic = runRecallShadowPolicy([
+  memory('bottle-post', {
+    content: '在 Galatea Garden 投递申请漂流瓶，并讨论审核规则',
+    tags: ['Galatea Garden', '漂流瓶审核'],
+    _vectorScore: 0.76
+  }),
+  memory('period-pain', {
+    content: '生理期小腹抽痛，屈起膝盖并用热水袋缓解',
+    tags: ['生理期', '腹痛照料'],
+    _vectorScore: 0.74
+  }),
+  ...Array.from({ length: 8 }, (_, index) => memory(`generic-love-${index}`, {
+    category: 'R',
+    content: `关于真心与爱情的普通告白 ${index}`,
+    tags: ['真心', '爱情'],
+    _vectorScore: 0.88 - index * 0.01
+  }))
+], {
+  query: '我看到那篇讨论真心的漂流瓶审核帖子时，小腹仍然一阵阵抽痛。',
+  queryVariants: ['Galatea Garden 漂流瓶审核帖子', '屈起膝盖缓解小腹抽痛'],
+  targetLimit: 5
+});
+assert(dualTopic.selectedMemoryIds.includes('bottle-post'));
+assert(dualTopic.selectedMemoryIds.includes('period-pain'));
+assert(dualTopic.topicFacetSelectedCount >= 2);
+
+const semanticOnlyPhysicalFact = dualTopic.decisions.find(decision => decision.id === 'period-pain');
+assert.equal(semanticOnlyPhysicalFact.admitted, true);
+
 const zeroRecall = runRecallShadowPolicy([
   memory('noise-a', { importance: 10, _vectorScore: 0.1 }),
   memory('noise-b', { emotionalWeight: 10, _keywordScore: 1, _anchorScore: 1 })

@@ -135,7 +135,7 @@ async function main() {
     assert(search.body.memories.some(memory => memory.id === 'very_old_beijing_trip'));
     assert(!search.body.memories.some(memory => memory.category === 'C'));
     assert.equal(search.body.shadowPolicy.mode, 'shadow');
-    assert.equal(search.body.shadowPolicy.version, 'stage3-shadow-v1.1');
+    assert.equal(search.body.shadowPolicy.version, 'stage3-shadow-v1.2');
     assert.equal(search.body.shadowPolicy.behaviorChanged, false);
     assert(search.body.shadowPolicy.candidateCount >= search.body.memories.length);
     assert(search.body.memories.some(memory => memory.id === 'beijing_weather_noise'));
@@ -144,6 +144,8 @@ async function main() {
       query: '北京出差',
       searchEngine: 'hybrid',
       chatId: 'chat-1',
+      turnId: 'turn-stage3-lifecycle',
+      attemptId: 'attempt-stage3-success',
       excludeCategories: ['C'],
       limit: 5
     });
@@ -152,8 +154,10 @@ async function main() {
 
     const persistedShadow = await request('GET', '/memory/search/last');
     assert.equal(persistedShadow.body.lastSearch.shadowPolicy.mode, 'shadow');
-    assert.equal(persistedShadow.body.lastSearch.shadowPolicy.version, 'stage3-shadow-v1.1');
+    assert.equal(persistedShadow.body.lastSearch.shadowPolicy.version, 'stage3-shadow-v1.2');
     assert.equal(persistedShadow.body.lastSearch.shadowPolicy.behaviorChanged, false);
+    assert.equal(persistedShadow.body.lastSearch.turnId, 'turn-stage3-lifecycle');
+    assert.equal(persistedShadow.body.lastSearch.attemptId, 'attempt-stage3-success');
     assert(Array.isArray(persistedShadow.body.lastSearch.shadowPolicy.decisions));
     assert(persistedShadow.body.lastSearch.resultsTop.some(item => item.shadow));
     const noiseDecision = persistedShadow.body.lastSearch.shadowPolicy.decisions
@@ -165,15 +169,35 @@ async function main() {
 
     const firstCommit = await request('POST', '/memory/search/commit', {
       searchTraceId: realSearch.body.searchTraceId,
-      memoryIds: ['very_old_beijing_trip']
+      memoryIds: ['very_old_beijing_trip'],
+      lifecycleVersion: 2
     });
     assert.equal(firstCommit.body.committed, true);
+    assert.equal(firstCommit.body.recallDeferred, true);
+    assert.equal(firstCommit.body.log.status, 'prompt_committed');
     assert.deepEqual(firstCommit.body.recallUpdates, [{
       id: 'very_old_beijing_trip',
-      recallCount: 1,
-      lastRecalled: firstCommit.body.recallUpdates[0].lastRecalled
+      recallCount: 0,
+      lastRecalled: 0
     }]);
-    assert(firstCommit.body.recallUpdates[0].lastRecalled > 0);
+
+    const generationSuccess = await request('POST', '/memory/search/generation', {
+      searchTraceId: realSearch.body.searchTraceId,
+      outcome: 'succeeded'
+    });
+    assert.equal(generationSuccess.body.finalized, true);
+    assert.equal(generationSuccess.body.recallApplied, true);
+    assert.equal(generationSuccess.body.log.status, 'generation_succeeded');
+    assert.equal(generationSuccess.body.recallUpdates[0].recallCount, 1);
+    assert(generationSuccess.body.recallUpdates[0].lastRecalled > 0);
+
+    const repeatedGenerationSuccess = await request('POST', '/memory/search/generation', {
+      searchTraceId: realSearch.body.searchTraceId,
+      outcome: 'succeeded'
+    });
+    assert.equal(repeatedGenerationSuccess.body.alreadyFinalized, true);
+    assert.equal(repeatedGenerationSuccess.body.recallApplied, false);
+    assert.equal(repeatedGenerationSuccess.body.recallUpdates.length, 0);
 
     const repeatedCommit = await request('POST', '/memory/search/commit', {
       searchTraceId: realSearch.body.searchTraceId,
@@ -181,6 +205,35 @@ async function main() {
     });
     assert.equal(repeatedCommit.body.alreadyCommitted, true);
     assert.equal(repeatedCommit.body.recallUpdates[0].recallCount, 1);
+
+    const failedSearch = await request('POST', '/memory/search', {
+      query: '北京出差', searchEngine: 'hybrid', chatId: 'chat-1', excludeCategories: ['C'], limit: 5
+    });
+    await request('POST', '/memory/search/commit', {
+      searchTraceId: failedSearch.body.searchTraceId,
+      memoryIds: ['very_old_beijing_trip'],
+      lifecycleVersion: 2
+    });
+    const generationFailure = await request('POST', '/memory/search/generation', {
+      searchTraceId: failedSearch.body.searchTraceId,
+      outcome: 'failed',
+      error: 'test failure'
+    });
+    assert.equal(generationFailure.body.recallApplied, false);
+    assert.equal(generationFailure.body.log.status, 'generation_failed');
+    assert.equal(generationFailure.body.recallUpdates.length, 0);
+
+    const legacySearch = await request('POST', '/memory/search', {
+      query: '北京出差', searchEngine: 'hybrid', chatId: 'chat-1', excludeCategories: ['C'], limit: 5
+    });
+    const legacyCommit = await request('POST', '/memory/search/commit', {
+      searchTraceId: legacySearch.body.searchTraceId,
+      memoryIds: ['very_old_beijing_trip']
+    });
+    assert.equal(legacyCommit.body.committed, true);
+    assert.equal(legacyCommit.body.recallDeferred, false);
+    assert.equal(legacyCommit.body.log.status, 'generation_succeeded');
+    assert.equal(legacyCommit.body.recallUpdates[0].recallCount, 2);
 
     const vectorCreate = await request('POST', '/memory/add', {
       id: 'metadata_edit_vector',

@@ -10054,6 +10054,7 @@
     };
     const shadowReasonLabels = {
       selected_by_shadow: '进入模拟注入集合',
+      selected_for_topic_facet: '为明确话题保留',
       near_duplicate: '与已选记忆近义重复',
       category_quota: '该类型已达到模拟配额',
       shadow_limit: '超过模拟注入数量',
@@ -10081,12 +10082,16 @@
     if (last.candidateLimit !== null && typeof last.candidateLimit !== 'undefined') {
       lines.push('- candidateLimit：' + last.candidateLimit);
     }
-    if (last.status === 'injected' || last.injectedAt) {
+    if (last.injectedAt) {
       lines.push('- injectedCount：' + (last.injectedCount ?? 0));
       if (last.injectedAtISO) {
         lines.push('- injectedAt：' + new Date(last.injectedAtISO).toLocaleString());
       }
     }
+    if (last.turnId) lines.push('- turnId：' + last.turnId);
+    if (last.attemptId) lines.push('- attemptId：' + last.attemptId);
+    if (last.generationCompletedAt) lines.push('- generationCompletedAt：' + new Date(last.generationCompletedAt).toLocaleString());
+    if (last.generationError) lines.push('- generationError：' + last.generationError);
 
     lines.push('');
     lines.push('Chroma：');
@@ -10117,6 +10122,8 @@
       lines.push('- behaviorChanged：' + String(Boolean(shadow.behaviorChanged)));
       if (shadow.evidenceMode) lines.push('- evidenceMode：' + shadow.evidenceMode);
       if (shadow.categoryQuotaMode) lines.push('- categoryQuotaMode：' + shadow.categoryQuotaMode);
+      if (typeof shadow.topicFacetCount !== 'undefined') lines.push('- 识别话题分面：' + shadow.topicFacetCount);
+      if (typeof shadow.topicFacetSelectedCount !== 'undefined') lines.push('- 分面保留：' + shadow.topicFacetSelectedCount);
       lines.push('- candidates：' + (shadow.candidateCount ?? 0));
       lines.push('- admitted：' + (shadow.admittedCount ?? 0));
       lines.push('- rejected：' + (shadow.rejectedCount ?? 0));

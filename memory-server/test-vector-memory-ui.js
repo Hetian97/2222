@@ -122,6 +122,35 @@ async function main() {
   assert.equal(Object.prototype.hasOwnProperty.call(created, 'embedding'), false);
   assert.equal(created.hasEmbedding, true);
 
+  const lifecycleCalls = [];
+  manager.externalMemoryRequest = async (_chat, requestPath, options) => {
+    lifecycleCalls.push({ requestPath, body: options.body });
+    if (requestPath === '/memory/search/commit') {
+      return { ok: true, log: { status: 'prompt_committed' }, recallUpdates: [] };
+    }
+    if (requestPath === '/memory/search/generation') {
+      return {
+        ok: true,
+        recallUpdates: options.body.outcome === 'succeeded'
+          ? [{ id: 'dynamic', recallCount: 8, lastRecalled: 222 }]
+          : []
+      };
+    }
+    return { ok: true };
+  };
+  const recallCountBeforeCommit = chat.variableMemory.fragments[1].recallCount;
+  await manager.commitExternalMemoryRecall(chat, 'trace-success', ['dynamic']);
+  assert.equal(chat.variableMemory.fragments[1].recallCount, recallCountBeforeCommit);
+  assert.equal(lifecycleCalls[0].body.lifecycleVersion, 2);
+  await manager.finishExternalMemoryGeneration(chat, 'succeeded');
+  assert.equal(chat.variableMemory.fragments[1].recallCount, 8);
+  assert.equal(lifecycleCalls.at(-1).body.outcome, 'succeeded');
+
+  await manager.commitExternalMemoryRecall(chat, 'trace-failed', ['dynamic']);
+  await manager.finishExternalMemoryGeneration(chat, 'failed', 'api timeout');
+  assert.equal(chat.variableMemory.fragments[1].recallCount, 8);
+  assert.equal(lifecycleCalls.at(-1).body.outcome, 'failed');
+
   console.log('Vector memory UI tests passed');
 }
 

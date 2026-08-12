@@ -53,11 +53,15 @@ CREATE TABLE IF NOT EXISTS memory_search_logs (
   chroma TEXT,
   fts TEXT,
   shadowPolicy TEXT,
+  turnId TEXT,
+  attemptId TEXT,
   status TEXT NOT NULL DEFAULT 'candidates',
   createdAt INTEGER NOT NULL,
   injectedAt INTEGER,
   injectedMemoryIds TEXT,
-  injectedCount INTEGER DEFAULT 0
+  injectedCount INTEGER DEFAULT 0,
+  generationCompletedAt INTEGER,
+  generationError TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_memory_search_logs_createdAt
@@ -123,6 +127,10 @@ ensureColumn('memories', 'embeddingDim', 'INTEGER DEFAULT 0');
 ensureColumn('memories', 'embeddingUpdatedAt', 'TEXT');
 ensureColumn('memory_search_logs', 'fts', 'TEXT');
 ensureColumn('memory_search_logs', 'shadowPolicy', 'TEXT');
+ensureColumn('memory_search_logs', 'turnId', 'TEXT');
+ensureColumn('memory_search_logs', 'attemptId', 'TEXT');
+ensureColumn('memory_search_logs', 'generationCompletedAt', 'INTEGER');
+ensureColumn('memory_search_logs', 'generationError', 'TEXT');
 
 const MEMORY_FTS_SCHEMA_VERSION = '2-cjk-bigram-materialized';
 let memoryFtsAvailable = false;
@@ -917,11 +925,15 @@ function normalizeMemorySearchLog(row) {
     chroma: safeJsonParse(row.chroma, { attempted: false }),
     fts: safeJsonParse(row.fts, { attempted: false }),
     shadowPolicy: safeJsonParse(row.shadowPolicy, null),
+    turnId: row.turnId || '',
+    attemptId: row.attemptId || '',
     status: row.status || 'candidates',
     injectedAt: injectedAt || null,
     injectedAtISO: injectedAt ? new Date(injectedAt).toISOString() : '',
     injectedMemoryIds: safeJsonParse(row.injectedMemoryIds, []),
-    injectedCount: Number(row.injectedCount || 0)
+    injectedCount: Number(row.injectedCount || 0),
+    generationCompletedAt: Number(row.generationCompletedAt || 0) || null,
+    generationError: row.generationError || ''
   };
 }
 
@@ -937,8 +949,8 @@ function createMemorySearchLog(info = {}) {
     INSERT INTO memory_search_logs (
       id, chatId, source, query, queryVariants, requestedSearchEngine,
       searchMode, requestedLimit, candidateLimit, resultCount,
-      resultMemoryIds, resultsTop, chroma, fts, shadowPolicy, status, createdAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidates', ?)
+      resultMemoryIds, resultsTop, chroma, fts, shadowPolicy, turnId, attemptId, status, createdAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidates', ?)
   `).run(
     id,
     String(info.chatId || ''),
@@ -955,6 +967,8 @@ function createMemorySearchLog(info = {}) {
     safeJsonStringify(info.chroma || { attempted: false }),
     safeJsonStringify(info.fts || { attempted: false }),
     safeJsonStringify(info.shadowPolicy || null),
+    String(info.turnId || ''),
+    String(info.attemptId || ''),
     now
   );
 
@@ -1001,24 +1015,14 @@ function commitMemorySearchInjection(searchId, requestedMemoryIds = []) {
         .map(value => String(value || '').trim())
         .filter(value => value && allowedIds.has(value))
     )].slice(0, 200);
-    const recalledAt = Date.now();
-    const updateMemory = db.prepare(`
-      UPDATE memories
-      SET recallCount = COALESCE(recallCount, 0) + 1,
-          lastRecalled = ?
-      WHERE id = ?
-    `);
-
-    for (const memoryId of injectedMemoryIds) {
-      updateMemory.run(String(recalledAt), memoryId);
-    }
+    const promptCommittedAt = Date.now();
 
     db.prepare(`
       UPDATE memory_search_logs
-      SET status = 'injected', injectedAt = ?, injectedMemoryIds = ?, injectedCount = ?
+      SET status = 'prompt_committed', injectedAt = ?, injectedMemoryIds = ?, injectedCount = ?
       WHERE id = ?
     `).run(
-      recalledAt,
+      promptCommittedAt,
       safeJsonStringify(injectedMemoryIds),
       injectedMemoryIds.length,
       safeSearchId
@@ -1027,6 +1031,59 @@ function commitMemorySearchInjection(searchId, requestedMemoryIds = []) {
     return {
       committed: true,
       alreadyCommitted: false,
+      recallDeferred: true,
+      log: normalizeMemorySearchLog(
+        db.prepare('SELECT * FROM memory_search_logs WHERE id = ?').get(safeSearchId)
+      )
+    };
+  })();
+}
+
+function finishMemorySearchGeneration(searchId, outcome = 'succeeded', errorText = '') {
+  const safeSearchId = String(searchId || '').trim();
+  if (!safeSearchId) throw new Error('searchId is required');
+  const safeOutcome = outcome === 'failed' ? 'failed' : 'succeeded';
+
+  return db.transaction(() => {
+    const row = db.prepare('SELECT * FROM memory_search_logs WHERE id = ?').get(safeSearchId);
+    if (!row) throw new Error('Memory search log not found');
+    if (row.status === 'generation_succeeded' || row.status === 'generation_failed') {
+      return {
+        finalized: false,
+        alreadyFinalized: true,
+        recallApplied: false,
+        log: normalizeMemorySearchLog(row)
+      };
+    }
+    if (!row.injectedAt) throw new Error('Memory search prompt has not been committed');
+
+    const completedAt = Date.now();
+    const injectedMemoryIds = safeJsonParse(row.injectedMemoryIds, []).map(String);
+    const updateMemory = db.prepare(`
+      UPDATE memories
+      SET recallCount = COALESCE(recallCount, 0) + 1,
+          lastRecalled = ?
+      WHERE id = ?
+    `);
+    if (safeOutcome === 'succeeded') {
+      for (const memoryId of injectedMemoryIds) updateMemory.run(String(completedAt), memoryId);
+    }
+
+    db.prepare(`
+      UPDATE memory_search_logs
+      SET status = ?, generationCompletedAt = ?, generationError = ?
+      WHERE id = ?
+    `).run(
+      safeOutcome === 'succeeded' ? 'generation_succeeded' : 'generation_failed',
+      completedAt,
+      safeOutcome === 'failed' ? String(errorText || '').slice(0, 500) : '',
+      safeSearchId
+    );
+
+    return {
+      finalized: true,
+      alreadyFinalized: false,
+      recallApplied: safeOutcome === 'succeeded',
       log: normalizeMemorySearchLog(
         db.prepare('SELECT * FROM memory_search_logs WHERE id = ?').get(safeSearchId)
       )
@@ -1235,6 +1292,7 @@ module.exports = {
   createMemorySearchLog,
   getLatestMemorySearchLog,
   commitMemorySearchInjection,
+  finishMemorySearchGeneration,
   importFromJsonArray,
   addGardenWakeEvent,
   claimGardenWakeEvent,

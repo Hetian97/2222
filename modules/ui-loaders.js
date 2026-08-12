@@ -193,6 +193,8 @@
     const wrapper = document.createElement('div');
 
     wrapper.className = 'message-wrapper system-pat';
+    wrapper.dataset.systemTimestamp = 'true';
+    wrapper.dataset.forTimestamp = String(timestamp || '');
 
     const bubble = document.createElement('div');
 

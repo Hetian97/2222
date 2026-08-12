@@ -5,6 +5,7 @@
 
 class VariableMemoryManager {
   constructor() {
+    this.pendingExternalRecalls = new Map();
     // 10大精细化分类
     this.DEFAULT_CATEGORIES = {
       U: { name: '用户设定', color: '#007aff', icon: '', desc: '外貌、性格、喜好、职业等' },
@@ -977,6 +978,10 @@ class VariableMemoryManager {
     if (!query) return null;
 
     const vm = this.getVariableMemory(chat);
+    const chatId = String(chat?.id || chat?.chatId || '');
+    if (this.pendingExternalRecalls.has(chatId)) {
+      await this.finishExternalMemoryGeneration(chat, 'failed', 'superseded_by_new_generation_attempt');
+    }
     const limit = topN || vm.settings.topN || 10;
     const safeQueryVariants = Array.isArray(queryVariants)
       ? queryVariants.map(v => String(v || '').trim()).filter(Boolean).slice(-5)
@@ -997,7 +1002,9 @@ class VariableMemoryManager {
           candidateLimit: ((vm.settings?.searchEngine || 'sqlite') === 'hybrid' || (vm.settings?.searchEngine || 'sqlite') === 'chroma-hybrid')
             ? (parseInt(vm.settings?.chromaCandidateLimit, 10) || 2000)
             : (parseInt(vm.settings?.sqliteCandidateLimit, 10) || 6000),
-          chromaNResults: parseInt(vm.settings?.chromaNResults, 10) || 200
+          chromaNResults: parseInt(vm.settings?.chromaNResults, 10) || 200,
+          turnId: String((chat?.history || []).filter(message => message?.role === 'user').slice(-1)[0]?.timestamp || ''),
+          attemptId: `attempt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
         }
       });
 
@@ -1056,13 +1063,37 @@ class VariableMemoryManager {
         method: 'POST',
         body: {
           searchTraceId: safeTraceId,
-          memoryIds: safeMemoryIds
+          memoryIds: safeMemoryIds,
+          lifecycleVersion: 2
         }
       });
-      this.applyExternalRecallUpdates(chat, result?.recallUpdates);
+      if (result?.ok !== false && result?.log?.status === 'prompt_committed') {
+        this.pendingExternalRecalls.set(String(chat?.id || chat?.chatId || ''), safeTraceId);
+      }
       return result;
     } catch (error) {
       console.warn('[变量记忆] 外部记忆召回计数回写失败:', error.message);
+      return null;
+    }
+  }
+
+  async finishExternalMemoryGeneration(chat, outcome = 'succeeded', errorText = '') {
+    const chatId = String(chat?.id || chat?.chatId || '');
+    const searchTraceId = this.pendingExternalRecalls.get(chatId);
+    if (!searchTraceId) return null;
+    this.pendingExternalRecalls.delete(chatId);
+    try {
+      const result = await this.externalMemoryRequest(chat, '/memory/search/generation', {
+        method: 'POST',
+        body: { searchTraceId, outcome, error: String(errorText || '').slice(0, 500) }
+      });
+      if (outcome === 'succeeded') this.applyExternalRecallUpdates(chat, result?.recallUpdates);
+      return result;
+    } catch (error) {
+      if (!this.pendingExternalRecalls.has(chatId)) {
+        this.pendingExternalRecalls.set(chatId, searchTraceId);
+      }
+      console.warn('[变量记忆] 生成结果回写失败:', error.message);
       return null;
     }
   }
