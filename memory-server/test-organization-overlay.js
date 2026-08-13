@@ -13,6 +13,7 @@ const {
   getMemoryOrganizationStatus,
   initializeMemoryOrganizationCoverage,
   resetMemoryOrganizationOverlay,
+  saveMemoryOrganizationPreview,
   listMemoryClusters
 } = require('./db');
 
@@ -87,6 +88,40 @@ try {
   `);
   insertMember.run('memory-a', 'representative', 0.96, 'same_episode', now, now);
   insertMember.run('memory-b', 'member', 0.89, 'same_episode', now, now);
+
+  const savedPreview = saveMemoryOrganizationPreview({
+    algorithmVersion: 'organization-preview-test-v1',
+    sourceMemoryCount: 3,
+    processedCount: 3,
+    clusteredCount: 2,
+    independentCount: 1,
+    eventClusters: [{
+      id: 'preview-cluster-1',
+      chatId: 'chat-1',
+      kind: 'event',
+      title: 'preview event',
+      summary: 'preview only',
+      representativeMemoryId: 'memory-a',
+      confidence: 0.9,
+      algorithmVersion: 'organization-preview-test-v1',
+      members: [
+        { memoryId: 'memory-a', membershipRole: 'representative', confidence: 1, reason: 'test' },
+        { memoryId: 'memory-b', membershipRole: 'member', confidence: 0.8, reason: 'test' }
+      ]
+    }],
+    topicClusters: [],
+    organizations: [
+      { memoryId: 'memory-a', chatId: 'chat-1', status: 'preview_clustered', primaryEventClusterId: 'preview-cluster-1', confidence: 0.9, reason: 'test', algorithmVersion: 'organization-preview-test-v1' },
+      { memoryId: 'memory-b', chatId: 'chat-1', status: 'preview_clustered', primaryEventClusterId: 'preview-cluster-1', confidence: 0.8, reason: 'test', algorithmVersion: 'organization-preview-test-v1' },
+      { memoryId: 'memory-c', chatId: 'chat-2', status: 'preview_independent', primaryEventClusterId: null, confidence: 0.65, reason: 'test', algorithmVersion: 'organization-preview-test-v1' }
+    ],
+    diagnostics: { candidatePairCount: 1, acceptedPairCount: 1 }
+  }, {
+    confirm: 'SAVE_ORGANIZATION_PREVIEW'
+  });
+  assert(savedPreview.runId.startsWith('organization_preview_'));
+  assert.equal(savedPreview.organizationCoverage, 1);
+  assert.deepEqual(memoryFingerprint(), original);
 
   const clusters = listMemoryClusters({ chatId: 'chat-1', kind: 'event' });
   assert.equal(clusters.length, 1);

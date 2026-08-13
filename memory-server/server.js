@@ -31,8 +31,14 @@ const {
   getMemoryOrganizationStatus,
   initializeMemoryOrganizationCoverage,
   resetMemoryOrganizationOverlay,
+  getMemoryOrganizationPreviewInputs,
+  saveMemoryOrganizationPreview,
   listMemoryClusters
 } = require('./db');
+
+const {
+  buildMemoryOrganizationPreview
+} = require('./memory-organization-preview');
 
 const {
   getChromaStatus,
@@ -50,6 +56,9 @@ const PORT = Number(process.env.PORT || 8765);
 const BACKUP_DIR = process.env.MEMORY_BACKUP_DIR
   ? path.resolve(process.env.MEMORY_BACKUP_DIR)
   : path.join(__dirname, 'backups');
+const LATEST_BACKUP_FILE = process.env.MEMORY_BACKUP_DIR
+  ? path.join(BACKUP_DIR, 'memory.backup.db')
+  : path.join(__dirname, 'memory.backup.db');
 const API_TOKEN_FILE = path.join(__dirname, '.memory-api-token');
 
 function getConfiguredApiToken() {
@@ -1868,7 +1877,7 @@ async function backupSqliteDb() {
       .replace(/[:.]/g, '-');
 
     const backupFile = path.join(BACKUP_DIR, `memory-${timestamp}.db`);
-    const latestBackupFile = path.join(__dirname, 'memory.backup.db');
+    const latestBackupFile = LATEST_BACKUP_FILE;
 
     await db.backup(backupFile);
     await db.backup(latestBackupFile);
@@ -3731,6 +3740,51 @@ const server = http.createServer(async (req, res) => {
       }
       const organization = resetMemoryOrganizationOverlay({ confirm: body.confirm });
       sendJson(res, 200, { ok: true, backup, organization });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/organization/preview' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      if (String(body.confirm || '') !== 'RUN_ORGANIZATION_PREVIEW') {
+        throw new Error('Explicit confirmation is required to run the organization preview');
+      }
+      const backup = await backupSqliteDb();
+      if (!backup.ok) {
+        throw new Error(`Pre-preview backup failed: ${backup.error || 'unknown error'}`);
+      }
+      const chatId = String(body.chatId || '');
+      const inputs = getMemoryOrganizationPreviewInputs(chatId);
+      const preview = buildMemoryOrganizationPreview(inputs, {
+        algorithmVersion: body.algorithmVersion || 'organization-preview-v1'
+      });
+      const organization = saveMemoryOrganizationPreview(preview, {
+        chatId,
+        confirm: 'SAVE_ORGANIZATION_PREVIEW'
+      });
+      sendJson(res, 200, {
+        ok: true,
+        backup,
+        preview: {
+          algorithmVersion: preview.algorithmVersion,
+          behaviorChanged: false,
+          sourceMemoryCount: preview.sourceMemoryCount,
+          processedCount: preview.processedCount,
+          clusteredCount: preview.clusteredCount,
+          independentCount: preview.independentCount,
+          eventClusterCount: preview.eventClusters.length,
+          topicClusterCount: preview.topicClusters.length,
+          diagnostics: {
+            featureCount: preview.diagnostics.featureCount,
+            candidatePairCount: preview.diagnostics.candidatePairCount,
+            acceptedPairCount: preview.diagnostics.acceptedPairCount
+          }
+        },
+        organization
+      });
     } catch (error) {
       sendJson(res, 400, { ok: false, error: error.message || String(error) });
     }

@@ -105,6 +105,18 @@ async function main() {
     assert.equal(initialized.body.organization.organizationCoverage, 0);
     assert.equal(initialized.body.backup.ok, true);
     assert.equal(fs.existsSync(initialized.body.backup.backupFile), true);
+    assert(initialized.body.backup.latestBackupFile.startsWith(testDir));
+
+    const preview = await request('POST', '/memory/organization/preview', {
+      confirm: 'RUN_ORGANIZATION_PREVIEW',
+      algorithmVersion: 'organization-api-preview-test-v1'
+    });
+    assert.equal(preview.status, 200);
+    assert.equal(preview.body.preview.behaviorChanged, false);
+    assert.equal(preview.body.preview.sourceMemoryCount, 2);
+    assert.equal(preview.body.preview.processedCount, 2);
+    assert.equal(preview.body.preview.independentCount, 2);
+    assert.equal(preview.body.organization.organizationCoverage, 1);
 
     const clusters = await request('GET', '/memory/organization/clusters?limit=10&memberLimit=10');
     assert.equal(clusters.status, 200);

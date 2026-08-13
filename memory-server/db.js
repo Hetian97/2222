@@ -1533,6 +1533,147 @@ function resetMemoryOrganizationOverlay(options = {}) {
   };
 }
 
+function getMemoryOrganizationPreviewInputs(chatId = '') {
+  const where = chatId ? 'WHERE chatId = ?' : '';
+  const params = chatId ? [String(chatId)] : [];
+  return db.prepare(`
+    SELECT id, chatId, content, category, importance, emotionalWeight,
+           tags, memoryTime, createdAt, embedding, embeddingModel, embeddingDim
+    FROM memories
+    ${where}
+    ORDER BY chatId, CAST(memoryTime AS INTEGER), id
+  `).iterate(...params);
+}
+
+function saveMemoryOrganizationPreview(preview, options = {}) {
+  if (!preview || !Array.isArray(preview.organizations)) {
+    throw new Error('A valid organization preview is required');
+  }
+  if (String(options.confirm || '') !== 'SAVE_ORGANIZATION_PREVIEW') {
+    throw new Error('Explicit confirmation is required to save the organization preview');
+  }
+
+  const timestamp = Date.now();
+  const runId = `organization_preview_${timestamp}_${crypto.randomBytes(4).toString('hex')}`;
+  const clusters = [
+    ...(Array.isArray(preview.eventClusters) ? preview.eventClusters : []),
+    ...(Array.isArray(preview.topicClusters) ? preview.topicClusters : [])
+  ];
+  const insertCluster = db.prepare(`
+    INSERT INTO memory_clusters (
+      id, chatId, kind, title, summary, representativeMemoryId, status,
+      confidence, timeStart, timeEnd, memberCount, algorithmVersion, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, 'preview', ?, ?, ?, 0, ?, ?, ?)
+  `);
+  const insertMember = db.prepare(`
+    INSERT INTO memory_cluster_members (
+      clusterId, memoryId, membershipRole, confidence, reason, source, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const updateOrganization = db.prepare(`
+    INSERT INTO memory_organization (
+      memoryId, chatId, status, primaryEventClusterId, confidence, reason,
+      contentHash, algorithmVersion, reviewedBy, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)
+    ON CONFLICT(memoryId) DO UPDATE SET
+      chatId=excluded.chatId,
+      status=CASE WHEN memory_organization.reviewedBy IS NULL THEN excluded.status ELSE memory_organization.status END,
+      primaryEventClusterId=CASE WHEN memory_organization.reviewedBy IS NULL THEN excluded.primaryEventClusterId ELSE memory_organization.primaryEventClusterId END,
+      confidence=CASE WHEN memory_organization.reviewedBy IS NULL THEN excluded.confidence ELSE memory_organization.confidence END,
+      reason=CASE WHEN memory_organization.reviewedBy IS NULL THEN excluded.reason ELSE memory_organization.reason END,
+      algorithmVersion=CASE WHEN memory_organization.reviewedBy IS NULL THEN excluded.algorithmVersion ELSE memory_organization.algorithmVersion END,
+      updatedAt=excluded.updatedAt
+  `);
+  const insertRun = db.prepare(`
+    INSERT INTO memory_organization_runs (
+      id, chatId, mode, status, algorithmVersion, sourceMemoryCount, processedCount,
+      clusteredCount, independentCount, compositeCount, conflictCount, lowConfidenceCount,
+      checkpoint, startedAt, completedAt, createdAt, updatedAt
+    ) VALUES (?, ?, 'preview', 'completed', ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?)
+  `);
+
+  const save = db.transaction(() => {
+    db.prepare(`
+      DELETE FROM memory_clusters
+      WHERE status = 'preview' AND (? = '' OR chatId = ?)
+    `).run(String(options.chatId || ''), String(options.chatId || ''));
+
+    for (const cluster of clusters) {
+      insertCluster.run(
+        cluster.id,
+        cluster.chatId || '',
+        cluster.kind,
+        cluster.title,
+        cluster.summary || '',
+        cluster.representativeMemoryId || null,
+        Number(cluster.confidence || 0),
+        cluster.timeStart || null,
+        cluster.timeEnd || null,
+        cluster.algorithmVersion || preview.algorithmVersion,
+        timestamp,
+        timestamp
+      );
+      for (const member of cluster.members || []) {
+        insertMember.run(
+          cluster.id,
+          member.memoryId,
+          member.membershipRole || 'member',
+          Number(member.confidence || 0),
+          member.reason || '',
+          member.source || 'auto_preview',
+          timestamp,
+          timestamp
+        );
+      }
+    }
+
+    for (const organization of preview.organizations) {
+      updateOrganization.run(
+        organization.memoryId,
+        organization.chatId || '',
+        organization.status,
+        organization.primaryEventClusterId || null,
+        Number(organization.confidence || 0),
+        organization.reason || '',
+        organization.algorithmVersion || preview.algorithmVersion,
+        timestamp,
+        timestamp
+      );
+    }
+
+    const checkpoint = JSON.stringify({
+      eventClusterCount: preview.eventClusters?.length || 0,
+      topicClusterCount: preview.topicClusters?.length || 0,
+      candidatePairCount: preview.diagnostics?.candidatePairCount || 0,
+      acceptedPairCount: preview.diagnostics?.acceptedPairCount || 0
+    });
+    insertRun.run(
+      runId,
+      String(options.chatId || '') || null,
+      preview.algorithmVersion,
+      Number(preview.sourceMemoryCount || 0),
+      Number(preview.processedCount || 0),
+      Number(preview.clusteredCount || 0),
+      Number(preview.independentCount || 0),
+      clusters.length,
+      checkpoint,
+      timestamp,
+      timestamp,
+      timestamp,
+      timestamp
+    );
+  });
+  save();
+
+  return {
+    runId,
+    behaviorChanged: false,
+    eventClusterCount: preview.eventClusters?.length || 0,
+    topicClusterCount: preview.topicClusters?.length || 0,
+    ...getMemoryOrganizationStatus(String(options.chatId || ''))
+  };
+}
+
 function listMemoryClusters(filters = {}) {
   const where = [];
   const params = [];
@@ -1607,5 +1748,7 @@ module.exports = {
   getMemoryOrganizationStatus,
   initializeMemoryOrganizationCoverage,
   resetMemoryOrganizationOverlay,
+  getMemoryOrganizationPreviewInputs,
+  saveMemoryOrganizationPreview,
   listMemoryClusters
 };
