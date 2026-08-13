@@ -8,6 +8,7 @@ const dbPath = process.env.MEMORY_DB_PATH
 const db = new Database(dbPath);
 
 db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS memories (
@@ -111,6 +112,130 @@ CREATE TABLE IF NOT EXISTS memory_index_meta (
   value TEXT,
   updatedAt INTEGER NOT NULL
 );
+
+-- Rebuildable organization overlay. These tables never replace or rewrite memories.
+CREATE TABLE IF NOT EXISTS memory_clusters (
+  id TEXT PRIMARY KEY,
+  chatId TEXT,
+  kind TEXT NOT NULL CHECK(kind IN ('event', 'topic')),
+  title TEXT NOT NULL,
+  summary TEXT,
+  representativeMemoryId TEXT,
+  status TEXT NOT NULL DEFAULT 'preview',
+  confidence REAL NOT NULL DEFAULT 0,
+  timeStart INTEGER,
+  timeEnd INTEGER,
+  memberCount INTEGER NOT NULL DEFAULT 0,
+  algorithmVersion TEXT,
+  createdAt INTEGER NOT NULL,
+  updatedAt INTEGER NOT NULL,
+  FOREIGN KEY(representativeMemoryId) REFERENCES memories(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_clusters_chat_kind
+ON memory_clusters(chatId, kind, updatedAt DESC);
+
+CREATE TABLE IF NOT EXISTS memory_cluster_members (
+  clusterId TEXT NOT NULL,
+  memoryId TEXT NOT NULL,
+  membershipRole TEXT NOT NULL DEFAULT 'member',
+  confidence REAL NOT NULL DEFAULT 0,
+  reason TEXT,
+  source TEXT NOT NULL DEFAULT 'auto',
+  createdAt INTEGER NOT NULL,
+  updatedAt INTEGER NOT NULL,
+  PRIMARY KEY(clusterId, memoryId),
+  FOREIGN KEY(clusterId) REFERENCES memory_clusters(id) ON DELETE CASCADE,
+  FOREIGN KEY(memoryId) REFERENCES memories(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_cluster_members_memory
+ON memory_cluster_members(memoryId);
+
+CREATE TABLE IF NOT EXISTS memory_organization (
+  memoryId TEXT PRIMARY KEY,
+  chatId TEXT,
+  status TEXT NOT NULL DEFAULT 'unreviewed',
+  primaryEventClusterId TEXT,
+  confidence REAL NOT NULL DEFAULT 0,
+  reason TEXT,
+  contentHash TEXT,
+  algorithmVersion TEXT,
+  reviewedBy TEXT,
+  createdAt INTEGER NOT NULL,
+  updatedAt INTEGER NOT NULL,
+  FOREIGN KEY(memoryId) REFERENCES memories(id) ON DELETE CASCADE,
+  FOREIGN KEY(primaryEventClusterId) REFERENCES memory_clusters(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_organization_chat_status
+ON memory_organization(chatId, status, updatedAt DESC);
+
+CREATE TABLE IF NOT EXISTS memory_organization_runs (
+  id TEXT PRIMARY KEY,
+  chatId TEXT,
+  mode TEXT NOT NULL DEFAULT 'preview',
+  status TEXT NOT NULL DEFAULT 'pending',
+  algorithmVersion TEXT NOT NULL,
+  sourceMemoryCount INTEGER NOT NULL DEFAULT 0,
+  processedCount INTEGER NOT NULL DEFAULT 0,
+  clusteredCount INTEGER NOT NULL DEFAULT 0,
+  independentCount INTEGER NOT NULL DEFAULT 0,
+  compositeCount INTEGER NOT NULL DEFAULT 0,
+  conflictCount INTEGER NOT NULL DEFAULT 0,
+  lowConfidenceCount INTEGER NOT NULL DEFAULT 0,
+  checkpoint TEXT,
+  error TEXT,
+  startedAt INTEGER,
+  completedAt INTEGER,
+  createdAt INTEGER NOT NULL,
+  updatedAt INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS memory_organization_queue (
+  memoryId TEXT PRIMARY KEY,
+  operation TEXT NOT NULL DEFAULT 'upsert',
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  availableAt INTEGER NOT NULL,
+  lastError TEXT,
+  createdAt INTEGER NOT NULL,
+  updatedAt INTEGER NOT NULL,
+  FOREIGN KEY(memoryId) REFERENCES memories(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_organization_queue_status
+ON memory_organization_queue(status, availableAt, updatedAt);
+
+CREATE TRIGGER IF NOT EXISTS memory_cluster_members_ai AFTER INSERT ON memory_cluster_members BEGIN
+  UPDATE memory_clusters
+  SET memberCount = (SELECT COUNT(*) FROM memory_cluster_members WHERE clusterId = new.clusterId),
+      updatedAt = MAX(updatedAt, new.updatedAt)
+  WHERE id = new.clusterId;
+END;
+
+CREATE TRIGGER IF NOT EXISTS memory_cluster_members_ad AFTER DELETE ON memory_cluster_members BEGIN
+  UPDATE memory_clusters
+  SET memberCount = (SELECT COUNT(*) FROM memory_cluster_members WHERE clusterId = old.clusterId),
+      updatedAt = CAST(strftime('%s','now') AS INTEGER) * 1000
+  WHERE id = old.clusterId;
+END;
+
+CREATE TRIGGER IF NOT EXISTS memories_organization_ai AFTER INSERT ON memories BEGIN
+  INSERT INTO memory_organization_queue(memoryId, operation, status, attempts, availableAt, createdAt, updatedAt)
+  VALUES (new.id, 'upsert', 'pending', 0, CAST(strftime('%s','now') AS INTEGER) * 1000,
+          CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000)
+  ON CONFLICT(memoryId) DO UPDATE SET operation='upsert', status='pending', availableAt=excluded.availableAt,
+    updatedAt=excluded.updatedAt;
+END;
+
+CREATE TRIGGER IF NOT EXISTS memories_organization_au AFTER UPDATE OF content, tags, category, memoryTime ON memories BEGIN
+  INSERT INTO memory_organization_queue(memoryId, operation, status, attempts, availableAt, createdAt, updatedAt)
+  VALUES (new.id, 'upsert', 'pending', 0, CAST(strftime('%s','now') AS INTEGER) * 1000,
+          CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000)
+  ON CONFLICT(memoryId) DO UPDATE SET operation='upsert', status='pending', attempts=0,
+    availableAt=excluded.availableAt, updatedAt=excluded.updatedAt;
+END;
 `);
 
 function ensureColumn(table, column, definition) {
@@ -133,6 +258,7 @@ ensureColumn('memory_search_logs', 'attemptId', 'TEXT');
 ensureColumn('memory_search_logs', 'actionType', 'TEXT');
 ensureColumn('memory_search_logs', 'generationCompletedAt', 'INTEGER');
 ensureColumn('memory_search_logs', 'generationError', 'TEXT');
+ensureColumn('memory_organization_runs', 'chatId', 'TEXT');
 
 const MEMORY_FTS_SCHEMA_VERSION = '2-cjk-bigram-materialized';
 let memoryFtsAvailable = false;
@@ -1280,6 +1406,178 @@ function getAisayWakeStats() {
   return Object.fromEntries(rows.map(row => [row.status, row.count]));
 }
 
+function getMemoryOrganizationStatus(chatId = '') {
+  const params = [];
+  const memoryWhere = chatId ? 'WHERE chatId = ?' : '';
+  if (chatId) params.push(String(chatId));
+  const totalMemories = Number(db.prepare(`SELECT COUNT(*) AS count FROM memories ${memoryWhere}`).get(...params).count || 0);
+  const organizationWhere = chatId ? 'WHERE chatId = ?' : '';
+  const organizationRows = db.prepare(`
+    SELECT status, COUNT(*) AS count
+    FROM memory_organization
+    ${organizationWhere}
+    GROUP BY status
+  `).all(...params);
+  const byStatus = Object.fromEntries(organizationRows.map(row => [row.status, Number(row.count || 0)]));
+  const trackedCount = organizationRows.reduce((sum, row) => sum + Number(row.count || 0), 0);
+  const organizedCount = organizationRows
+    .filter(row => !['unreviewed', 'pending', 'failed'].includes(String(row.status || '')))
+    .reduce((sum, row) => sum + Number(row.count || 0), 0);
+  const clusterRows = db.prepare(`
+    SELECT kind, status, COUNT(*) AS count, COALESCE(SUM(memberCount), 0) AS members
+    FROM memory_clusters
+    ${organizationWhere}
+    GROUP BY kind, status
+  `).all(...params);
+  const queueParams = [];
+  const queueJoin = chatId ? 'JOIN memories m ON m.id = q.memoryId WHERE m.chatId = ?' : '';
+  if (chatId) queueParams.push(String(chatId));
+  const queueRows = db.prepare(`
+    SELECT q.status, COUNT(*) AS count
+    FROM memory_organization_queue q
+    ${queueJoin}
+    GROUP BY q.status
+  `).all(...queueParams);
+  const latestRun = chatId
+    ? db.prepare('SELECT * FROM memory_organization_runs WHERE chatId = ? ORDER BY createdAt DESC LIMIT 1').get(String(chatId)) || null
+    : db.prepare('SELECT * FROM memory_organization_runs ORDER BY createdAt DESC LIMIT 1').get() || null;
+
+  return {
+    overlayVersion: 'organization-v1',
+    behaviorChanged: false,
+    totalMemories,
+    trackedCount,
+    organizedCount,
+    untrackedCount: Math.max(0, totalMemories - trackedCount),
+    coverage: totalMemories > 0 ? Number((trackedCount / totalMemories).toFixed(6)) : 1,
+    organizationCoverage: totalMemories > 0 ? Number((organizedCount / totalMemories).toFixed(6)) : 1,
+    byStatus,
+    clusters: clusterRows,
+    queue: Object.fromEntries(queueRows.map(row => [row.status, Number(row.count || 0)])),
+    latestRun
+  };
+}
+
+function initializeMemoryOrganizationCoverage(options = {}) {
+  const algorithmVersion = String(options.algorithmVersion || 'organization-v1');
+  const chatId = String(options.chatId || '');
+  const timestamp = Date.now();
+  const memories = chatId
+    ? db.prepare('SELECT id, chatId, content FROM memories WHERE chatId = ? ORDER BY id').all(chatId)
+    : db.prepare('SELECT id, chatId, content FROM memories ORDER BY id').all();
+  const runId = `organization_init_${timestamp}_${crypto.randomBytes(4).toString('hex')}`;
+  const insertRun = db.prepare(`
+    INSERT INTO memory_organization_runs (
+      id, chatId, mode, status, algorithmVersion, sourceMemoryCount,
+      processedCount, startedAt, completedAt, createdAt, updatedAt
+    ) VALUES (?, ?, 'coverage', 'completed', ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const upsert = db.prepare(`
+    INSERT INTO memory_organization (
+      memoryId, chatId, status, confidence, reason, contentHash,
+      algorithmVersion, createdAt, updatedAt
+    ) VALUES (?, ?, 'unreviewed', 0, 'awaiting_preview_organization', ?, ?, ?, ?)
+    ON CONFLICT(memoryId) DO UPDATE SET
+      chatId=excluded.chatId,
+      contentHash=excluded.contentHash,
+      algorithmVersion=CASE
+        WHEN memory_organization.status='unreviewed' THEN excluded.algorithmVersion
+        ELSE memory_organization.algorithmVersion
+      END,
+      updatedAt=excluded.updatedAt
+  `);
+  const apply = db.transaction(items => {
+    for (const memory of items) {
+      const hash = crypto.createHash('sha256').update(String(memory.content || ''), 'utf8').digest('hex');
+      upsert.run(memory.id, memory.chatId || '', hash, algorithmVersion, timestamp, timestamp);
+    }
+    insertRun.run(
+      runId,
+      chatId || null,
+      algorithmVersion,
+      items.length,
+      items.length,
+      timestamp,
+      timestamp,
+      timestamp,
+      timestamp
+    );
+  });
+  apply(memories);
+  return {
+    runId,
+    ...getMemoryOrganizationStatus(chatId)
+  };
+}
+
+function resetMemoryOrganizationOverlay(options = {}) {
+  if (String(options.confirm || '') !== 'RESET_ORGANIZATION_OVERLAY') {
+    throw new Error('Explicit confirmation is required to reset the organization overlay');
+  }
+
+  const before = getMemoryOrganizationStatus('');
+  const reset = db.transaction(() => {
+    db.prepare('DELETE FROM memory_organization_queue').run();
+    db.prepare('DELETE FROM memory_organization').run();
+    db.prepare('DELETE FROM memory_cluster_members').run();
+    db.prepare('DELETE FROM memory_clusters').run();
+    db.prepare('DELETE FROM memory_organization_runs').run();
+  });
+  reset();
+
+  return {
+    reset: true,
+    behaviorChanged: false,
+    before,
+    after: getMemoryOrganizationStatus('')
+  };
+}
+
+function listMemoryClusters(filters = {}) {
+  const where = [];
+  const params = [];
+  if (filters.chatId) {
+    where.push('c.chatId = ?');
+    params.push(String(filters.chatId));
+  }
+  if (filters.kind) {
+    where.push('c.kind = ?');
+    params.push(String(filters.kind));
+  }
+  if (filters.status) {
+    where.push('c.status = ?');
+    params.push(String(filters.status));
+  }
+  const limit = Math.min(1000, Math.max(1, Number(filters.limit || 100)));
+  const memberLimit = Math.min(1000, Math.max(1, Number(filters.memberLimit || 200)));
+  params.push(limit);
+  const rows = db.prepare(`
+    SELECT c.*
+    FROM memory_clusters c
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    ORDER BY c.updatedAt DESC, c.confidence DESC
+    LIMIT ?
+  `).all(...params);
+  const memberQuery = db.prepare(`
+    SELECT cm.memoryId, cm.membershipRole, cm.confidence, cm.reason, cm.source,
+           m.content, m.category, m.tags, m.memoryTime, m.importance, m.emotionalWeight
+    FROM memory_cluster_members cm
+    JOIN memories m ON m.id = cm.memoryId
+    WHERE cm.clusterId = ?
+    ORDER BY cm.confidence DESC, CAST(m.memoryTime AS INTEGER) ASC
+    LIMIT ?
+  `);
+  return rows.map(row => {
+    const members = memberQuery.all(row.id, memberLimit);
+    return {
+      ...row,
+      returnedMemberCount: members.length,
+      hasMoreMembers: Number(row.memberCount || 0) > members.length,
+      members
+    };
+  });
+}
+
 module.exports = {
   db,
   addMemory,
@@ -1305,5 +1603,9 @@ module.exports = {
   addAisayWakeEvent,
   claimAisayWakeEvent,
   finishAisayWakeEvent,
-  getAisayWakeStats
+  getAisayWakeStats,
+  getMemoryOrganizationStatus,
+  initializeMemoryOrganizationCoverage,
+  resetMemoryOrganizationOverlay,
+  listMemoryClusters
 };

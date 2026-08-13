@@ -27,7 +27,11 @@ const {
   addAisayWakeEvent,
   claimAisayWakeEvent,
   finishAisayWakeEvent,
-  getAisayWakeStats
+  getAisayWakeStats,
+  getMemoryOrganizationStatus,
+  initializeMemoryOrganizationCoverage,
+  resetMemoryOrganizationOverlay,
+  listMemoryClusters
 } = require('./db');
 
 const {
@@ -43,7 +47,9 @@ const {
 } = require('./recall-shadow-policy');
 
 const PORT = Number(process.env.PORT || 8765);
-const BACKUP_DIR = path.join(__dirname, 'backups');
+const BACKUP_DIR = process.env.MEMORY_BACKUP_DIR
+  ? path.resolve(process.env.MEMORY_BACKUP_DIR)
+  : path.join(__dirname, 'backups');
 const API_TOKEN_FILE = path.join(__dirname, '.memory-api-token');
 
 function getConfiguredApiToken() {
@@ -3661,6 +3667,72 @@ const server = http.createServer(async (req, res) => {
         ok: false,
         error: error.message || String(error)
       });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/organization/status' && req.method === 'GET') {
+    try {
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      sendJson(res, 200, {
+        ok: true,
+        organization: getMemoryOrganizationStatus(url.searchParams.get('chatId') || '')
+      });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/organization/clusters' && req.method === 'GET') {
+    try {
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      const clusters = listMemoryClusters({
+        chatId: url.searchParams.get('chatId') || '',
+        kind: url.searchParams.get('kind') || '',
+        status: url.searchParams.get('status') || '',
+        limit: url.searchParams.get('limit') || 100,
+        memberLimit: url.searchParams.get('memberLimit') || 200
+      });
+      sendJson(res, 200, { ok: true, count: clusters.length, clusters });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/organization/initialize' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      const backup = await backupSqliteDb();
+      if (!backup.ok) {
+        throw new Error(`Pre-initialization backup failed: ${backup.error || 'unknown error'}`);
+      }
+      const organization = initializeMemoryOrganizationCoverage({
+        chatId: body.chatId || '',
+        algorithmVersion: body.algorithmVersion || 'organization-v1'
+      });
+      sendJson(res, 200, { ok: true, backup, organization });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/organization/reset' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      if (String(body.confirm || '') !== 'RESET_ORGANIZATION_OVERLAY') {
+        throw new Error('Explicit confirmation is required to reset the organization overlay');
+      }
+      const backup = await backupSqliteDb();
+      if (!backup.ok) {
+        throw new Error(`Pre-reset backup failed: ${backup.error || 'unknown error'}`);
+      }
+      const organization = resetMemoryOrganizationOverlay({ confirm: body.confirm });
+      sendJson(res, 200, { ok: true, backup, organization });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message || String(error) });
     }
     return;
   }
