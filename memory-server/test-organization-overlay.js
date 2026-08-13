@@ -103,6 +103,10 @@ try {
       summary: 'preview only',
       representativeMemoryId: 'memory-a',
       confidence: 0.9,
+      subtype: 'habit_candidate',
+      subtypeStatus: 'candidate',
+      subtypeConfidence: 0.86,
+      subtypeReasons: ['repeated_occurrence_language'],
       algorithmVersion: 'organization-preview-test-v1',
       members: [
         { memoryId: 'memory-a', membershipRole: 'representative', confidence: 1, reason: 'test' },
@@ -126,6 +130,8 @@ try {
   const clusters = listMemoryClusters({ chatId: 'chat-1', kind: 'event' });
   assert.equal(clusters.length, 1);
   assert.equal(clusters[0].members.length, 2);
+  assert.equal(clusters[0].subtype, 'habit_candidate');
+  assert.deepEqual(clusters[0].subtypeReasons, ['repeated_occurrence_language']);
   assert.equal(clusters[0].members[0].content, '第一次在露台看星星。');
   assert.equal(memoryFingerprint().length, 3);
 

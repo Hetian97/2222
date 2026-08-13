@@ -26,6 +26,13 @@ const GENERIC_TERMS = new Set([
   '喜欢', '希望', '担心', '安慰', '陪伴', '互动', '表达', '情绪'
 ]);
 
+const TYPE_SIGNAL_PATTERNS = Object.freeze({
+  recurring: /(?:每(?:天|晚|早|次|回|逢|周|月|年)|经常|常常|总是|一向|通常|惯例|习惯|反复|再次|又一次|每当)/u,
+  stable: /(?:一直|长期|始终|目前|现在仍|固定|属于|住在|居住|身份是|关系是|规则是|约定是|偏好是|保持|拥有)/u,
+  continuous: /(?:连续|持续|期间|这几天|当天|次日|第二天|第三天|随后|接下来几天|整个过程)/u,
+  bounded: /(?:当天|当晚|那天|那晚|早上|上午|中午|下午|晚上|凌晨|回来后|结束后|到达后|离开前)/u
+});
+
 function safeJsonParse(value, fallback) {
   if (value === null || value === undefined || value === '') return fallback;
   if (typeof value !== 'string') return value;
@@ -177,6 +184,68 @@ function selectClusterLabel(members, featureDocumentFrequency, maxDocumentFreque
     .slice(0, 3)
     .map(([feature]) => feature)
     .join(' · ') || '待确认记忆组';
+}
+
+function classifyClusterSubtype(kind, members, confidence) {
+  const memberCount = Math.max(1, members.length);
+  const countSignal = pattern => members.filter(member => pattern.test(member.content)).length;
+  const recurringCount = countSignal(TYPE_SIGNAL_PATTERNS.recurring);
+  const stableCount = countSignal(TYPE_SIGNAL_PATTERNS.stable);
+  const continuousCount = countSignal(TYPE_SIGNAL_PATTERNS.continuous);
+  const boundedCount = countSignal(TYPE_SIGNAL_PATTERNS.bounded);
+  const datedCount = members.filter(member => member.dates.size > 0).length;
+  const dates = new Set(members.flatMap(member => [...member.dates]));
+  const times = members.map(member => member.timestamp).filter(Boolean);
+  const spanMs = times.length > 1 ? Math.max(...times) - Math.min(...times) : 0;
+  const dayMs = 24 * 60 * 60 * 1000;
+  const ratios = {
+    recurring: recurringCount / memberCount,
+    stable: stableCount / memberCount,
+    continuous: continuousCount / memberCount,
+    bounded: boundedCount / memberCount,
+    dated: datedCount / memberCount
+  };
+
+  let subtype = kind === 'topic' ? 'topic_candidate' : 'type_uncertain';
+  const reasons = [];
+  if (ratios.recurring >= 0.34 && (dates.size > 1 || spanMs > 3 * dayMs || kind === 'topic')) {
+    subtype = 'habit_candidate';
+    reasons.push('repeated_occurrence_language');
+  } else if (ratios.stable >= 0.5 && ratios.bounded < 0.5 && ratios.continuous < 0.5) {
+    subtype = 'stable_fact_candidate';
+    reasons.push('persistent_state_language');
+  } else if (kind === 'event' && ratios.continuous >= 0.25 && spanMs > dayMs) {
+    subtype = 'ongoing_episode_candidate';
+    reasons.push('continuous_multi_day_language');
+  } else if (kind === 'event' && (ratios.dated > 0 || ratios.bounded >= 0.25 || spanMs <= 2 * dayMs)) {
+    subtype = 'event_candidate';
+    reasons.push(ratios.dated > 0 ? 'explicit_date_boundary' : spanMs <= 2 * dayMs ? 'compact_time_window' : 'bounded_episode_language');
+  } else if (kind === 'topic') {
+    subtype = 'topic_candidate';
+    reasons.push('cross_occurrence_semantic_cohesion');
+  } else {
+    reasons.push('insufficient_type_evidence');
+  }
+
+  const evidenceStrength = Math.max(ratios.recurring, ratios.stable, ratios.continuous, ratios.bounded, ratios.dated);
+  const typeConfidence = subtype === 'type_uncertain'
+    ? Math.min(0.59, 0.35 + Number(confidence || 0) * 0.2)
+    : Math.min(0.95, 0.5 + evidenceStrength * 0.3 + Number(confidence || 0) * 0.15);
+  return {
+    subtype,
+    subtypeStatus: 'candidate',
+    subtypeConfidence: Number(typeConfidence.toFixed(4)),
+    subtypeReasons: reasons,
+    typeSignals: {
+      recurringCount,
+      stableCount,
+      continuousCount,
+      boundedCount,
+      datedCount,
+      distinctDateCount: dates.size,
+      spanMs
+    }
+  };
 }
 
 function buildMemoryOrganizationPreview(rawMemories, inputOptions = {}) {
@@ -421,6 +490,7 @@ function buildMemoryOrganizationPreview(rawMemories, inputOptions = {}) {
       const averageScore = pairScores.length ? pairScores.reduce((sum, score) => sum + score, 0) / pairScores.length : 0;
       const minimumScore = pairScores.length ? Math.min(...pairScores) : 0;
       const confidence = Math.max(0, Math.min(0.99, 0.65 * averageScore + 0.35 * minimumScore));
+      const subtype = classifyClusterSubtype(kind, group, confidence);
       return {
         id: stableId(kind === 'event' ? 'event' : 'topic', memberIds, options.algorithmVersion),
         chatId: representative.chatId,
@@ -430,6 +500,7 @@ function buildMemoryOrganizationPreview(rawMemories, inputOptions = {}) {
         representativeMemoryId: representative.id,
         status: 'preview',
         confidence: Number(confidence.toFixed(4)),
+        ...subtype,
         timeStart: times.length ? Math.min(...times) : null,
         timeEnd: times.length ? Math.max(...times) : null,
         algorithmVersion: options.algorithmVersion,
@@ -480,6 +551,10 @@ function buildMemoryOrganizationPreview(rawMemories, inputOptions = {}) {
       algorithmVersion: options.algorithmVersion
     };
   });
+  const subtypeCounts = {};
+  for (const cluster of [...eventClusters, ...topicClusters]) {
+    subtypeCounts[cluster.subtype] = (subtypeCounts[cluster.subtype] || 0) + 1;
+  }
 
   return {
     algorithmVersion: options.algorithmVersion,
@@ -495,6 +570,7 @@ function buildMemoryOrganizationPreview(rawMemories, inputOptions = {}) {
       featureCount: featureDocumentFrequency.size,
       candidatePairCount: retainedPairKeys.size,
       acceptedPairCount: acceptedPairs.length,
+      subtypeCounts,
       acceptedPairs
     }
   };
@@ -505,5 +581,6 @@ module.exports = {
   buildMemoryOrganizationPreview,
   cosineSample,
   extractDateKeys,
-  extractTextFeatures
+  extractTextFeatures,
+  classifyClusterSubtype
 };

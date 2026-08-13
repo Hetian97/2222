@@ -2,7 +2,8 @@ const assert = require('assert');
 
 const {
   buildMemoryOrganizationPreview,
-  extractDateKeys
+  extractDateKeys,
+  classifyClusterSubtype
 } = require('./memory-organization-preview');
 
 function vector(seed, size = 384) {
@@ -131,6 +132,30 @@ assert.equal(repeatPreview.topicClusters.length, 1, 'repeated routines may remai
 
 for (const cluster of [...preview.eventClusters, ...preview.topicClusters]) {
   assert(cluster.confidence >= 0 && cluster.confidence <= 0.99);
+  assert(['candidate'].includes(cluster.subtypeStatus));
+  assert(cluster.subtypeConfidence >= 0 && cluster.subtypeConfidence <= 0.95);
 }
+
+const typeMember = (content, timestamp, dates = []) => ({ content, timestamp, dates: new Set(dates) });
+assert.equal(classifyClusterSubtype('topic', [
+  typeMember('每天都会重复做同一件事。', base, ['2026-08-01']),
+  typeMember('每次都会按相同方式完成。', base + 20 * day, ['2026-08-21'])
+], 0.9).subtype, 'habit_candidate');
+assert.equal(classifyClusterSubtype('topic', [
+  typeMember('目前一直住在这里。', base),
+  typeMember('长期居住地点保持不变。', base + day)
+], 0.9).subtype, 'stable_fact_candidate');
+assert.equal(classifyClusterSubtype('event', [
+  typeMember('这几天持续处理同一件事。', base),
+  typeMember('第二天仍在继续处理。', base + 2 * day)
+], 0.9).subtype, 'ongoing_episode_candidate');
+assert.equal(classifyClusterSubtype('event', [
+  typeMember('8月1日当天发生了一件事。', base, ['08-01']),
+  typeMember('那晚事情结束。', base, ['08-01'])
+], 0.9).subtype, 'event_candidate');
+assert.equal(classifyClusterSubtype('event', [
+  typeMember('讨论了一个概念。', base),
+  typeMember('又提到相关概念。', base + 10 * day)
+], 0.8).subtype, 'type_uncertain');
 
 console.log('Memory organization preview tests passed');

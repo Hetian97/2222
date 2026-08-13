@@ -3700,6 +3700,7 @@ const server = http.createServer(async (req, res) => {
         chatId: url.searchParams.get('chatId') || '',
         kind: url.searchParams.get('kind') || '',
         status: url.searchParams.get('status') || '',
+        subtype: url.searchParams.get('subtype') || '',
         limit: url.searchParams.get('limit') || 100,
         memberLimit: url.searchParams.get('memberLimit') || 200
       });
@@ -3780,7 +3781,8 @@ const server = http.createServer(async (req, res) => {
           diagnostics: {
             featureCount: preview.diagnostics.featureCount,
             candidatePairCount: preview.diagnostics.candidatePairCount,
-            acceptedPairCount: preview.diagnostics.acceptedPairCount
+            acceptedPairCount: preview.diagnostics.acceptedPairCount,
+            subtypeCounts: preview.diagnostics.subtypeCounts
           }
         },
         organization

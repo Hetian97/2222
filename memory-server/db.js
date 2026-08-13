@@ -127,6 +127,10 @@ CREATE TABLE IF NOT EXISTS memory_clusters (
   timeEnd INTEGER,
   memberCount INTEGER NOT NULL DEFAULT 0,
   algorithmVersion TEXT,
+  subtype TEXT NOT NULL DEFAULT 'type_uncertain',
+  subtypeStatus TEXT NOT NULL DEFAULT 'candidate',
+  subtypeConfidence REAL NOT NULL DEFAULT 0,
+  subtypeReasons TEXT,
   createdAt INTEGER NOT NULL,
   updatedAt INTEGER NOT NULL,
   FOREIGN KEY(representativeMemoryId) REFERENCES memories(id) ON DELETE SET NULL
@@ -259,6 +263,10 @@ ensureColumn('memory_search_logs', 'actionType', 'TEXT');
 ensureColumn('memory_search_logs', 'generationCompletedAt', 'INTEGER');
 ensureColumn('memory_search_logs', 'generationError', 'TEXT');
 ensureColumn('memory_organization_runs', 'chatId', 'TEXT');
+ensureColumn('memory_clusters', 'subtype', "TEXT NOT NULL DEFAULT 'type_uncertain'");
+ensureColumn('memory_clusters', 'subtypeStatus', "TEXT NOT NULL DEFAULT 'candidate'");
+ensureColumn('memory_clusters', 'subtypeConfidence', 'REAL NOT NULL DEFAULT 0');
+ensureColumn('memory_clusters', 'subtypeReasons', 'TEXT');
 
 const MEMORY_FTS_SCHEMA_VERSION = '2-cjk-bigram-materialized';
 let memoryFtsAvailable = false;
@@ -1429,6 +1437,12 @@ function getMemoryOrganizationStatus(chatId = '') {
     ${organizationWhere}
     GROUP BY kind, status
   `).all(...params);
+  const subtypeRows = db.prepare(`
+    SELECT subtype, subtypeStatus, COUNT(*) AS count
+    FROM memory_clusters
+    ${organizationWhere}
+    GROUP BY subtype, subtypeStatus
+  `).all(...params);
   const queueParams = [];
   const queueJoin = chatId ? 'JOIN memories m ON m.id = q.memoryId WHERE m.chatId = ?' : '';
   if (chatId) queueParams.push(String(chatId));
@@ -1453,6 +1467,7 @@ function getMemoryOrganizationStatus(chatId = '') {
     organizationCoverage: totalMemories > 0 ? Number((organizedCount / totalMemories).toFixed(6)) : 1,
     byStatus,
     clusters: clusterRows,
+    subtypes: subtypeRows,
     queue: Object.fromEntries(queueRows.map(row => [row.status, Number(row.count || 0)])),
     latestRun
   };
@@ -1562,8 +1577,9 @@ function saveMemoryOrganizationPreview(preview, options = {}) {
   const insertCluster = db.prepare(`
     INSERT INTO memory_clusters (
       id, chatId, kind, title, summary, representativeMemoryId, status,
-      confidence, timeStart, timeEnd, memberCount, algorithmVersion, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, 'preview', ?, ?, ?, 0, ?, ?, ?)
+      confidence, timeStart, timeEnd, memberCount, algorithmVersion,
+      subtype, subtypeStatus, subtypeConfidence, subtypeReasons, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, 'preview', ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertMember = db.prepare(`
     INSERT INTO memory_cluster_members (
@@ -1610,6 +1626,10 @@ function saveMemoryOrganizationPreview(preview, options = {}) {
         cluster.timeStart || null,
         cluster.timeEnd || null,
         cluster.algorithmVersion || preview.algorithmVersion,
+        cluster.subtype || 'type_uncertain',
+        cluster.subtypeStatus || 'candidate',
+        Number(cluster.subtypeConfidence || 0),
+        JSON.stringify(cluster.subtypeReasons || []),
         timestamp,
         timestamp
       );
@@ -1689,6 +1709,10 @@ function listMemoryClusters(filters = {}) {
     where.push('c.status = ?');
     params.push(String(filters.status));
   }
+  if (filters.subtype) {
+    where.push('c.subtype = ?');
+    params.push(String(filters.subtype));
+  }
   const limit = Math.min(1000, Math.max(1, Number(filters.limit || 100)));
   const memberLimit = Math.min(1000, Math.max(1, Number(filters.memberLimit || 200)));
   params.push(limit);
@@ -1712,6 +1736,7 @@ function listMemoryClusters(filters = {}) {
     const members = memberQuery.all(row.id, memberLimit);
     return {
       ...row,
+      subtypeReasons: safeJsonParse(row.subtypeReasons, []),
       returnedMemberCount: members.length,
       hasMoreMembers: Number(row.memberCount || 0) > members.length,
       members
