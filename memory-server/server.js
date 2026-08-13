@@ -33,6 +33,8 @@ const {
   resetMemoryOrganizationOverlay,
   getMemoryOrganizationPreviewInputs,
   saveMemoryOrganizationPreview,
+  getReliableEventClusterMap,
+  processMemoryOrganizationQueue,
   listMemoryClusters,
   listMemoryOrganizationEntries
 } = require('./db');
@@ -115,6 +117,15 @@ function compactShadowPolicySummary(shadowPolicy) {
   if (!shadowPolicy) return null;
   const { decisions, ...summary } = shadowPolicy;
   return summary;
+}
+
+function withReliableEventClusterMetadata(candidates) {
+  const safeCandidates = Array.isArray(candidates) ? candidates : [];
+  const clusterByMemory = getReliableEventClusterMap(safeCandidates.map(memory => memory?.id));
+  return safeCandidates.map(memory => ({
+    ...memory,
+    _shadowEventClusterId: clusterByMemory[String(memory?.id || '')] || ''
+  }));
 }
 
 function updateLastMemorySearchState(info = {}) {
@@ -2720,7 +2731,7 @@ async function handleMcpRequest(body) {
           scoreWeights: args.scoreWeights || args.weights || {}
         });
         const results = rankedCandidates.slice(0, safeMcpLimit);
-        const shadowPolicy = runRecallShadowPolicy(rankedCandidates, {
+        const shadowPolicy = runRecallShadowPolicy(withReliableEventClusterMetadata(rankedCandidates), {
           targetLimit: safeMcpLimit,
           candidateLimit: shadowCandidateLimit,
           query: args.query || '',
@@ -4222,7 +4233,7 @@ const server = http.createServer(async (req, res) => {
 
               if (chromaMemories.length > 0) {
                 const liveChromaMemories = chromaMemories.slice(0, safeLimit);
-                const shadowPolicy = runRecallShadowPolicy(chromaMemories, {
+                const shadowPolicy = runRecallShadowPolicy(withReliableEventClusterMetadata(chromaMemories), {
                   targetLimit: safeLimit,
                   candidateLimit: chromaShadowCandidateLimit,
                   query: q,
@@ -4420,7 +4431,7 @@ const server = http.createServer(async (req, res) => {
       // Shadow mode observes a wider ranked pool, but the live response remains the
       // exact same top-N slice as before stage 3.
       const results = rankedCandidates.slice(0, safeLimit);
-      const shadowPolicy = runRecallShadowPolicy(shadowCandidates, {
+      const shadowPolicy = runRecallShadowPolicy(withReliableEventClusterMetadata(shadowCandidates), {
         targetLimit: safeLimit,
         candidateLimit: shadowCandidates.length,
         query: q,
@@ -4577,3 +4588,18 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`Tailscale access: http://100.81.84.121:${PORT}/health`);
   console.log('Storage: SQLite memory.db');
 });
+
+if (String(process.env.MEMORY_ORGANIZATION_INCREMENTAL_ENABLED || 'true').toLowerCase() !== 'false') {
+  const runIncrementalOrganization = () => {
+    try {
+      const result = processMemoryOrganizationQueue({ limit: 20 });
+      if (result.processedCount || result.failedCount) {
+        console.log(`[memory-organization] incremental processed=${result.processedCount} failed=${result.failedCount}`);
+      }
+    } catch (error) {
+      console.warn('[memory-organization] incremental queue failed:', error.message || String(error));
+    }
+  };
+  setTimeout(runIncrementalOrganization, 1500).unref();
+  setInterval(runIncrementalOrganization, 30000).unref();
+}

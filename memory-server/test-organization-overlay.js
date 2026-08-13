@@ -14,8 +14,11 @@ const {
   initializeMemoryOrganizationCoverage,
   resetMemoryOrganizationOverlay,
   saveMemoryOrganizationPreview,
-  listMemoryClusters
+  listMemoryClusters,
+  getReliableEventClusterMap,
+  processMemoryOrganizationQueue
 } = require('./db');
+const { decideIncrementalOrganization } = require('./memory-organization-incremental');
 
 function memoryFingerprint() {
   return db.prepare(`
@@ -142,6 +145,55 @@ try {
   assert.equal(clusterDetail[0].hasMoreMembers, true);
   assert.equal(clusters[0].members[0].content, '第一次在露台看星星。');
   assert.equal(memoryFingerprint().length, 3);
+
+  db.prepare('DELETE FROM memory_organization_queue').run();
+  addMemory({
+    id: 'incremental-a', chatId: 'chat-1',
+    content: '紫檀书签买得太大，需要更窄的款式', tags: ['紫檀书签', '尺寸'],
+    memoryTime: String(now + 1000), embedding: [1, 0, 0, 0]
+  });
+  let incremental = processMemoryOrganizationQueue({ limit: 10 });
+  assert.equal(incremental.processedCount, 1);
+  assert.equal(incremental.results[0].action, 'independent');
+  addMemory({
+    id: 'incremental-b', chatId: 'chat-1',
+    content: '买回来的紫檀书签尺寸太宽，应该换窄款', tags: ['紫檀书签', '尺寸'],
+    memoryTime: String(now + 2000), embedding: [1, 0, 0, 0]
+  });
+  incremental = processMemoryOrganizationQueue({ limit: 10 });
+  assert.equal(incremental.results[0].action, 'create_event');
+  const incrementalClusterId = incremental.results[0].primaryEventClusterId;
+  assert(incrementalClusterId.startsWith('event_incremental_'));
+  addMemory({
+    id: 'incremental-c', chatId: 'chat-1',
+    content: '紫檀书签还是太宽，窄一些才合适', tags: ['紫檀书签', '尺寸'],
+    memoryTime: String(now + 3000), embedding: [1, 0, 0, 0]
+  });
+  incremental = processMemoryOrganizationQueue({ limit: 10 });
+  assert.equal(incremental.results[0].action, 'attach_event');
+  assert.equal(incremental.results[0].primaryEventClusterId, incrementalClusterId);
+  assert.equal(listMemoryClusters({ clusterId: incrementalClusterId })[0].members.length, 3);
+  const reliableMap = getReliableEventClusterMap(['incremental-a', 'incremental-b', 'incremental-c']);
+  assert.equal(reliableMap['incremental-a'], incrementalClusterId);
+  assert.equal(reliableMap['incremental-c'], incrementalClusterId);
+  assert.equal(getMemoryOrganizationStatus().queue.pending || 0, 0);
+  assert.equal(decideIncrementalOrganization({
+    id: 'unrelated-b', content: '完全不同的天气闲聊', tags: ['天气'],
+    memoryTime: String(now + 4000), embedding: [1, 0, 0, 0]
+  }, [], [{
+    id: 'unrelated-a', content: '紫檀书签尺寸太宽', tags: ['紫檀书签'],
+    memoryTime: String(now + 4000), embedding: [1, 0, 0, 0]
+  }]).action, 'independent');
+  assert.equal(decideIncrementalOrganization({
+    id: 'dated-b', content: '8月13日归还紫檀书签', tags: ['归还书签'],
+    memoryTime: String(now + 4000), embedding: [1, 0, 0, 0]
+  }, [], [{
+    id: 'dated-a', content: '8月12日归还紫檀书签', tags: ['归还书签'],
+    memoryTime: String(now + 4000), embedding: [1, 0, 0, 0]
+  }]).action, 'independent');
+  assert.equal(deleteMemory('incremental-a'), true);
+  assert.equal(deleteMemory('incremental-b'), true);
+  assert.equal(deleteMemory('incremental-c'), true);
 
   assert.throws(
     () => resetMemoryOrganizationOverlay({ confirm: 'wrong' }),

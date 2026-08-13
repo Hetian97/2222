@@ -413,6 +413,7 @@ function runRecallShadowPolicy(candidates, options = {}) {
   const decisions = safeCandidates.map((memory, index) => ({
     memory,
     ...evaluateAdmission(memory, calibratedEvidence[index]),
+    eventClusterId: String(memory?._shadowEventClusterId || ''),
     precisionCandidate: Boolean(memory?._shadowPrecisionCandidate),
     calibratedAnchorTerm: calibratedEvidence[index]?.anchorTerm || '',
     bestFacetId: calibratedEvidence[index]?.bestFacetId || '',
@@ -429,6 +430,7 @@ function runRecallShadowPolicy(candidates, options = {}) {
     .filter(decision => decision.admitted)
     .sort((left, right) => right.admissionScore - left.admissionScore);
   const selected = [];
+  const selectedEventClusters = new Map();
   const categoryCounts = new Map();
   let selectionStopReason = '';
 
@@ -440,6 +442,7 @@ function runRecallShadowPolicy(candidates, options = {}) {
     decision.softQuotaPenalty = Number((meta.softQuotaPenalty || 0).toFixed(6));
     if (meta.facetId) decision.reservedForFacet = meta.facetId;
     selected.push(decision);
+    if (decision.eventClusterId) selectedEventClusters.set(decision.eventClusterId, decision.id);
     const category = String(decision.category || 'E').toUpperCase();
     categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
   };
@@ -449,6 +452,11 @@ function runRecallShadowPolicy(candidates, options = {}) {
   // being crowded out by the mixed-rank top 60 before diversity selection runs.
   for (const decision of admitted.filter(item => item.precisionCandidate && item.signals.protectedEvidence > 0)) {
     if (selected.length >= targetLimit) break;
+    if (decision.eventClusterId && selectedEventClusters.has(decision.eventClusterId)) {
+      decision.finalReason = 'same_event_cluster';
+      decision.duplicateOf = selectedEventClusters.get(decision.eventClusterId);
+      continue;
+    }
     const maxSimilarity = selected.reduce((maximum, selectedDecision) => Math.max(
       maximum,
       memorySimilarity(decision.memory, selectedDecision.memory)
@@ -466,6 +474,7 @@ function runRecallShadowPolicy(candidates, options = {}) {
     if (selected.length >= targetLimit) break;
     const facetCandidate = admitted
       .filter(decision => !decision.selected && !decision.finalReason)
+      .filter(decision => !decision.eventClusterId || !selectedEventClusters.has(decision.eventClusterId))
       .map(decision => ({
         decision,
         facetScore: decision.facetScores.find(facet => facet.id === facetId)?.score || 0,
@@ -500,6 +509,12 @@ function runRecallShadowPolicy(candidates, options = {}) {
 
     for (const decision of admitted) {
       if (decision.selected || decision.finalReason) continue;
+
+      if (decision.eventClusterId && selectedEventClusters.has(decision.eventClusterId)) {
+        decision.finalReason = 'same_event_cluster';
+        decision.duplicateOf = selectedEventClusters.get(decision.eventClusterId);
+        continue;
+      }
 
       const category = String(decision.category || 'E').toUpperCase();
       const quota = Math.max(1, Number(quotas[category] || 3));
@@ -570,7 +585,7 @@ function runRecallShadowPolicy(candidates, options = {}) {
 
   return {
     mode: 'shadow',
-    version: 'stage3-shadow-v1.4',
+    version: 'stage3-shadow-v1.5',
     behaviorChanged: false,
     evidenceMode: 'primary-intent-context-reference',
     primaryQuery: calibratedEvidence.primaryQuery || '',
@@ -579,6 +594,8 @@ function runRecallShadowPolicy(candidates, options = {}) {
     topicFacetCount: facetIds.length,
     topicFacetSelectedCount: compactDecisions.filter(decision => decision.reservedForFacet).length,
     categoryQuotaMode: 'soft-penalty',
+    eventClusterMode: 'high-confidence-shadow-fold',
+    eventClusterFoldedCount: compactDecisions.filter(decision => decision.finalReason === 'same_event_cluster').length,
     candidateCount: safeCandidates.length,
     precisionCandidateCount: compactDecisions.filter(decision => decision.precisionCandidate).length,
     precisionSelectedCount: compactDecisions.filter(decision => decision.finalReason === 'selected_for_precision_evidence').length,

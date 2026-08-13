@@ -256,7 +256,7 @@ const precisionProtection = runRecallShadowPolicy([
   primaryQuery: '紫檀书签买得太大，应该怎么办',
   targetLimit: 3
 });
-assert.equal(precisionProtection.version, 'stage3-shadow-v1.4');
+assert.equal(precisionProtection.version, 'stage3-shadow-v1.5');
 assert(precisionProtection.selectedMemoryIds.includes('precise-object'));
 assert.equal(
   precisionProtection.decisions.find(decision => decision.id === 'precise-object').finalReason,
@@ -265,6 +265,37 @@ assert.equal(
 assert(!precisionProtection.selectedMemoryIds.includes('generic-anxiety'));
 assert.equal(precisionProtection.precisionCandidateCount, 1);
 assert.equal(precisionProtection.precisionSelectedCount, 1);
+
+const eventClusterFold = runRecallShadowPolicy([
+  memory('cluster-memory-a', {
+    content: '露台烛光晚餐吃了三文鱼并喝气泡水',
+    tags: ['露台晚餐', '三文鱼'],
+    _vectorScore: 0.92,
+    _shadowEventClusterId: 'event-cluster-1'
+  }),
+  memory('cluster-memory-b', {
+    content: '那次露台晚餐准备的饮品是气泡水',
+    tags: ['露台晚餐', '气泡水'],
+    _vectorScore: 0.9,
+    _shadowEventClusterId: 'event-cluster-1'
+  }),
+  memory('distinct-memory', {
+    content: '在衣帽间因为别人递来的气泡水而吃醋',
+    tags: ['衣帽间', '吃醋'],
+    _vectorScore: 0.86
+  })
+], {
+  query: '露台烛光晚餐的三文鱼和气泡水',
+  primaryQuery: '露台烛光晚餐的三文鱼和气泡水',
+  targetLimit: 3
+});
+assert.equal(eventClusterFold.eventClusterMode, 'high-confidence-shadow-fold');
+assert.equal(eventClusterFold.selectedMemoryIds.filter(id => id.startsWith('cluster-memory-')).length, 1);
+assert.equal(eventClusterFold.eventClusterFoldedCount, 1);
+assert.equal(
+  eventClusterFold.decisions.find(decision => decision.finalReason === 'same_event_cluster').duplicateOf,
+  eventClusterFold.selectedMemoryIds.find(id => id.startsWith('cluster-memory-'))
+);
 
 const excludesCore = runRecallShadowPolicy([
   memory('core', { category: 'C', _vectorScore: 1 }),

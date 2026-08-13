@@ -1,6 +1,11 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const crypto = require('crypto');
+const {
+  DEFAULT_INCREMENTAL_OPTIONS,
+  decideIncrementalOrganization,
+  createIncrementalClusterId
+} = require('./memory-organization-incremental');
 
 const dbPath = process.env.MEMORY_DB_PATH
   ? path.resolve(process.env.MEMORY_DB_PATH)
@@ -637,12 +642,14 @@ function listMemories(filters = {}) {
 
 function deleteMemory(id) {
   const result = db.prepare('DELETE FROM memories WHERE id = ?').run(id);
+  db.prepare('DELETE FROM memory_clusters WHERE memberCount = 0').run();
   flushMemoryFtsPending();
   return result.changes > 0;
 }
 
 function clearAllMemories() {
   const result = db.prepare('DELETE FROM memories').run();
+  db.prepare('DELETE FROM memory_clusters WHERE memberCount = 0').run();
   flushMemoryFtsPending(50000);
   return result.changes;
 }
@@ -1694,6 +1701,262 @@ function saveMemoryOrganizationPreview(preview, options = {}) {
   };
 }
 
+function getReliableEventClusterMap(memoryIds, options = {}) {
+  const ids = [...new Set((Array.isArray(memoryIds) ? memoryIds : []).map(String).filter(Boolean))];
+  if (!ids.length) return {};
+  const minimumConfidence = Number(options.minimumConfidence ?? 0.84);
+  const maximumMembers = Number(options.maximumMembers ?? 6);
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db.prepare(`
+    SELECT cm.memoryId, c.id AS clusterId, c.confidence, c.memberCount
+    FROM memory_cluster_members cm
+    JOIN memory_clusters c ON c.id = cm.clusterId
+    WHERE cm.memoryId IN (${placeholders})
+      AND c.kind = 'event'
+      AND c.status = 'preview'
+      AND c.confidence >= ?
+      AND c.memberCount BETWEEN 2 AND ?
+      AND (c.timeStart IS NULL OR c.timeEnd IS NULL OR c.timeEnd - c.timeStart <= ?)
+    ORDER BY c.confidence DESC
+  `).all(...ids, minimumConfidence, maximumMembers, 14 * 24 * 60 * 60 * 1000);
+  const result = {};
+  for (const row of rows) {
+    if (!result[row.memoryId]) result[row.memoryId] = row.clusterId;
+  }
+  return result;
+}
+
+function loadIncrementalEventClusters(chatId, excludedMemoryId, candidateIds = []) {
+  const ids = [...new Set(candidateIds.map(String).filter(Boolean))];
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db.prepare(`
+    SELECT c.id AS clusterId, c.confidence AS clusterConfidence,
+           m.id, m.chatId, m.content, m.category, m.tags, m.memoryTime,
+           m.createdAt, m.embedding
+    FROM memory_clusters c
+    JOIN memory_cluster_members cm ON cm.clusterId = c.id
+    JOIN memories m ON m.id = cm.memoryId
+    WHERE c.chatId = ? AND c.kind = 'event' AND c.status = 'preview'
+      AND c.confidence >= 0.84 AND c.memberCount BETWEEN 2 AND 6
+      AND m.id != ?
+      AND c.id IN (
+        SELECT DISTINCT clusterId FROM memory_cluster_members
+        WHERE memoryId IN (${placeholders})
+      )
+    ORDER BY c.id, cm.confidence DESC
+  `).all(String(chatId || ''), String(excludedMemoryId || ''), ...ids);
+  const clusters = new Map();
+  for (const row of rows) {
+    if (!clusters.has(row.clusterId)) {
+      clusters.set(row.clusterId, { id: row.clusterId, confidence: row.clusterConfidence, members: [] });
+    }
+    clusters.get(row.clusterId).members.push(row);
+  }
+  return [...clusters.values()];
+}
+
+function loadIncrementalIndependentMemories(chatId, excludedMemoryId, candidateIds = []) {
+  const ids = [...new Set(candidateIds.map(String).filter(Boolean))];
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  return db.prepare(`
+    SELECT m.id, m.chatId, m.content, m.category, m.tags, m.memoryTime,
+           m.createdAt, m.embedding
+    FROM memories m
+    LEFT JOIN memory_organization o ON o.memoryId = m.id
+    WHERE m.chatId = ? AND m.id != ? AND UPPER(COALESCE(m.category, 'E')) != 'C'
+      AND m.id IN (${placeholders})
+      AND (o.primaryEventClusterId IS NULL OR o.primaryEventClusterId = '')
+    ORDER BY CAST(m.memoryTime AS INTEGER) DESC, m.id DESC
+  `).all(String(chatId || ''), String(excludedMemoryId || ''), ...ids);
+}
+
+function processOneMemoryOrganizationQueue(memoryId, suppliedOptions = {}) {
+  const options = { ...DEFAULT_INCREMENTAL_OPTIONS, ...suppliedOptions };
+  const timestamp = Date.now();
+  return db.transaction(() => {
+    const memory = db.prepare('SELECT * FROM memories WHERE id = ?').get(String(memoryId));
+    if (!memory) {
+      db.prepare('DELETE FROM memory_organization_queue WHERE memoryId = ?').run(String(memoryId));
+      return { memoryId, action: 'missing' };
+    }
+    const existingOrganization = db.prepare(
+      'SELECT reviewedBy FROM memory_organization WHERE memoryId = ?'
+    ).get(memory.id);
+    if (existingOrganization?.reviewedBy) {
+      db.prepare('DELETE FROM memory_organization_queue WHERE memoryId = ?').run(memory.id);
+      return { memoryId: memory.id, action: 'manual_review_preserved' };
+    }
+
+    const affectedMemoryIds = db.prepare(`
+      SELECT DISTINCT sibling.memoryId
+      FROM memory_cluster_members target
+      JOIN memory_cluster_members sibling ON sibling.clusterId = target.clusterId
+      WHERE target.memoryId = ? AND sibling.memoryId != ?
+    `).all(memory.id, memory.id).map(row => row.memoryId);
+    db.prepare('DELETE FROM memory_cluster_members WHERE memoryId = ?').run(memory.id);
+    db.prepare("DELETE FROM memory_clusters WHERE status = 'preview' AND memberCount < 2").run();
+    const selectEventCluster = db.prepare(`
+      SELECT c.id
+      FROM memory_cluster_members cm
+      JOIN memory_clusters c ON c.id = cm.clusterId
+      WHERE cm.memoryId = ? AND c.kind = 'event' AND c.status = 'preview'
+      ORDER BY c.confidence DESC LIMIT 1
+    `);
+    const hasAnyCluster = db.prepare(`
+      SELECT 1 AS present
+      FROM memory_cluster_members cm
+      JOIN memory_clusters c ON c.id = cm.clusterId
+      WHERE cm.memoryId = ? AND c.status = 'preview'
+      LIMIT 1
+    `);
+    const updateAffectedOrganization = db.prepare(`
+      UPDATE memory_organization
+      SET status = ?, primaryEventClusterId = ?, reason = 'cluster_membership_revalidated', updatedAt = ?
+      WHERE memoryId = ? AND reviewedBy IS NULL
+    `);
+    for (const affectedMemoryId of affectedMemoryIds) {
+      const eventCluster = selectEventCluster.get(affectedMemoryId);
+      const clustered = Boolean(hasAnyCluster.get(affectedMemoryId));
+      updateAffectedOrganization.run(
+        clustered ? 'preview_clustered' : 'preview_independent',
+        eventCluster?.id || null,
+        timestamp,
+        affectedMemoryId
+      );
+    }
+
+    const tags = safeJsonParse(memory.tags, []);
+    const candidateSearch = searchMemoriesFts(
+      [memory.content || '', ...(Array.isArray(tags) ? tags : [])],
+      { chatId: memory.chatId || '', excludeCategories: ['C'], limit: 80 }
+    );
+    const candidateIds = (candidateSearch.memories || [])
+      .map(item => String(item.id || ''))
+      .filter(id => id && id !== memory.id);
+    const eventClusters = loadIncrementalEventClusters(memory.chatId, memory.id, candidateIds);
+    const independent = loadIncrementalIndependentMemories(memory.chatId, memory.id, candidateIds);
+    const decision = decideIncrementalOrganization(memory, eventClusters, independent, options);
+    let primaryEventClusterId = null;
+
+    if (decision.action === 'attach_event') {
+      primaryEventClusterId = decision.clusterId;
+      db.prepare(`
+        INSERT INTO memory_cluster_members (
+          clusterId, memoryId, membershipRole, confidence, reason, source, createdAt, updatedAt
+        ) VALUES (?, ?, 'member', ?, ?, 'incremental_preview', ?, ?)
+      `).run(primaryEventClusterId, memory.id, decision.confidence, decision.reason, timestamp, timestamp);
+      db.prepare(`
+        UPDATE memory_clusters
+        SET confidence = MIN(confidence, ?),
+            timeStart = CASE WHEN timeStart IS NULL THEN ? ELSE MIN(timeStart, ?) END,
+            timeEnd = CASE WHEN timeEnd IS NULL THEN ? ELSE MAX(timeEnd, ?) END,
+            updatedAt = ?
+        WHERE id = ?
+      `).run(
+        decision.confidence,
+        Number(memory.memoryTime || memory.createdAt) || timestamp,
+        Number(memory.memoryTime || memory.createdAt) || timestamp,
+        Number(memory.memoryTime || memory.createdAt) || timestamp,
+        Number(memory.memoryTime || memory.createdAt) || timestamp,
+        timestamp,
+        primaryEventClusterId
+      );
+    } else if (decision.action === 'create_event') {
+      primaryEventClusterId = createIncrementalClusterId([memory.id, decision.partnerMemoryId], options.algorithmVersion);
+      const partner = db.prepare('SELECT * FROM memories WHERE id = ?').get(decision.partnerMemoryId);
+      const times = [memory, partner].map(item => Number(item?.memoryTime || item?.createdAt)).filter(Number.isFinite);
+      db.prepare(`
+        INSERT INTO memory_clusters (
+          id, chatId, kind, title, summary, representativeMemoryId, status,
+          confidence, timeStart, timeEnd, memberCount, algorithmVersion,
+          subtype, subtypeStatus, subtypeConfidence, subtypeReasons, createdAt, updatedAt
+        ) VALUES (?, ?, 'event', '待确认记忆组', '由新增记忆的高置信度匹配形成，只用于预览。', ?, 'preview',
+                  ?, ?, ?, 0, ?, 'type_uncertain', 'candidate', 0, '[]', ?, ?)
+      `).run(
+        primaryEventClusterId, memory.chatId || '', partner.id, decision.confidence,
+        times.length ? Math.min(...times) : null, times.length ? Math.max(...times) : null,
+        options.algorithmVersion, timestamp, timestamp
+      );
+      const insertMember = db.prepare(`
+        INSERT INTO memory_cluster_members (
+          clusterId, memoryId, membershipRole, confidence, reason, source, createdAt, updatedAt
+        ) VALUES (?, ?, ?, ?, ?, 'incremental_preview', ?, ?)
+      `);
+      insertMember.run(primaryEventClusterId, partner.id, 'representative', 1, decision.reason, timestamp, timestamp);
+      insertMember.run(primaryEventClusterId, memory.id, 'member', decision.confidence, decision.reason, timestamp, timestamp);
+      db.prepare(`
+        INSERT INTO memory_organization (
+          memoryId, chatId, status, primaryEventClusterId, confidence, reason,
+          contentHash, algorithmVersion, createdAt, updatedAt
+        ) VALUES (?, ?, 'preview_clustered', ?, ?, ?, NULL, ?, ?, ?)
+        ON CONFLICT(memoryId) DO UPDATE SET
+          status='preview_clustered', primaryEventClusterId=excluded.primaryEventClusterId,
+          confidence=excluded.confidence, reason=excluded.reason,
+          algorithmVersion=excluded.algorithmVersion, updatedAt=excluded.updatedAt
+      `).run(partner.id, partner.chatId || '', primaryEventClusterId, decision.confidence, decision.reason, options.algorithmVersion, timestamp, timestamp);
+    }
+
+    const status = decision.action === 'protected_core'
+      ? 'preview_protected_core'
+      : primaryEventClusterId ? 'preview_clustered' : 'preview_independent';
+    const contentHash = crypto.createHash('sha256').update(String(memory.content || ''), 'utf8').digest('hex');
+    db.prepare(`
+      INSERT INTO memory_organization (
+        memoryId, chatId, status, primaryEventClusterId, confidence, reason,
+        contentHash, algorithmVersion, createdAt, updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(memoryId) DO UPDATE SET
+        chatId=excluded.chatId, status=excluded.status,
+        primaryEventClusterId=excluded.primaryEventClusterId,
+        confidence=excluded.confidence, reason=excluded.reason,
+        contentHash=excluded.contentHash, algorithmVersion=excluded.algorithmVersion,
+        updatedAt=excluded.updatedAt
+    `).run(
+      memory.id, memory.chatId || '', status, primaryEventClusterId,
+      decision.confidence, decision.reason, contentHash, options.algorithmVersion,
+      timestamp, timestamp
+    );
+    db.prepare('DELETE FROM memory_organization_queue WHERE memoryId = ?').run(memory.id);
+    return { memoryId: memory.id, ...decision, status, primaryEventClusterId };
+  })();
+}
+
+function processMemoryOrganizationQueue(options = {}) {
+  const limit = Math.min(100, Math.max(1, Number(options.limit || 20)));
+  const rows = db.prepare(`
+    SELECT memoryId, attempts
+    FROM memory_organization_queue
+    WHERE status = 'pending' AND availableAt <= ?
+    ORDER BY createdAt ASC
+    LIMIT ?
+  `).all(Date.now(), limit);
+  const results = [];
+  for (const row of rows) {
+    try {
+      results.push(processOneMemoryOrganizationQueue(row.memoryId, options));
+    } catch (error) {
+      const attempts = Number(row.attempts || 0) + 1;
+      const delay = Math.min(60 * 60 * 1000, 1000 * (2 ** Math.min(attempts, 10)));
+      db.prepare(`
+        UPDATE memory_organization_queue
+        SET status='pending', attempts=?, availableAt=?, lastError=?, updatedAt=?
+        WHERE memoryId=?
+      `).run(attempts, Date.now() + delay, String(error.message || error).slice(0, 1000), Date.now(), row.memoryId);
+      results.push({ memoryId: row.memoryId, action: 'failed', error: error.message || String(error) });
+    }
+  }
+  return {
+    behaviorChanged: false,
+    algorithmVersion: String(options.algorithmVersion || DEFAULT_INCREMENTAL_OPTIONS.algorithmVersion),
+    processedCount: results.filter(item => item.action !== 'failed').length,
+    failedCount: results.filter(item => item.action === 'failed').length,
+    results,
+    organization: getMemoryOrganizationStatus(String(options.chatId || ''))
+  };
+}
+
 function listMemoryClusters(filters = {}) {
   const where = [];
   const params = [];
@@ -1829,6 +2092,8 @@ module.exports = {
   resetMemoryOrganizationOverlay,
   getMemoryOrganizationPreviewInputs,
   saveMemoryOrganizationPreview,
+  getReliableEventClusterMap,
+  processMemoryOrganizationQueue,
   listMemoryClusters,
   listMemoryOrganizationEntries
 };

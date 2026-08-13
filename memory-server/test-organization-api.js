@@ -78,6 +78,7 @@ async function main() {
       MEMORY_DB_PATH: dbPath,
       MEMORY_BACKUP_DIR: backupDir,
       MEMORY_API_TOKEN: token,
+      MEMORY_ORGANIZATION_INCREMENTAL_ENABLED: 'false',
       EMBEDDING_ENDPOINT: '',
       EMBEDDING_API_KEY: ''
     },
