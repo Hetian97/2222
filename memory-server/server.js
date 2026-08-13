@@ -10,6 +10,7 @@ const {
   getMemoryById,
   getMemoriesByIds,
   searchMemoriesFts,
+  getMemoryFtsTermDocumentCounts,
   getMemoryFtsStatus,
   rebuildMemoryFts,
   deleteMemory,
@@ -1118,6 +1119,39 @@ function buildMemorySearchQueries(primaryQuery, extraQueries = []) {
   extractStructuredMemorySearchClauses(primaryQuery).forEach(add);
 
   return candidates.slice(0, 12);
+}
+
+function buildRecallIntentAnchors(query, filters = {}) {
+  const terms = [];
+  const runs = String(query || '').normalize('NFKC').toLowerCase().match(/[\u3400-\u9fff]{2,32}/g) || [];
+  for (const size of [6, 5, 4, 3, 2]) {
+    const sizedTerms = [];
+    for (const run of runs) {
+      for (let index = 0; index <= run.length - size; index++) sizedTerms.push(run.slice(index, index + size));
+    }
+    const uniqueSizedTerms = [...new Set(sizedTerms)];
+    const step = Math.max(1, uniqueSizedTerms.length / 16);
+    for (let index = 0; index < uniqueSizedTerms.length && terms.length < (7 - size) * 16; index += step) {
+      terms.push(uniqueSizedTerms[Math.floor(index)]);
+    }
+  }
+  const stats = getMemoryFtsTermDocumentCounts(terms, filters)
+    .filter(item => item.count > 0)
+    .sort((left, right) => right.term.length - left.term.length || left.count - right.count);
+  const total = Math.max(1, getMemoryFtsStatus({ integrityCheck: false }).totalMemories || 1);
+  const rareCeiling = Math.max(8, Math.ceil(total * 0.035));
+  const selected = [];
+  for (const item of stats) {
+    if (item.count > rareCeiling) continue;
+    if (selected.some(existing => existing.term.includes(item.term))) continue;
+    selected.push({
+      term: item.term,
+      count: item.count,
+      weight: Number((1 + Math.log((total + 1) / (item.count + 1))).toFixed(6))
+    });
+    if (selected.length >= 12) break;
+  }
+  return selected;
 }
 
 async function simpleSearch(memories, query, limit = 20, options = {}) {
@@ -4106,6 +4140,7 @@ const server = http.createServer(async (req, res) => {
         minImportance: body.minImportance || '',
         maxImportance: body.maxImportance || ''
       };
+      const recallIntentAnchors = buildRecallIntentAnchors(shadowPrimaryQuery || q, memoryFilters);
       const fallbackCandidateLimit = Math.min(
         10000,
         Math.max(1000, Number(body.candidateLimit || process.env.MEMORY_SEARCH_CANDIDATE_LIMIT || 6000) || 6000)
@@ -4125,7 +4160,7 @@ const server = http.createServer(async (req, res) => {
       // current-intent candidates from disappearing before the policy can judge them.
       const precisionFtsResult = searchMemoriesFts([shadowPrimaryQuery], {
         ...memoryFilters,
-        limit: Math.min(40, Math.max(12, safeLimit * 2))
+        limit: Math.min(200, Math.max(60, safeLimit * 12))
       });
       const precisionFtsIds = new Set(precisionFtsResult.memories.map(memory => String(memory.id)));
       const ftsMeta = {
@@ -4243,12 +4278,13 @@ const server = http.createServer(async (req, res) => {
                   candidateLimit: chromaShadowCandidateLimit,
                   query: q,
                   primaryQuery: body.shadowPrimaryQuery || q,
-                  contextQueries: body.shadowContextQueries || debugQueries.slice(1)
+                  contextQueries: body.shadowContextQueries || debugQueries.slice(1),
+                  intentAnchors: recallIntentAnchors
                 });
                 const effectiveShadowPolicy = recallGateEnabled ? {
                   ...shadowPolicy,
                   mode: 'active',
-                  version: 'recall-gate-v1',
+                  version: 'recall-gate-v2',
                   behaviorChanged: true
                 } : shadowPolicy;
                 const selectedById = new Map(chromaMemories.map(memory => [String(memory.id), memory]));
@@ -4450,12 +4486,13 @@ const server = http.createServer(async (req, res) => {
         candidateLimit: shadowCandidates.length,
         query: q,
         primaryQuery: body.shadowPrimaryQuery || q,
-        contextQueries: body.shadowContextQueries || debugQueries.slice(1)
+        contextQueries: body.shadowContextQueries || debugQueries.slice(1),
+        intentAnchors: recallIntentAnchors
       });
       const effectiveShadowPolicy = recallGateEnabled ? {
         ...shadowPolicy,
         mode: 'active',
-        version: 'recall-gate-v1',
+        version: 'recall-gate-v2',
         behaviorChanged: true
       } : shadowPolicy;
       const selectedById = new Map(shadowCandidates.map(memory => [String(memory.id), memory]));

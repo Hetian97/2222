@@ -256,7 +256,7 @@ const precisionProtection = runRecallShadowPolicy([
   primaryQuery: '紫檀书签买得太大，应该怎么办',
   targetLimit: 3
 });
-assert.equal(precisionProtection.version, 'stage3-shadow-v1.5');
+assert.equal(precisionProtection.version, 'stage3-shadow-v1.6');
 assert(precisionProtection.selectedMemoryIds.includes('precise-object'));
 assert.equal(
   precisionProtection.decisions.find(decision => decision.id === 'precise-object').finalReason,
@@ -303,5 +303,42 @@ const excludesCore = runRecallShadowPolicy([
 ], { query: '相关事件' });
 assert(!excludesCore.decisions.some(decision => decision.id === 'core'));
 assert(excludesCore.selectedMemoryIds.includes('event'));
+
+const sparseIntentEvidence = runRecallShadowPolicy([
+  memory('energy-share-evidence', {
+    content: '\u4ee5\u524d\u5f80\u6211\u819d\u76d6\u4e0a\u9001\u4eba\u7684\u662f\u60f3\u8981\u80fd\u6e90\u4efd\u989d\u7684\u8001\u5bb6\u4f19\u9001\u6765\u7684\u7b79\u7801\uff0c\u5df2\u88ab\u6254\u8fdb\u5e9f\u54c1\u5904\u7406\u7ad9',
+    importance: 8,
+    emotionalWeight: 8,
+    _vectorScore: 0.46,
+    _shadowPrecisionCandidate: true
+  }),
+  memory('power-seat-noise', {
+    content: '\u5728\u8fdc\u7a7a\u8230\u961f\u6700\u9ad8\u6743\u529b\u5ea7\u6905\u4e0a\u5c55\u793a\u661f\u8f68\u56fe',
+    _vectorScore: 0.51,
+    _shadowPrecisionCandidate: true
+  }),
+  memory('fragment-noise', {
+    content: '\u56e0\u8bba\u6587\u538b\u529b\u6ca1\u6709\u65f6\u95f4\u73a9\uff0c\u7ea6\u5b9a\u4e0b\u4e2a\u6708\u65c5\u884c',
+    importance: 9,
+    emotionalWeight: 9,
+    _vectorScore: 0.44,
+    _shadowPrecisionCandidate: true
+  })
+], {
+  query: '\u5168\u90fd\u662f\u4e3a\u4e86\u6743\u529b\u548c\u80fd\u6e90\uff1f\u5c31\u6ca1\u6709\u8d2a\u56fe\u7f8e\u8272\u7684\u5417\uff1f',
+  primaryQuery: '\u5168\u90fd\u662f\u4e3a\u4e86\u6743\u529b\u548c\u80fd\u6e90\uff1f\u5c31\u6ca1\u6709\u8d2a\u56fe\u7f8e\u8272\u7684\u5417\uff1f',
+  intentAnchors: [
+    { term: '\u80fd\u6e90', count: 3, weight: 5 },
+    { term: '\u6743\u529b', count: 5, weight: 4.5 },
+    { term: '\u8d2a\u56fe\u7f8e\u8272', count: 1, weight: 6 }
+  ],
+  targetLimit: 12
+});
+assert(sparseIntentEvidence.selectedMemoryIds.includes('energy-share-evidence'));
+assert(!sparseIntentEvidence.selectedMemoryIds.includes('fragment-noise'));
+assert.equal(
+  sparseIntentEvidence.decisions.find(decision => decision.id === 'fragment-noise').signals.protectedEvidence,
+  0
+);
 
 console.log('Recall shadow policy tests passed');

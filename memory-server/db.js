@@ -993,6 +993,37 @@ function searchMemoriesFts(queries, filters = {}) {
   }
 }
 
+function getMemoryFtsTermDocumentCounts(terms, filters = {}) {
+  if (!memoryFtsAvailable) return [];
+  flushMemoryFtsPending();
+  const safeTerms = [...new Set((Array.isArray(terms) ? terms : [])
+    .map(value => String(value || '').normalize('NFKC').trim().toLowerCase())
+    .filter(value => value.length >= 2 && value.length <= 12))].slice(0, 80);
+  const excludedCategories = [...new Set(
+    (Array.isArray(filters.excludeCategories) ? filters.excludeCategories : [])
+      .map(value => String(value || '').trim().toUpperCase())
+      .filter(Boolean)
+  )];
+  const results = [];
+  for (const term of safeTerms) {
+    const params = [`"${term.replace(/"/g, '""')}"`];
+    const where = ['memory_fts MATCH ?'];
+    if (filters.chatId) {
+      where.push('memory_fts.chatId = ?');
+      params.push(String(filters.chatId));
+    }
+    if (excludedCategories.length) {
+      where.push(`COALESCE(memory_fts.category, '') NOT IN (${excludedCategories.map(() => '?').join(', ')})`);
+      params.push(...excludedCategories);
+    }
+    try {
+      const row = db.prepare(`SELECT COUNT(*) AS count FROM memory_fts WHERE ${where.join(' AND ')}`).get(...params);
+      results.push({ term, count: Number(row?.count || 0) });
+    } catch {}
+  }
+  return results;
+}
+
 function getMemoryFtsStatus(options = {}) {
   const total = db.prepare('SELECT COUNT(*) AS count FROM memories').get().count;
   let integrity = null;
@@ -2068,6 +2099,7 @@ module.exports = {
   getMemoryById,
   getMemoriesByIds,
   searchMemoriesFts,
+  getMemoryFtsTermDocumentCounts,
   getMemoryFtsStatus,
   rebuildMemoryFts,
   deleteMemory,
