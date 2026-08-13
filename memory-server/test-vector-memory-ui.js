@@ -25,10 +25,26 @@ const sandbox = {
 };
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'vector-memory.js'), 'utf8');
+const memorySummarySource = fs.readFileSync(path.join(__dirname, '..', 'modules', 'memory-summary.js'), 'utf8');
+const vectorMemoryCss = fs.readFileSync(path.join(__dirname, '..', 'vector-memory.css'), 'utf8');
 vm.runInNewContext(source, sandbox, { filename: 'vector-memory.js' });
 
 async function main() {
   const manager = sandbox.window.vectorMemoryManager;
+  assert.equal(typeof manager.renderOrganizationPreviewUI, 'function');
+  assert.equal(typeof manager.loadOrganizationPreviewTab, 'function');
+  assert.equal(typeof manager.unloadOrganizationClusterMembers, 'function');
+  assert(source.includes('只读预览'));
+  assert(source.includes('不会合并原记忆，也不会参与召回或提示词'));
+  assert(source.includes('/memory/organization/status'));
+  assert(source.includes('/memory/organization/clusters'));
+  assert(source.includes('/memory/organization/memories'));
+  assert(source.includes("other.open = false"));
+  assert(source.includes("card.dataset.requestSequence"));
+  assert(!source.includes('/memory/organization/reset`'));
+  assert(memorySummarySource.includes('window.renderVectorMemoryView = renderVectorMemoryView'));
+  assert(vectorMemoryCss.includes('.vm-view-switcher'));
+  assert(vectorMemoryCss.includes('.vm-cluster-card'));
   const chat = {
     id: 'chat-1',
     originalName: '测试角色',

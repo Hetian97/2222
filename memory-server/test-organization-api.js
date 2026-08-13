@@ -118,6 +118,17 @@ async function main() {
     assert.equal(preview.body.preview.independentCount, 2);
     assert.equal(preview.body.organization.organizationCoverage, 1);
 
+    const independent = await request('GET', '/memory/organization/memories?status=preview_independent&limit=1&offset=0');
+    assert.equal(independent.status, 200);
+    assert.equal(independent.body.total, 2);
+    assert.equal(independent.body.entries.length, 1);
+    assert.equal(independent.body.hasMore, true);
+    assert.equal(Object.prototype.hasOwnProperty.call(independent.body.entries[0], 'embedding'), false);
+    const secondPage = await request('GET', '/memory/organization/memories?status=preview_independent&limit=1&offset=1');
+    assert.equal(secondPage.status, 200);
+    assert.equal(secondPage.body.entries.length, 1);
+    assert.equal(secondPage.body.hasMore, false);
+
     const clusters = await request('GET', '/memory/organization/clusters?limit=10&memberLimit=10');
     assert.equal(clusters.status, 200);
     assert.equal(clusters.body.count, 0);

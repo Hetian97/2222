@@ -33,7 +33,8 @@ const {
   resetMemoryOrganizationOverlay,
   getMemoryOrganizationPreviewInputs,
   saveMemoryOrganizationPreview,
-  listMemoryClusters
+  listMemoryClusters,
+  listMemoryOrganizationEntries
 } = require('./db');
 
 const {
@@ -3697,14 +3698,32 @@ const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, `http://${req.headers.host}`);
       const clusters = listMemoryClusters({
+        clusterId: url.searchParams.get('clusterId') || '',
         chatId: url.searchParams.get('chatId') || '',
         kind: url.searchParams.get('kind') || '',
         status: url.searchParams.get('status') || '',
         subtype: url.searchParams.get('subtype') || '',
         limit: url.searchParams.get('limit') || 100,
-        memberLimit: url.searchParams.get('memberLimit') || 200
+        memberLimit: url.searchParams.get('memberLimit') || 200,
+        includeMembers: url.searchParams.get('includeMembers') !== 'false'
       });
       sendJson(res, 200, { ok: true, count: clusters.length, clusters });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/organization/memories' && req.method === 'GET') {
+    try {
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      const result = listMemoryOrganizationEntries({
+        chatId: url.searchParams.get('chatId') || '',
+        status: url.searchParams.get('status') || '',
+        limit: url.searchParams.get('limit') || 50,
+        offset: url.searchParams.get('offset') || 0
+      });
+      sendJson(res, 200, { ok: true, ...result });
     } catch (error) {
       sendJson(res, 500, { ok: false, error: error.message || String(error) });
     }

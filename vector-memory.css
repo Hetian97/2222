@@ -26,6 +26,180 @@
   border-color: var(--accent-color, #007aff);
 }
 
+.vm-view-switcher {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  margin: 8px 0 12px;
+  border-radius: 12px;
+  background: var(--bg-secondary, #f1f2f6);
+}
+.vm-view-switch {
+  border: 0;
+  border-radius: 9px;
+  padding: 9px 12px;
+  background: transparent;
+  color: var(--text-secondary, #666);
+  font-size: 13px;
+  cursor: pointer;
+}
+.vm-view-switch.active {
+  background: var(--card-bg, #fff);
+  color: var(--text-primary, #222);
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+.vm-preview-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(255, 149, 0, 0.28);
+  border-radius: 12px;
+  background: rgba(255, 149, 0, 0.08);
+  color: var(--text-secondary, #666);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.vm-preview-warning strong { color: #b36b00; font-size: 13px; }
+.vm-organization-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.vm-organization-stats span,
+.vm-cluster-meta span,
+.vm-cluster-member-meta span {
+  border-radius: 999px;
+  background: var(--bg-secondary, #f2f3f5);
+  color: var(--text-secondary, #777);
+  font-size: 10px;
+  padding: 3px 7px;
+}
+.vm-organization-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 0 10px;
+}
+.vm-organization-tabs button {
+  flex: 0 0 auto;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 999px;
+  background: var(--card-bg, #fff);
+  color: var(--text-secondary, #666);
+  padding: 7px 11px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.vm-organization-tabs button.active {
+  color: #fff;
+  border-color: var(--accent-color, #007aff);
+  background: var(--accent-color, #007aff);
+}
+.vm-organization-loading,
+.vm-organization-empty {
+  padding: 36px 16px;
+  text-align: center;
+  color: var(--text-secondary, #888);
+  font-size: 13px;
+}
+.vm-organization-empty-title {
+  margin-bottom: 8px;
+  color: var(--text-primary, #444);
+  font-size: 15px;
+  font-weight: 600;
+}
+.vm-organization-empty .vm-toolbar-btn { margin-top: 12px; }
+.vm-cluster-list,
+.vm-organization-entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.vm-cluster-card,
+.vm-organization-entry {
+  border: 1px solid var(--border-color, #e7e7e7);
+  border-radius: 12px;
+  background: var(--card-bg, #fff);
+  overflow: hidden;
+}
+.vm-cluster-card summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.vm-cluster-card summary::-webkit-details-marker { display: none; }
+.vm-cluster-card summary::after {
+  content: '›';
+  color: var(--text-secondary, #999);
+  font-size: 20px;
+  transform: rotate(90deg);
+  transition: transform 0.15s ease;
+}
+.vm-cluster-card[open] summary::after { transform: rotate(-90deg); }
+.vm-cluster-kind {
+  flex: 0 0 auto;
+  border-radius: 6px;
+  padding: 3px 6px;
+  background: rgba(0, 122, 255, 0.1);
+  color: var(--accent-color, #007aff);
+  font-size: 10px;
+}
+.vm-cluster-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary, #333);
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vm-cluster-count {
+  flex: 0 0 auto;
+  color: var(--text-secondary, #888);
+  font-size: 11px;
+}
+.vm-cluster-meta,
+.vm-cluster-member-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.vm-cluster-meta { padding: 0 12px 10px; }
+.vm-cluster-members {
+  border-top: 1px solid var(--border-color, #eee);
+  background: var(--bg-secondary, #fafafa);
+}
+.vm-cluster-member,
+.vm-organization-entry {
+  padding: 11px 12px;
+  color: var(--text-primary, #333);
+  font-size: 12px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+.vm-cluster-member + .vm-cluster-member { border-top: 1px solid var(--border-color, #eee); }
+.vm-cluster-member-meta { margin-top: 7px; }
+.vm-organization-note {
+  padding: 8px 4px;
+  color: var(--text-secondary, #888);
+  font-size: 11px;
+}
+.vm-organization-pager {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 0 4px;
+}
+
 /* 统计栏 */
 .vm-stats {
   background: var(--card-bg, #fff);

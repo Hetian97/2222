@@ -1709,6 +1709,10 @@ function listMemoryClusters(filters = {}) {
     where.push('c.status = ?');
     params.push(String(filters.status));
   }
+  if (filters.clusterId) {
+    where.push('c.id = ?');
+    params.push(String(filters.clusterId));
+  }
   if (filters.subtype) {
     where.push('c.subtype = ?');
     params.push(String(filters.subtype));
@@ -1733,6 +1737,15 @@ function listMemoryClusters(filters = {}) {
     LIMIT ?
   `);
   return rows.map(row => {
+    if (filters.includeMembers === false) {
+      return {
+        ...row,
+        subtypeReasons: safeJsonParse(row.subtypeReasons, []),
+        returnedMemberCount: 0,
+        hasMoreMembers: Number(row.memberCount || 0) > 0,
+        members: []
+      };
+    }
     const members = memberQuery.all(row.id, memberLimit);
     return {
       ...row,
@@ -1742,6 +1755,47 @@ function listMemoryClusters(filters = {}) {
       members
     };
   });
+}
+
+function listMemoryOrganizationEntries(filters = {}) {
+  const where = [];
+  const params = [];
+  if (filters.chatId) {
+    where.push('o.chatId = ?');
+    params.push(String(filters.chatId));
+  }
+  if (filters.status) {
+    where.push('o.status = ?');
+    params.push(String(filters.status));
+  }
+  const limit = Math.min(200, Math.max(1, Number(filters.limit || 50)));
+  const offset = Math.max(0, Number(filters.offset || 0));
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const total = Number(db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM memory_organization o
+    ${whereSql}
+  `).get(...params).count || 0);
+  const rows = db.prepare(`
+    SELECT o.memoryId, o.status, o.confidence, o.reason, o.algorithmVersion,
+           m.chatId, m.content, m.category, m.importance, m.emotionalWeight,
+           m.tags, m.memoryTime, m.createdAt, m.updatedAt
+    FROM memory_organization o
+    JOIN memories m ON m.id = o.memoryId
+    ${whereSql}
+    ORDER BY CAST(m.memoryTime AS INTEGER) DESC, m.id DESC
+    LIMIT ? OFFSET ?
+  `).all(...params, limit, offset).map(row => ({
+    ...row,
+    tags: safeJsonParse(row.tags, [])
+  }));
+  return {
+    total,
+    offset,
+    limit,
+    hasMore: offset + rows.length < total,
+    entries: rows
+  };
 }
 
 module.exports = {
@@ -1775,5 +1829,6 @@ module.exports = {
   resetMemoryOrganizationOverlay,
   getMemoryOrganizationPreviewInputs,
   saveMemoryOrganizationPreview,
-  listMemoryClusters
+  listMemoryClusters,
+  listMemoryOrganizationEntries
 };

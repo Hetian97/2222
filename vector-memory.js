@@ -1556,10 +1556,311 @@ ${output}`;
 
   // ==================== UI 面板渲染 ====================
 
+  getOrganizationChatId(chat) {
+    return String(chat?.id || chat?.chatId || window.state?.activeChatId || '');
+  }
+
+  rerenderMemoryPanel(chat, container) {
+    if (typeof window.renderVectorMemoryView === 'function') {
+      window.renderVectorMemoryView();
+      return;
+    }
+    this.renderMemoryUI(chat, container);
+  }
+
+  renderMemoryPanelSwitcher(chat, container, activeView) {
+    const switcher = document.createElement('div');
+    switcher.className = 'vm-view-switcher';
+    switcher.innerHTML = `
+      <button type="button" class="vm-view-switch ${activeView === 'memories' ? 'active' : ''}" data-view="memories">单条记忆</button>
+      <button type="button" class="vm-view-switch ${activeView === 'clusters' ? 'active' : ''}" data-view="clusters">记忆簇预览</button>
+    `;
+    switcher.querySelectorAll('.vm-view-switch').forEach(button => {
+      button.addEventListener('click', () => {
+        const vm = this.getVariableMemory(chat);
+        const nextView = button.dataset.view === 'clusters' ? 'clusters' : 'memories';
+        if ((vm._panelView || 'memories') === nextView) return;
+        vm._panelView = nextView;
+        this.rerenderMemoryPanel(chat, container);
+      });
+    });
+    container.appendChild(switcher);
+  }
+
+  async renderOrganizationPreviewUI(chat, container) {
+    const vm = this.getVariableMemory(chat);
+    const body = document.createElement('div');
+    body.className = 'vm-organization-view';
+    body.innerHTML = '<div class="vm-organization-loading">正在读取预览层…</div>';
+    container.appendChild(body);
+
+    if (!this.isExternalMemoryEnabled(chat)) {
+      body.innerHTML = `
+        <div class="vm-organization-empty">
+          <div class="vm-organization-empty-title">记忆簇预览仅存在于服务器</div>
+          <div>请先在向量记忆设置中启用外部 memory-server。</div>
+        </div>
+      `;
+      return;
+    }
+
+    const chatId = this.getOrganizationChatId(chat);
+    const query = chatId ? `?chatId=${encodeURIComponent(chatId)}` : '';
+    try {
+      const statusResult = await this.externalMemoryRequest(chat, `/memory/organization/status${query}`, { method: 'GET' });
+      if (!statusResult?.ok || !statusResult.organization) throw new Error('服务器未返回整理状态');
+      if ((this.getVariableMemory(chat)._panelView || 'memories') !== 'clusters') return;
+      vm._organizationStatus = statusResult.organization;
+      vm._organizationTab = vm._organizationTab || 'event';
+      this.renderOrganizationPreviewShell(chat, body, statusResult.organization);
+    } catch (error) {
+      body.innerHTML = `
+        <div class="vm-organization-empty">
+          <div class="vm-organization-empty-title">暂时无法读取记忆簇</div>
+          <div>${this._escapeHtml(error.message || String(error))}</div>
+          <button type="button" class="vm-toolbar-btn vm-organization-retry">重新加载</button>
+        </div>
+      `;
+      body.querySelector('.vm-organization-retry')?.addEventListener('click', () => {
+        this.rerenderMemoryPanel(chat, container);
+      });
+    }
+  }
+
+  getOrganizationCount(status, kind) {
+    return (status?.clusters || [])
+      .filter(row => row.kind === kind)
+      .reduce((sum, row) => sum + Number(row.count || 0), 0);
+  }
+
+  renderOrganizationPreviewShell(chat, body, status) {
+    const vm = this.getVariableMemory(chat);
+    const byStatus = status.byStatus || {};
+    const queuePending = Number(status.queue?.pending || 0);
+    const eventCount = this.getOrganizationCount(status, 'event');
+    const topicCount = this.getOrganizationCount(status, 'topic');
+    body.innerHTML = `
+      <div class="vm-preview-warning">
+        <strong>只读预览</strong>
+        <span>这些分组不会合并原记忆，也不会参与召回或提示词。</span>
+      </div>
+      <div class="vm-organization-stats">
+        <span>事件候选 ${eventCount}</span>
+        <span>主题候选 ${topicCount}</span>
+        <span>独立记忆 ${Number(byStatus.preview_independent || 0)}</span>
+        <span>核心记忆 ${Number(byStatus.preview_protected_core || 0)}</span>
+        <span>待整理 ${queuePending}</span>
+      </div>
+      <div class="vm-organization-tabs">
+        <button type="button" data-tab="event">事件候选</button>
+        <button type="button" data-tab="topic">主题候选</button>
+        <button type="button" data-tab="independent">独立记忆</button>
+        <button type="button" data-tab="core">核心记忆</button>
+      </div>
+      <div class="vm-organization-content"></div>
+    `;
+    const activate = tab => {
+      vm._organizationTab = tab;
+      body.querySelectorAll('.vm-organization-tabs button').forEach(button => {
+        button.classList.toggle('active', button.dataset.tab === tab);
+      });
+      this.loadOrganizationPreviewTab(chat, body, tab, 0);
+    };
+    body.querySelectorAll('.vm-organization-tabs button').forEach(button => {
+      button.addEventListener('click', () => activate(button.dataset.tab));
+    });
+    activate(vm._organizationTab || 'event');
+  }
+
+  async loadOrganizationPreviewTab(chat, body, tab, offset = 0) {
+    const vm = this.getVariableMemory(chat);
+    const requestSequence = Number(vm._organizationRequestSequence || 0) + 1;
+    vm._organizationRequestSequence = requestSequence;
+    const content = body.querySelector('.vm-organization-content');
+    if (!content) return;
+    content.innerHTML = '<div class="vm-organization-loading">正在加载…</div>';
+    const chatId = this.getOrganizationChatId(chat);
+    const chatQuery = chatId ? `&chatId=${encodeURIComponent(chatId)}` : '';
+    try {
+      if (tab === 'event' || tab === 'topic') {
+        const result = await this.externalMemoryRequest(
+          chat,
+          `/memory/organization/clusters?kind=${encodeURIComponent(tab)}&status=preview&limit=1000&includeMembers=false${chatQuery}`,
+          { method: 'GET' }
+        );
+        if (!result?.ok) throw new Error('簇列表读取失败');
+        if (vm._organizationRequestSequence !== requestSequence || vm._organizationTab !== tab) return;
+        this.renderOrganizationClusters(content, result.clusters || [], tab, chat);
+        return;
+      }
+
+      const statusName = tab === 'core' ? 'preview_protected_core' : 'preview_independent';
+      const result = await this.externalMemoryRequest(
+        chat,
+        `/memory/organization/memories?status=${encodeURIComponent(statusName)}&limit=50&offset=${offset}${chatQuery}`,
+        { method: 'GET' }
+      );
+      if (!result?.ok) throw new Error('记忆列表读取失败');
+      if (vm._organizationRequestSequence !== requestSequence || vm._organizationTab !== tab) return;
+      this.renderOrganizationEntries(content, result, tab, chat, body);
+    } catch (error) {
+      if (vm._organizationRequestSequence !== requestSequence || vm._organizationTab !== tab) return;
+      content.innerHTML = `<div class="vm-organization-empty">${this._escapeHtml(error.message || String(error))}</div>`;
+    }
+  }
+
+  renderOrganizationClusters(content, clusters, kind, chat) {
+    if (!clusters.length) {
+      content.innerHTML = '<div class="vm-organization-empty">当前没有预览簇。</div>';
+      return;
+    }
+    const label = kind === 'event' ? '事件候选' : '主题候选';
+    content.innerHTML = `<div class="vm-cluster-list"></div>`;
+    const list = content.querySelector('.vm-cluster-list');
+    clusters.forEach(cluster => {
+      const card = document.createElement('details');
+      card.className = 'vm-cluster-card';
+      const subtypeLabels = {
+        event_candidate: '单次事件候选',
+        ongoing_episode_candidate: '持续事件候选',
+        habit_candidate: '习惯候选',
+        stable_fact_candidate: '稳定事实候选',
+        topic_candidate: '主题候选',
+        type_uncertain: '类型待确认'
+      };
+      const subtypeLabel = subtypeLabels[cluster.subtype] || '类型待确认';
+      card.innerHTML = `
+        <summary>
+          <span class="vm-cluster-kind">${label}</span>
+          <span class="vm-cluster-title">${this._escapeHtml(cluster.title || '待确认记忆组')}</span>
+          <span class="vm-cluster-count">${Number(cluster.memberCount || 0)}条</span>
+        </summary>
+        <div class="vm-cluster-meta">
+          <span>${subtypeLabel}</span>
+          <span>簇置信度 ${Number(cluster.confidence || 0).toFixed(2)}</span>
+          <span>预览，不参与召回</span>
+        </div>
+        <div class="vm-cluster-members"><div class="vm-organization-loading">展开后读取成员原文…</div></div>
+      `;
+      card.addEventListener('toggle', () => {
+        if (!card.open) {
+          this.unloadOrganizationClusterMembers(card);
+          return;
+        }
+        list.querySelectorAll('.vm-cluster-card[open]').forEach(other => {
+          if (other !== card) other.open = false;
+        });
+        if (card.dataset.loaded !== 'true' && card.dataset.loaded !== 'loading') {
+          this.loadOrganizationClusterMembers(chat, card, cluster.id);
+        }
+      });
+      list.appendChild(card);
+    });
+  }
+
+  unloadOrganizationClusterMembers(card) {
+    const memberContainer = card.querySelector('.vm-cluster-members');
+    card.dataset.requestSequence = String(Number(card.dataset.requestSequence || 0) + 1);
+    card.dataset.loaded = 'false';
+    if (memberContainer) {
+      memberContainer.innerHTML = '<div class="vm-organization-loading">展开后读取成员原文…</div>';
+    }
+  }
+
+  async loadOrganizationClusterMembers(chat, card, clusterId) {
+    const memberContainer = card.querySelector('.vm-cluster-members');
+    if (!memberContainer) return;
+    const requestSequence = Number(card.dataset.requestSequence || 0) + 1;
+    card.dataset.requestSequence = String(requestSequence);
+    card.dataset.loaded = 'loading';
+    const chatId = this.getOrganizationChatId(chat);
+    const chatQuery = chatId ? `&chatId=${encodeURIComponent(chatId)}` : '';
+    try {
+      const result = await this.externalMemoryRequest(
+        chat,
+        `/memory/organization/clusters?clusterId=${encodeURIComponent(clusterId)}&limit=1&memberLimit=100${chatQuery}`,
+        { method: 'GET' }
+      );
+      const cluster = Array.isArray(result?.clusters) ? result.clusters[0] : null;
+      if (!result?.ok || !cluster) throw new Error('簇成员读取失败');
+      if (!card.open || Number(card.dataset.requestSequence || 0) !== requestSequence) return;
+      const members = Array.isArray(cluster.members) ? cluster.members : [];
+      memberContainer.innerHTML = `
+        ${members.map(member => `
+          <article class="vm-cluster-member">
+            <div>${this._escapeHtml(member.content || '')}</div>
+            <div class="vm-cluster-member-meta">
+              <span>${this._escapeHtml(member.category || '')}</span>
+              <span>重要度 ${Number(member.importance || 0)}</span>
+              <span>${this._escapeHtml(this.formatOrganizationTime(member.memoryTime))}</span>
+            </div>
+          </article>
+        `).join('') || '<div class="vm-organization-empty">该簇没有可显示的成员。</div>'}
+        ${cluster.hasMoreMembers ? '<div class="vm-organization-note">该簇还有更多成员未在本页展开。</div>' : ''}
+      `;
+      card.dataset.loaded = 'true';
+    } catch (error) {
+      if (!card.open || Number(card.dataset.requestSequence || 0) !== requestSequence) return;
+      card.dataset.loaded = 'false';
+      memberContainer.innerHTML = `<div class="vm-organization-empty">${this._escapeHtml(error.message || String(error))}</div>`;
+    }
+  }
+
+  renderOrganizationEntries(content, result, tab, chat, body) {
+    const entries = Array.isArray(result.entries) ? result.entries : [];
+    const title = tab === 'core' ? '受保护的核心记忆' : '尚未进入可靠簇的独立记忆';
+    content.innerHTML = `
+      <div class="vm-organization-note">${title} · ${Number(result.total || 0)}条</div>
+      <div class="vm-organization-entry-list">
+        ${entries.map(entry => `
+          <article class="vm-organization-entry">
+            <div>${this._escapeHtml(entry.content || '')}</div>
+            <div class="vm-cluster-member-meta">
+              <span>${this._escapeHtml(entry.category || '')}</span>
+              <span>重要度 ${Number(entry.importance || 0)}</span>
+              <span>${this._escapeHtml(this.formatOrganizationTime(entry.memoryTime))}</span>
+            </div>
+          </article>
+        `).join('') || '<div class="vm-organization-empty">暂无记录。</div>'}
+      </div>
+      <div class="vm-organization-pager"></div>
+    `;
+    const pager = content.querySelector('.vm-organization-pager');
+    if (Number(result.offset || 0) > 0) {
+      const previous = document.createElement('button');
+      previous.className = 'vm-toolbar-btn';
+      previous.textContent = '上一页';
+      previous.addEventListener('click', () => this.loadOrganizationPreviewTab(chat, body, tab, Math.max(0, Number(result.offset) - Number(result.limit || 50))));
+      pager.appendChild(previous);
+    }
+    if (result.hasMore) {
+      const next = document.createElement('button');
+      next.className = 'vm-toolbar-btn';
+      next.textContent = '下一页';
+      next.addEventListener('click', () => this.loadOrganizationPreviewTab(chat, body, tab, Number(result.offset || 0) + Number(result.limit || 50)));
+      pager.appendChild(next);
+    }
+  }
+
+  formatOrganizationTime(value) {
+    const timestamp = Number(value);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString();
+  }
+
   renderMemoryUI(chat, container) {
     const vm = this.getVariableMemory(chat);
     const stats = this.getStats(chat);
     container.innerHTML = '';
+
+    const activeView = vm._panelView || 'memories';
+    this.renderMemoryPanelSwitcher(chat, container, activeView);
+    if (activeView === 'clusters') {
+      this.renderOrganizationPreviewUI(chat, container);
+      return;
+    }
 
     // 顶部工具栏
     const toolbar = document.createElement('div');

@@ -769,6 +769,7 @@ function renderVectorMemoryView() {
   window.vectorMemoryManager.renderMemoryUI(chat, container);
   bindVectorMemoryEvents(chat, container);
 }
+window.renderVectorMemoryView = renderVectorMemoryView;
 
 function bindVectorMemoryEvents(chat, container) {
     // ===== 批量操作状态 =====

@@ -132,6 +132,14 @@ try {
   assert.equal(clusters[0].members.length, 2);
   assert.equal(clusters[0].subtype, 'habit_candidate');
   assert.deepEqual(clusters[0].subtypeReasons, ['repeated_occurrence_language']);
+  const clusterSummaries = listMemoryClusters({ chatId: 'chat-1', kind: 'event', includeMembers: false });
+  assert.equal(clusterSummaries[0].members.length, 0);
+  assert.equal(clusterSummaries[0].hasMoreMembers, true);
+  assert.equal(JSON.stringify(clusterSummaries).includes('第一次在露台看星星'), false);
+  const clusterDetail = listMemoryClusters({ clusterId: 'preview-cluster-1', memberLimit: 1 });
+  assert.equal(clusterDetail.length, 1);
+  assert.equal(clusterDetail[0].members.length, 1);
+  assert.equal(clusterDetail[0].hasMoreMembers, true);
   assert.equal(clusters[0].members[0].content, '第一次在露台看星星。');
   assert.equal(memoryFingerprint().length, 3);
 
