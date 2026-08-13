@@ -1158,7 +1158,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
   const q = String(query || '').trim();
   const safeLimit = clampNumber(limit, 1, 200, 20);
   const searchQueries = buildMemorySearchQueries(q, options.queryVariants || options.cleanedQueries || options.queries || []);
-  const exactAnchorTerms = buildExactAnchorTerms(searchQueries, memories, options.participantNames);
+  const exactAnchorTerms = buildExactAnchorTerms(searchQueries.slice(0, 1), memories, options.participantNames);
 
   const rawWeights = options.scoreWeights || options.weights || {};
   const readWeight = (name, fallback) => {
@@ -1180,7 +1180,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
   const queryEmbeddings = [];
 
   if (options.embedding?.endpoint && options.embedding?.apiKey) {
-    for (const searchQuery of searchQueries.slice(0, 2)) {
+    for (const [queryIndex, searchQuery] of searchQueries.slice(0, 2).entries()) {
       try {
         const queryEmbedding = await createQueryEmbedding({
           endpoint: options.embedding.endpoint,
@@ -1193,7 +1193,8 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
           console.log('[memory-server] query embedding dim =', queryEmbedding.length, 'query =', searchQuery.slice(0, 80));
           queryEmbeddings.push({
             query: searchQuery,
-            embedding: queryEmbedding
+            embedding: queryEmbedding,
+            weight: queryIndex === 0 ? 1 : 0.35
           });
         }
       } catch (error) {
@@ -1211,7 +1212,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
 
       if (memoryEmbedding && queryEmbeddings.length) {
         for (const item of queryEmbeddings) {
-          const currentScore = cosineSimilarity(item.embedding, memoryEmbedding);
+          const currentScore = cosineSimilarity(item.embedding, memoryEmbedding) * item.weight;
           if (currentScore > vectorScore) {
             vectorScore = currentScore;
             vectorMatchedQuery = item.query;
@@ -1219,16 +1220,12 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
         }
       }
 
-      // Keep the original long query available for vector semantic scoring,
-      // but avoid letting it dominate keyword scoring with too many generic matches.
-      // When cleaned/variant queries exist, keywords are scored against variants only.
-      const keywordQueries = searchQueries.length > 1 ? searchQueries.slice(1) : searchQueries;
-
       let textScore = 0;
       let keywordMatchedQuery = '';
 
-      for (const searchQuery of keywordQueries) {
-        const currentScore = keywordScore(searchQuery, memory, options.participantNames);
+      for (const [queryIndex, searchQuery] of searchQueries.entries()) {
+        const queryWeight = queryIndex === 0 ? 1 : 0.35;
+        const currentScore = keywordScore(searchQuery, memory, options.participantNames) * queryWeight;
         if (currentScore > textScore) {
           textScore = currentScore;
           keywordMatchedQuery = searchQuery;
@@ -4126,10 +4123,10 @@ const server = http.createServer(async (req, res) => {
       const shadowPrimaryQuery = String(body.shadowPrimaryQuery || requestedQuery).trim();
       const recallGateEnabled = body.recallGateEnabled === true
         || String(process.env.MEMORY_RECALL_GATE_ENABLED || '').toLowerCase() === 'true';
-      // In active mode the latest user message owns the retrieval intent. Older
-      // user messages remain query variants, but assistant prose cannot dominate
-      // the semantic embedding or the full-store keyword lane.
-      const q = recallGateEnabled ? (shadowPrimaryQuery || requestedQuery) : requestedQuery;
+      // The latest user message always owns retrieval intent. Older user messages
+      // remain low-weight context variants; assistant prose must never replace the
+      // current user query, regardless of whether the experimental gate is enabled.
+      const q = shadowPrimaryQuery || requestedQuery;
       const safeLimit = clampNumber(body.limit || 20, 1, 200, 20);
       const debugQueries = buildMemorySearchQueries(q, body.queryVariants || body.cleanedQueries || body.queries || []);
 

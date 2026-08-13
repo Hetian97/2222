@@ -165,6 +165,7 @@ async function main() {
     });
 
     assert.equal(search.status, 200);
+    assert.equal(search.body.query, '二十号出发');
     assert.equal(search.body.fts.attempted, true);
     assert(search.body.memories.some(memory => memory.id === 'very_old_beijing_trip'));
     assert(!search.body.memories.some(memory => memory.category === 'C'));
@@ -174,7 +175,7 @@ async function main() {
     assert.equal(search.body.shadowPolicy.primaryQuery, '二十号出发');
     assert.equal(search.body.shadowPolicy.evidenceMode, 'primary-intent-context-reference');
     assert(search.body.shadowPolicy.candidateCount >= search.body.memories.length);
-    assert(search.body.memories.some(memory => memory.id === 'beijing_weather_noise'));
+    assert(!search.body.memories.some(memory => memory.id === 'beijing_weather_noise'));
 
     const activeGateSearch = await request('POST', '/memory/search', {
       query: arbitraryPhraseSearch.body.query,
