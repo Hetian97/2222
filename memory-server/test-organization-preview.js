@@ -79,6 +79,7 @@ const noiseStatus = preview.organizations.find(item => item.memoryId === 'noise'
 assert.equal(noiseStatus.status, 'preview_independent', 'importance and emotion alone must not create a cluster');
 
 assert.deepEqual(extractDateKeys('2026年8月1日和8月20日'), ['2026-08-01', '08-20']);
+assert.deepEqual(extractDateKeys('3月11日、3月18日、七月七日和十一月二十日'), ['03-11', '03-18', '07-07', '11-20']);
 assert(preview.eventClusters.every(cluster => cluster.status === 'preview'));
 assert(preview.topicClusters.every(cluster => cluster.status === 'preview'));
 assert(!preview.eventClusters.some(cluster => /夏以昼|阿鹤|夏太太/.test(cluster.title)), 'ubiquitous participant labels should not dominate titles');
@@ -102,5 +103,34 @@ assert.equal(scalePreview.processedCount, 4274);
 assert.equal(scalePreview.organizations.length, 4274);
 assert(scalePreview.diagnostics.candidatePairCount <= 500000);
 assert(Date.now() - scaleStart < 20000, '4,274-memory preview should remain bounded');
+
+const chainVectorA = vector(40);
+const chainVectorB = chainVectorA.map((value, index) => value + Math.sin(index * 0.2) * 0.05);
+const chainVectorC = vector(44);
+const chainPreview = buildMemoryOrganizationPreview([
+  memory('chain-a', '早餐时讨论论文监督安排。', ['早餐', '论文监督'], chainVectorA, base),
+  memory('chain-b', '早餐后又谈到论文和工作。', ['早餐', '论文', '工作'], chainVectorB, base + day),
+  memory('chain-c', '工作结束后讨论婚姻承诺。', ['工作', '婚姻承诺'], chainVectorC, base + 2 * day)
+], {
+  algorithmVersion: 'organization-preview-chain-test-v2',
+  maxFeatureDocumentRatio: 1,
+  topicSimilarityFloor: 0.5,
+  topicCompleteLinkFloor: 0.7
+});
+assert(!chainPreview.topicClusters.some(cluster => cluster.members.length === 3), 'single-link bridges must not merge incoherent endpoints');
+
+const repeatPreview = buildMemoryOrganizationPreview([
+  memory('repeat-a', '3月1日早餐吃了三文鱼。', ['早餐', '三文鱼'], starVector, base),
+  memory('repeat-b', '3月20日早餐又吃了三文鱼。', ['早餐', '三文鱼'], starVector, base + 19 * day)
+], {
+  algorithmVersion: 'organization-preview-repeat-test-v2',
+  maxFeatureDocumentRatio: 1
+});
+assert.equal(repeatPreview.eventClusters.length, 0, 'repeated routines outside the event span must not become one event');
+assert.equal(repeatPreview.topicClusters.length, 1, 'repeated routines may remain a coherent topic');
+
+for (const cluster of [...preview.eventClusters, ...preview.topicClusters]) {
+  assert(cluster.confidence >= 0 && cluster.confidence <= 0.99);
+}
 
 console.log('Memory organization preview tests passed');

@@ -1,25 +1,29 @@
 const crypto = require('crypto');
 
 const DEFAULT_OPTIONS = Object.freeze({
-  algorithmVersion: 'organization-preview-v1',
+  algorithmVersion: 'organization-preview-v2',
   maxFeatureDocumentRatio: 0.12,
   maxFeaturesPerMemory: 24,
   maxBucketSize: 48,
   maxCandidatePairs: 500000,
   maxCandidatesPerMemory: 36,
   embeddingSampleSize: 192,
-  eventSimilarityFloor: 0.84,
-  topicSimilarityFloor: 0.72,
+  eventSimilarityFloor: 0.86,
+  eventCompleteLinkFloor: 0.82,
+  topicSimilarityFloor: 0.76,
+  topicCompleteLinkFloor: 0.71,
   nearDuplicateFloor: 0.93,
   eventWindowMs: 14 * 24 * 60 * 60 * 1000,
-  topicMaxMembers: 120
+  eventMaxSpanMs: 14 * 24 * 60 * 60 * 1000,
+  topicMaxMembers: 48
 });
 
 const GENERIC_TERMS = new Set([
   '我们', '你们', '他们', '自己', '对方', '今天', '现在', '然后', '后来',
   '事情', '时候', '感觉', '觉得', '知道', '记得', '已经', '还是', '没有',
   '一个', '一些', '这个', '那个', '因为', '所以', '但是', '可以', '可能',
-  '真的', '这样', '那样', '一直', '一起'
+  '真的', '这样', '那样', '一直', '一起', '关心', '保护', '亲密', '关系',
+  '喜欢', '希望', '担心', '安慰', '陪伴', '互动', '表达', '情绪'
 ]);
 
 function safeJsonParse(value, fallback) {
@@ -43,17 +47,34 @@ function extractDateKeys(text) {
   const source = String(text || '');
   const keys = new Set();
   const occupied = [];
-  const fullPattern = /(20\d{2})[年\-/.](0?[1-9]|1[0-2])[月\-/.](0?[1-9]|[12]\d|3[01])日?/g;
+  const fullPattern = /(20\d{2})[年\-/.](1[0-2]|0?[1-9])[月\-/.](3[01]|[12]\d|0?[1-9])日?/g;
   for (const match of source.matchAll(fullPattern)) {
     keys.add(`${match[1]}-${String(match[2]).padStart(2, '0')}-${String(match[3]).padStart(2, '0')}`);
     occupied.push([match.index, match.index + match[0].length]);
   }
-  const shortPattern = /(0?[1-9]|1[0-2])月(0?[1-9]|[12]\d|3[01])日/g;
+  const shortPattern = /(1[0-2]|0?[1-9])月(3[01]|[12]\d|0?[1-9])日/g;
   for (const match of source.matchAll(shortPattern)) {
     const start = match.index;
     const end = start + match[0].length;
     if (occupied.some(([left, right]) => start < right && end > left)) continue;
     keys.add(`${String(match[1]).padStart(2, '0')}-${String(match[2]).padStart(2, '0')}`);
+  }
+  const chineseDigits = { '〇': 0, '零': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9 };
+  const parseChineseNumber = value => {
+    if (value === '十') return 10;
+    if (value.includes('十')) {
+      const [left, right] = value.split('十');
+      return (left ? chineseDigits[left] : 1) * 10 + (right ? chineseDigits[right] : 0);
+    }
+    return chineseDigits[value];
+  };
+  const chinesePattern = /([〇零一二两三四五六七八九十]{1,3})月([〇零一二两三四五六七八九十]{1,3})日/g;
+  for (const match of source.matchAll(chinesePattern)) {
+    const month = parseChineseNumber(match[1]);
+    const day = parseChineseNumber(match[2]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      keys.add(`${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`);
+    }
   }
   return [...keys];
 }
@@ -133,33 +154,6 @@ function stableId(prefix, memberIds, algorithmVersion) {
   return `${prefix}_${digest}`;
 }
 
-class UnionFind {
-  constructor(size) {
-    this.parent = Array.from({ length: size }, (_, index) => index);
-    this.rank = new Uint8Array(size);
-  }
-
-  find(index) {
-    let root = index;
-    while (this.parent[root] !== root) root = this.parent[root];
-    while (this.parent[index] !== index) {
-      const next = this.parent[index];
-      this.parent[index] = root;
-      index = next;
-    }
-    return root;
-  }
-
-  union(left, right) {
-    let leftRoot = this.find(left);
-    let rightRoot = this.find(right);
-    if (leftRoot === rightRoot) return;
-    if (this.rank[leftRoot] < this.rank[rightRoot]) [leftRoot, rightRoot] = [rightRoot, leftRoot];
-    this.parent[rightRoot] = leftRoot;
-    if (this.rank[leftRoot] === this.rank[rightRoot]) this.rank[leftRoot] += 1;
-  }
-}
-
 function selectClusterLabel(members, featureDocumentFrequency, maxDocumentFrequency) {
   const scores = new Map();
   const support = new Map();
@@ -173,26 +167,16 @@ function selectClusterLabel(members, featureDocumentFrequency, maxDocumentFreque
       scores.set(tag, (scores.get(tag) || 0) + 4 / Math.max(1, featureDocumentFrequency.get(tag) || 1));
     }
     for (const feature of member.rareFeatures) {
-      if ((support.get(feature) || 0) < 2) continue;
+      if (feature.length < 4 || (support.get(feature) || 0) < 2) continue;
       scores.set(feature, (scores.get(feature) || 0) + 1 / Math.max(1, featureDocumentFrequency.get(feature) || 1));
     }
   }
   return [...scores.entries()]
-    .filter(([feature]) => feature.length >= 2 && !feature.startsWith('date:'))
+    .filter(([feature]) => feature.length >= 3 && !feature.startsWith('date:'))
     .sort((left, right) => right[1] - left[1] || right[0].length - left[0].length)
     .slice(0, 3)
     .map(([feature]) => feature)
     .join(' · ') || '待确认记忆组';
-}
-
-function groupComponents(unionFind, memories) {
-  const groups = new Map();
-  memories.forEach((memory, index) => {
-    const root = unionFind.find(index);
-    if (!groups.has(root)) groups.set(root, []);
-    groups.get(root).push(memory);
-  });
-  return [...groups.values()];
 }
 
 function buildMemoryOrganizationPreview(rawMemories, inputOptions = {}) {
@@ -289,9 +273,8 @@ function buildMemoryOrganizationPreview(rawMemories, inputOptions = {}) {
       .forEach(pair => retainedPairKeys.add(`${pair.left}:${pair.right}`));
   }
 
-  const eventUnion = new UnionFind(memories.length);
-  const topicUnion = new UnionFind(memories.length);
   const acceptedPairs = [];
+  const pairEvidence = new Map();
   for (const key of retainedPairKeys) {
     const pair = pairSignals.get(key);
     const left = memories[pair.left];
@@ -312,8 +295,13 @@ function buildMemoryOrganizationPreview(rawMemories, inputOptions = {}) {
       (temporallyClose || semanticValue >= options.nearDuplicateFloor) &&
       (pair.sharedFeatures >= 2 || sharedTags > 0);
 
-    if (topicAccepted) topicUnion.union(pair.left, pair.right);
-    if (eventAccepted) eventUnion.union(pair.left, pair.right);
+    pairEvidence.set(key, {
+      topicScore,
+      eventScore,
+      topicAccepted,
+      eventAccepted,
+      dateConflict
+    });
     if (topicAccepted || eventAccepted) {
       acceptedPairs.push({
         leftId: left.id,
@@ -331,62 +319,108 @@ function buildMemoryOrganizationPreview(rawMemories, inputOptions = {}) {
     }
   }
 
-  const splitEventDateConflicts = group => {
-    const datedMembers = group.filter(member => member.dates.size > 0);
-    if (datedMembers.length <= 1 || datedMembers.every(member => dateKeysCompatible(datedMembers[0].dates, member.dates))) return [group];
-    const datedBuckets = [];
-    const undated = [];
-    for (const member of group) {
-      if (member.dates.size === 0) {
-        undated.push(member);
-        continue;
-      }
-      const compatibleBucket = datedBuckets.find(bucket =>
-        bucket.every(candidate => dateKeysCompatible(candidate.dates, member.dates))
-      );
-      if (compatibleBucket) compatibleBucket.push(member);
-      else datedBuckets.push([member]);
-    }
-    const buckets = datedBuckets;
-    const remainingUndated = [];
-    for (const member of undated) {
-      let bestBucket = null;
-      let bestDistance = Number.POSITIVE_INFINITY;
-      if (member.timestamp) {
-        for (const bucket of buckets) {
-          const distances = bucket
-            .map(candidate => candidate.timestamp ? Math.abs(candidate.timestamp - member.timestamp) : Number.POSITIVE_INFINITY);
-          const distance = Math.min(...distances);
-          if (distance < bestDistance) {
-            bestDistance = distance;
-            bestBucket = bucket;
-          }
-        }
-      }
-      if (bestBucket && bestDistance <= options.eventWindowMs) bestBucket.push(member);
-      else remainingUndated.push(member);
-    }
-    if (remainingUndated.length > 0) buckets.push(remainingUndated);
-    return buckets.filter(bucket => bucket.length > 0);
+  const getPairEvidence = (leftIndex, rightIndex) => {
+    const left = Math.min(leftIndex, rightIndex);
+    const right = Math.max(leftIndex, rightIndex);
+    return pairEvidence.get(`${left}:${right}`) || null;
   };
 
-  const buildClusters = (kind, unionFind) => groupComponents(unionFind, memories)
-    .filter(group => group.length >= 2)
-    .flatMap(group => kind === 'event' ? splitEventDateConflicts(group) : [group])
-    .filter(group => group.length >= 2)
-    .flatMap(group => {
-      const chunks = [];
-      const maxSize = kind === 'topic' ? options.topicMaxMembers : group.length;
-      for (let index = 0; index < group.length; index += maxSize) chunks.push(group.slice(index, index + maxSize));
-      return chunks;
-    })
-    .map(group => {
+  const clusterSpan = members => {
+    const times = members.map(member => member.timestamp).filter(Boolean);
+    return times.length > 1 ? Math.max(...times) - Math.min(...times) : 0;
+  };
+
+  const membersDateCompatible = members => {
+    const dated = members.filter(member => member.dates.size > 0);
+    return dated.every((left, index) =>
+      dated.slice(index + 1).every(right => dateKeysCompatible(left.dates, right.dates))
+    );
+  };
+
+  const buildStrictGroups = kind => {
+    const acceptedKey = kind === 'event' ? 'eventAccepted' : 'topicAccepted';
+    const scoreKey = kind === 'event' ? 'eventScore' : 'topicScore';
+    const completeFloor = kind === 'event' ? options.eventCompleteLinkFloor : options.topicCompleteLinkFloor;
+    const maxMembers = kind === 'event' ? Number.POSITIVE_INFINITY : options.topicMaxMembers;
+    const edges = [...pairEvidence.entries()]
+      .filter(([, evidence]) => evidence[acceptedKey])
+      .map(([key, evidence]) => {
+        const [left, right] = key.split(':').map(Number);
+        return { left, right, score: evidence[scoreKey] };
+      })
+      .sort((left, right) => right.score - left.score);
+    const groups = [];
+    const membership = new Map();
+
+    const canJoin = (group, candidateIndex) => {
+      if (group.length >= maxMembers) return false;
+      const candidate = memories[candidateIndex];
+      const proposed = [...group.map(index => memories[index]), candidate];
+      if (kind === 'event') {
+        if (clusterSpan(proposed) > options.eventMaxSpanMs) return false;
+        if (!membersDateCompatible(proposed)) return false;
+      }
+      const centerEvidence = getPairEvidence(group[0], candidateIndex);
+      if (!centerEvidence || centerEvidence.dateConflict || centerEvidence[scoreKey] < completeFloor) return false;
+      const supported = group.filter(existingIndex => {
+        const evidence = getPairEvidence(existingIndex, candidateIndex);
+        return evidence && !evidence.dateConflict && evidence[scoreKey] >= completeFloor;
+      }).length;
+      return supported / group.length >= 0.5;
+    };
+
+    for (const edge of edges) {
+      const leftGroupIndex = membership.get(edge.left);
+      const rightGroupIndex = membership.get(edge.right);
+      if (leftGroupIndex === undefined && rightGroupIndex === undefined) {
+        const groupIndex = groups.length;
+        groups.push([edge.left, edge.right]);
+        membership.set(edge.left, groupIndex);
+        membership.set(edge.right, groupIndex);
+      } else if (leftGroupIndex !== undefined && rightGroupIndex === undefined) {
+        const group = groups[leftGroupIndex];
+        if (canJoin(group, edge.right)) {
+          group.push(edge.right);
+          membership.set(edge.right, leftGroupIndex);
+        }
+      } else if (leftGroupIndex === undefined && rightGroupIndex !== undefined) {
+        const group = groups[rightGroupIndex];
+        if (canJoin(group, edge.left)) {
+          group.push(edge.left);
+          membership.set(edge.left, rightGroupIndex);
+        }
+      } else if (leftGroupIndex !== rightGroupIndex) {
+        const leftGroup = groups[leftGroupIndex];
+        const rightGroup = groups[rightGroupIndex];
+        const combined = [...leftGroup, ...rightGroup];
+        if (combined.length <= maxMembers && rightGroup.every(index => canJoin(leftGroup, index)) &&
+            (kind !== 'event' || (clusterSpan(combined.map(index => memories[index])) <= options.eventMaxSpanMs && membersDateCompatible(combined.map(index => memories[index]))))) {
+          groups[leftGroupIndex] = combined;
+          groups[rightGroupIndex] = [];
+          for (const index of rightGroup) membership.set(index, leftGroupIndex);
+        }
+      }
+    }
+    return groups.filter(group => group.length >= 2).map(group => group.map(index => memories[index]));
+  };
+
+  const buildClusters = kind => buildStrictGroups(kind).map(group => {
       const sorted = [...group].sort((left, right) =>
         right.importance - left.importance || right.emotionalWeight - left.emotionalWeight || left.index - right.index
       );
       const representative = sorted[0];
       const memberIds = group.map(member => member.id);
       const times = group.map(member => member.timestamp).filter(Boolean);
+      const pairScores = [];
+      for (let left = 0; left < group.length; left += 1) {
+        for (let right = left + 1; right < group.length; right += 1) {
+          const evidence = getPairEvidence(group[left].index, group[right].index);
+          if (evidence) pairScores.push(kind === 'event' ? evidence.eventScore : evidence.topicScore);
+        }
+      }
+      const averageScore = pairScores.length ? pairScores.reduce((sum, score) => sum + score, 0) / pairScores.length : 0;
+      const minimumScore = pairScores.length ? Math.min(...pairScores) : 0;
+      const confidence = Math.max(0, Math.min(0.99, 0.65 * averageScore + 0.35 * minimumScore));
       return {
         id: stableId(kind === 'event' ? 'event' : 'topic', memberIds, options.algorithmVersion),
         chatId: representative.chatId,
@@ -395,7 +429,7 @@ function buildMemoryOrganizationPreview(rawMemories, inputOptions = {}) {
         summary: `预览分组，共 ${group.length} 条原始记忆；尚未人工确认。`,
         representativeMemoryId: representative.id,
         status: 'preview',
-        confidence: Number(Math.min(0.99, 0.6 + Math.log2(group.length) * 0.05).toFixed(4)),
+        confidence: Number(confidence.toFixed(4)),
         timeStart: times.length ? Math.min(...times) : null,
         timeEnd: times.length ? Math.max(...times) : null,
         algorithmVersion: options.algorithmVersion,
@@ -409,8 +443,8 @@ function buildMemoryOrganizationPreview(rawMemories, inputOptions = {}) {
       };
     });
 
-  const eventClusters = buildClusters('event', eventUnion);
-  const topicClusters = buildClusters('topic', topicUnion);
+  const eventClusters = buildClusters('event');
+  const topicClusters = buildClusters('topic');
   const eventByMemory = new Map();
   for (const cluster of eventClusters) {
     for (const member of cluster.members) eventByMemory.set(member.memoryId, cluster.id);

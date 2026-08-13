@@ -3759,7 +3759,7 @@ const server = http.createServer(async (req, res) => {
       const chatId = String(body.chatId || '');
       const inputs = getMemoryOrganizationPreviewInputs(chatId);
       const preview = buildMemoryOrganizationPreview(inputs, {
-        algorithmVersion: body.algorithmVersion || 'organization-preview-v1'
+        algorithmVersion: body.algorithmVersion || 'organization-preview-v2'
       });
       const organization = saveMemoryOrganizationPreview(preview, {
         chatId,
