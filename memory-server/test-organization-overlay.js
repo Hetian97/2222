@@ -184,52 +184,6 @@ try {
     id: 'unrelated-a', content: '紫檀书签尺寸太宽', tags: ['紫檀书签'],
     memoryTime: String(now + 4000), embedding: [1, 0, 0, 0]
   }]).action, 'independent');
-  const batchBase = {
-    chatId: 'chat-1', memoryTime: '1786640451777', tags: [], createdAt: '1786640686232'
-  };
-  const batchE = {
-    ...batchBase, id: 'batch-e', content: '一起做红豆沙小团子，我从身后教她揉面',
-    embedding: [1, 0, 0, 0]
-  };
-  const batchF = {
-    ...batchBase, id: 'batch-f', createdAt: '1786640687191', content: '揉面时她主动亲吻了我',
-    embedding: [0.6, 0.8, 0, 0]
-  };
-  const batchG = {
-    ...batchBase, id: 'batch-g', createdAt: '1786640688243', content: '上个月写论文时在厨房睡着',
-    embedding: [0.99, 0.1, 0, 0]
-  };
-  const batchH = {
-    ...batchBase, id: 'batch-h', createdAt: '1786640689051', content: '一起吃红豆沙时表达承诺',
-    embedding: [0.55, 0.835, 0, 0]
-  };
-  const batchPair = decideIncrementalOrganization(batchF, [], [batchE]);
-  assert.equal(batchPair.action, 'create_event');
-  assert.equal(batchPair.reason, 'incremental_same_batch_scene');
-  const batchAttach = decideIncrementalOrganization(batchH, [{ id: 'batch-cluster', members: [batchE, batchF] }], []);
-  assert.equal(batchAttach.action, 'attach_event');
-  assert.equal(batchAttach.clusterId, 'batch-cluster');
-  assert.equal(batchAttach.reason, 'incremental_same_batch_scene');
-  assert.equal(decideIncrementalOrganization(batchG, [], [batchE, batchF, batchH]).action, 'independent');
-  for (const batchMemory of [batchE, batchF, batchG, batchH]) addMemory(batchMemory);
-  const batchRun = processMemoryOrganizationQueue({ limit: 10 });
-  assert.equal(batchRun.failedCount, 0);
-  const batchOrganizations = db.prepare(`
-    SELECT memoryId, status, primaryEventClusterId
-    FROM memory_organization
-    WHERE memoryId IN ('batch-e', 'batch-f', 'batch-g', 'batch-h')
-    ORDER BY memoryId
-  `).all();
-  const currentSceneRows = batchOrganizations.filter(row => ['batch-e', 'batch-f', 'batch-h'].includes(row.memoryId));
-  assert(currentSceneRows.every(row => row.status === 'preview_clustered'));
-  assert.equal(new Set(currentSceneRows.map(row => row.primaryEventClusterId)).size, 1);
-  assert.equal(batchOrganizations.find(row => row.memoryId === 'batch-g').status, 'preview_independent');
-  const batchClusterId = currentSceneRows[0].primaryEventClusterId;
-  assert.deepEqual(
-    listMemoryClusters({ clusterId: batchClusterId })[0].members.map(member => member.memoryId).sort(),
-    ['batch-e', 'batch-f', 'batch-h']
-  );
-  for (const batchMemory of [batchE, batchF, batchG, batchH]) assert.equal(deleteMemory(batchMemory.id), true);
   assert.equal(decideIncrementalOrganization({
     id: 'dated-b', content: '8月13日归还紫檀书签', tags: ['归还书签'],
     memoryTime: String(now + 4000), embedding: [1, 0, 0, 0]

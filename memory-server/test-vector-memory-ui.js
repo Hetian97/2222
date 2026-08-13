@@ -200,7 +200,29 @@ async function main() {
   assert.equal(searchCall.body.shadowPrimaryQuery, '当前用户主问题');
   assert.deepEqual(searchCall.body.shadowContextQueries, ['旧话题只是上下文']);
   assert.equal(searchCall.body.actionType, 'regenerate');
+  manager.externalMemoryRequest = async (_chat, requestPath) => {
+    if (requestPath === '/memory/search') return { ok: true, memories: [], searchTraceId: 'trace-zero-recall' };
+    if (requestPath === '/memory/search/commit') return { ok: true, log: { status: 'prompt_committed' }, recallUpdates: [] };
+    return { ok: true, recallUpdates: [] };
+  };
+  const zeroRecall = await manager.retrieveRelevantFromExternalServer(chat, 'no reliable memory');
+  assert(Array.isArray(zeroRecall));
+  assert.equal(zeroRecall.length, 0);
+  assert.equal(zeroRecall._searchTraceId, 'trace-zero-recall');
+  let localFallbackCalled = false;
+  manager.retrieveRelevant = async () => {
+    localFallbackCalled = true;
+    return [];
+  };
+  await manager.serializeForPrompt(chat, 'no reliable memory');
+  assert.equal(localFallbackCalled, false);
   lifecycleCalls.length = 0;
+  manager.externalMemoryRequest = async (_chat, requestPath, options) => {
+    lifecycleCalls.push({ requestPath, body: options.body });
+    if (requestPath === '/memory/search/commit') return { ok: true, log: { status: 'prompt_committed' }, recallUpdates: [] };
+    if (requestPath === '/memory/search/generation') return { ok: true, recallUpdates: options.body.outcome === 'succeeded' ? [{ id: 'dynamic', recallCount: 8, lastRecalled: 222 }] : [] };
+    return { ok: true };
+  };
   const recallCountBeforeCommit = chat.variableMemory.fragments[1].recallCount;
   await manager.commitExternalMemoryRecall(chat, 'trace-success', ['dynamic']);
   assert.equal(chat.variableMemory.fragments[1].recallCount, recallCountBeforeCommit);

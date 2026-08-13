@@ -176,6 +176,36 @@ async function main() {
     assert(search.body.shadowPolicy.candidateCount >= search.body.memories.length);
     assert(search.body.memories.some(memory => memory.id === 'beijing_weather_noise'));
 
+    const activeGateSearch = await request('POST', '/memory/search', {
+      query: arbitraryPhraseSearch.body.query,
+      queryVariants: [],
+      shadowPrimaryQuery: arbitraryPhraseSearch.body.query,
+      shadowContextQueries: [],
+      recallGateEnabled: true,
+      actionType: 'reply',
+      searchEngine: 'hybrid',
+      chatId: 'chat-1',
+      excludeCategories: ['C'],
+      limit: 5,
+      candidateLimit: 10,
+      diagnostic: true
+    });
+    assert.equal(activeGateSearch.status, 200);
+    assert.equal(activeGateSearch.body.query, arbitraryPhraseSearch.body.query);
+    assert.equal(activeGateSearch.body.shadowPolicy.mode, 'active');
+    assert.equal(activeGateSearch.body.shadowPolicy.version, 'recall-gate-v1');
+    assert.equal(activeGateSearch.body.shadowPolicy.behaviorChanged, true);
+    assert.deepEqual(
+      activeGateSearch.body.memories.map(memory => memory.id),
+      activeGateSearch.body.shadowPolicy.selectedMemoryIds
+    );
+    assert(
+      activeGateSearch.body.memories.some(memory => memory.id === 'arbitrary_phrase_memory'),
+      JSON.stringify(activeGateSearch.body.shadowPolicy)
+    );
+    assert(!activeGateSearch.body.memories.some(memory => memory.id === 'beijing_weather_noise'));
+    assert(!activeGateSearch.body.memories.some(memory => memory.category === 'C'));
+
     const realSearch = await request('POST', '/memory/search', {
       query: '北京出差',
       searchEngine: 'hybrid',

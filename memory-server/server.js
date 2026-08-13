@@ -4088,7 +4088,14 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/memory/search' && req.method === 'POST') {
     try {
       const body = await readRequestBody(req);
-      const q = String(body.query || '').trim();
+      const requestedQuery = String(body.query || '').trim();
+      const shadowPrimaryQuery = String(body.shadowPrimaryQuery || requestedQuery).trim();
+      const recallGateEnabled = body.recallGateEnabled === true
+        || String(process.env.MEMORY_RECALL_GATE_ENABLED || '').toLowerCase() === 'true';
+      // In active mode the latest user message owns the retrieval intent. Older
+      // user messages remain query variants, but assistant prose cannot dominate
+      // the semantic embedding or the full-store keyword lane.
+      const q = recallGateEnabled ? (shadowPrimaryQuery || requestedQuery) : requestedQuery;
       const safeLimit = clampNumber(body.limit || 20, 1, 200, 20);
       const debugQueries = buildMemorySearchQueries(q, body.queryVariants || body.cleanedQueries || body.queries || []);
 
@@ -4116,7 +4123,6 @@ const server = http.createServer(async (req, res) => {
       // Shadow gets a small, independent full-store FTS lane driven only by the
       // latest user message. It cannot alter live Top-N; it merely prevents precise
       // current-intent candidates from disappearing before the policy can judge them.
-      const shadowPrimaryQuery = String(body.shadowPrimaryQuery || q).trim();
       const precisionFtsResult = searchMemoriesFts([shadowPrimaryQuery], {
         ...memoryFilters,
         limit: Math.min(40, Math.max(12, safeLimit * 2))
@@ -4232,7 +4238,6 @@ const server = http.createServer(async (req, res) => {
             }
 
               if (chromaMemories.length > 0) {
-                const liveChromaMemories = chromaMemories.slice(0, safeLimit);
                 const shadowPolicy = runRecallShadowPolicy(withReliableEventClusterMetadata(chromaMemories), {
                   targetLimit: safeLimit,
                   candidateLimit: chromaShadowCandidateLimit,
@@ -4240,6 +4245,16 @@ const server = http.createServer(async (req, res) => {
                   primaryQuery: body.shadowPrimaryQuery || q,
                   contextQueries: body.shadowContextQueries || debugQueries.slice(1)
                 });
+                const effectiveShadowPolicy = recallGateEnabled ? {
+                  ...shadowPolicy,
+                  mode: 'active',
+                  version: 'recall-gate-v1',
+                  behaviorChanged: true
+                } : shadowPolicy;
+                const selectedById = new Map(chromaMemories.map(memory => [String(memory.id), memory]));
+                const liveChromaMemories = recallGateEnabled
+                  ? effectiveShadowPolicy.selectedMemoryIds.map(id => selectedById.get(String(id))).filter(Boolean).slice(0, safeLimit)
+                  : chromaMemories.slice(0, safeLimit);
                 const responsePayload = {
                   ok: true,
                   query: q,
@@ -4251,7 +4266,7 @@ const server = http.createServer(async (req, res) => {
                     matchedCandidates: chromaMemories.length
                   },
                   fts: ftsMeta,
-                  shadowPolicy: compactShadowPolicySummary(shadowPolicy),
+                  shadowPolicy: compactShadowPolicySummary(effectiveShadowPolicy),
                   memories: liveChromaMemories
                 };
 
@@ -4271,7 +4286,7 @@ const server = http.createServer(async (req, res) => {
                     resultCount: liveChromaMemories.length,
                     chroma: responsePayload.chroma,
                     fts: responsePayload.fts,
-                    shadowPolicy,
+                    shadowPolicy: effectiveShadowPolicy,
                     results: liveChromaMemories
                   });
                 }
@@ -4430,7 +4445,6 @@ const server = http.createServer(async (req, res) => {
       const shadowCandidates = [...shadowCandidateById.values()].slice(0, 200);
       // Shadow mode observes a wider ranked pool, but the live response remains the
       // exact same top-N slice as before stage 3.
-      const results = rankedCandidates.slice(0, safeLimit);
       const shadowPolicy = runRecallShadowPolicy(withReliableEventClusterMetadata(shadowCandidates), {
         targetLimit: safeLimit,
         candidateLimit: shadowCandidates.length,
@@ -4438,6 +4452,16 @@ const server = http.createServer(async (req, res) => {
         primaryQuery: body.shadowPrimaryQuery || q,
         contextQueries: body.shadowContextQueries || debugQueries.slice(1)
       });
+      const effectiveShadowPolicy = recallGateEnabled ? {
+        ...shadowPolicy,
+        mode: 'active',
+        version: 'recall-gate-v1',
+        behaviorChanged: true
+      } : shadowPolicy;
+      const selectedById = new Map(shadowCandidates.map(memory => [String(memory.id), memory]));
+      const results = recallGateEnabled
+        ? effectiveShadowPolicy.selectedMemoryIds.map(id => selectedById.get(String(id))).filter(Boolean).slice(0, safeLimit)
+        : rankedCandidates.slice(0, safeLimit);
 
       let searchMode = '';
       if (preferHybrid && chromaAttempted && !chromaHybridMeta?.fallback) {
@@ -4469,7 +4493,7 @@ const server = http.createServer(async (req, res) => {
           attempted: false
         }),
         fts: ftsMeta,
-        shadowPolicy: compactShadowPolicySummary(shadowPolicy),
+        shadowPolicy: compactShadowPolicySummary(effectiveShadowPolicy),
         memories: results
       };
 
@@ -4489,7 +4513,7 @@ const server = http.createServer(async (req, res) => {
           resultCount: results.length,
           chroma: responsePayload.chroma,
           fts: responsePayload.fts,
-          shadowPolicy,
+          shadowPolicy: effectiveShadowPolicy,
           results
         });
       }

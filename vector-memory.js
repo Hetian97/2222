@@ -1040,8 +1040,17 @@ class VariableMemoryManager {
         ? result.memories
         : (Array.isArray(result?.results) ? result.results : []);
 
-      if (!result?.ok || rows.length === 0) {
+      if (!result?.ok) {
         return null;
+      }
+
+      // A successful zero-recall response is intentional when the admission
+      // gate finds no reliable memory. Preserve it as an empty result so the
+      // client does not silently fall back to the old permissive local ranking.
+      if (rows.length === 0) {
+        const emptyMemories = [];
+        emptyMemories._searchTraceId = String(result.searchTraceId || '').trim();
+        return emptyMemories;
       }
 
       const memories = rows

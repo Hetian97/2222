@@ -64,6 +64,28 @@ function longestCjkOverlap(leftValue, rightValue) {
   return longest;
 }
 
+function countDistinctRareCjkAnchors(queryValue, searchableValue, documentFrequency, total) {
+  const query = normalizeText(queryValue);
+  const searchable = normalizeText(searchableValue);
+  const positions = [];
+  for (const token of lexicalTokens(queryValue)) {
+    if (token.length !== 2 || !/^[\u3400-\u9fff]{2}$/u.test(token)) continue;
+    const frequency = documentFrequency.get(token) || 0;
+    if (!frequency || frequency > Math.max(3, Math.ceil(total * 0.22))) continue;
+    if (!searchable.includes(token)) continue;
+    const position = query.indexOf(token);
+    if (position >= 0) positions.push({ position, end: position + token.length });
+  }
+  positions.sort((left, right) => left.position - right.position || right.end - left.end);
+  let groups = 0;
+  let currentEnd = -1;
+  for (const item of positions) {
+    if (item.position > currentEnd) groups += 1;
+    currentEnd = Math.max(currentEnd, item.end);
+  }
+  return groups;
+}
+
 function parseTags(value) {
   if (Array.isArray(value)) return value;
   if (typeof value !== 'string') return [];
@@ -198,6 +220,7 @@ function buildShadowEvidence(candidates, options = {}) {
       (maximum, segment) => Math.max(maximum, longestCjkOverlap(segment, searchableText)),
       0
     );
+    const distinctAnchorCount = countDistinctRareCjkAnchors(primaryQuery, searchableText, documentFrequency, total);
     // A lone two-character overlap is often conversational glue rather than evidence.
     // Cap it generically; longer contiguous phrases, identifiers and exact tags can still pass.
     if (longestPhraseOverlap < 3 && !/[a-z][a-z0-9_.:/-]{2,}/iu.test(primaryQuery)) {
@@ -207,6 +230,7 @@ function buildShadowEvidence(candidates, options = {}) {
     } else if (longestPhraseOverlap === 4) {
       keyword = Math.min(keyword, 0.78);
     }
+    if (distinctAnchorCount >= 2) keyword = Math.max(keyword, 0.62);
 
     let anchor = 0;
     let anchorTerm = '';
@@ -227,7 +251,7 @@ function buildShadowEvidence(candidates, options = {}) {
 
     const category = String(memory.category || '').toUpperCase();
     const hasExplicitFact = /(?:\d{1,4}(?:[-/.年月日号时点]|$)|[a-z][a-z0-9_.:/-]{2,})/iu.test(String(memory.content || ''));
-    const protectedEvidence = anchor >= 0.58 || (
+    const protectedEvidence = distinctAnchorCount >= 2 || anchor >= 0.58 || (
       keyword >= 0.58 && (hasExplicitFact || category === 'P' || category === 'T' || longestPhraseOverlap >= 5)
     );
 
@@ -257,6 +281,7 @@ function buildShadowEvidence(candidates, options = {}) {
       anchor: clamp01(anchor),
       anchorTerm,
       longestPhraseOverlap,
+      distinctAnchorCount,
       protectedEvidence,
       bestFacetId: bestFacet.id,
       bestFacetScore: bestFacet.score,
