@@ -207,6 +207,24 @@ async function main() {
     assert(!activeGateSearch.body.memories.some(memory => memory.id === 'beijing_weather_noise'));
     assert(!activeGateSearch.body.memories.some(memory => memory.category === 'C'));
 
+    const activeEventSave = await request('POST', '/memory/active-events/upsert', {
+      confirm: 'UPSERT_ACTIVE_EVENT',
+      event: {
+        id: 'active-beijing-trip',
+        chatId: 'chat-1',
+        title: '北京学术会议行程',
+        aliases: ['二十号出发', '北京出差'],
+        status: 'planned'
+      }
+    });
+    assert.equal(activeEventSave.status, 200);
+    assert.equal(activeEventSave.body.event.surfaceMode, 'on_reference');
+    assert.equal(activeEventSave.body.event.proactiveMention, false);
+
+    const activeEventList = await request('GET', '/memory/active-events?chatId=chat-1');
+    assert.equal(activeEventList.status, 200);
+    assert.equal(activeEventList.body.count, 1);
+
     const realSearch = await request('POST', '/memory/search', {
       query: '北京出差',
       searchEngine: 'hybrid',
@@ -218,6 +236,10 @@ async function main() {
     });
     assert(realSearch.body.searchTraceId);
     assert(realSearch.body.memories.length > 0 && realSearch.body.memories.length <= 5);
+    assert.equal(realSearch.body.activeEventShadow.mode, 'shadow');
+    assert.equal(realSearch.body.activeEventShadow.behaviorChanged, false);
+    assert.equal(realSearch.body.activeEventShadow.injectionEnabled, false);
+    assert.deepEqual(realSearch.body.activeEventShadow.selectedEventIds, ['active-beijing-trip']);
 
     const persistedShadow = await request('GET', '/memory/search/last');
     assert.equal(persistedShadow.body.lastSearch.shadowPolicy.mode, 'shadow');
@@ -226,6 +248,7 @@ async function main() {
     assert.equal(persistedShadow.body.lastSearch.turnId, 'turn-stage3-lifecycle');
     assert.equal(persistedShadow.body.lastSearch.attemptId, 'attempt-stage3-success');
     assert.equal(persistedShadow.body.lastSearch.actionType, 'reply');
+    assert.deepEqual(persistedShadow.body.lastSearch.activeEventShadow.selectedEventIds, ['active-beijing-trip']);
     assert(Array.isArray(persistedShadow.body.lastSearch.shadowPolicy.decisions));
     assert(persistedShadow.body.lastSearch.resultsTop.some(item => item.shadow));
     const noiseDecision = persistedShadow.body.lastSearch.shadowPolicy.decisions

@@ -77,6 +77,33 @@ ON memory_search_logs(createdAt DESC);
 CREATE INDEX IF NOT EXISTS idx_memory_search_logs_chatId_createdAt
 ON memory_search_logs(chatId, createdAt DESC);
 
+-- Structured conversational continuity overlay. It never rewrites source memories.
+CREATE TABLE IF NOT EXISTS memory_active_events (
+  id TEXT PRIMARY KEY,
+  chatId TEXT NOT NULL,
+  title TEXT NOT NULL,
+  summary TEXT,
+  status TEXT NOT NULL DEFAULT 'candidate',
+  startAt INTEGER,
+  endAt INTEGER,
+  validUntil INTEGER,
+  surfaceMode TEXT NOT NULL DEFAULT 'on_reference',
+  proactiveMention INTEGER NOT NULL DEFAULT 0,
+  aliases TEXT,
+  sourceMemoryIds TEXT,
+  evidence TEXT,
+  confidence REAL NOT NULL DEFAULT 0,
+  createdAt INTEGER NOT NULL,
+  updatedAt INTEGER NOT NULL,
+  archivedAt INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_active_events_chat_status
+ON memory_active_events(chatId, status, updatedAt DESC);
+
+CREATE INDEX IF NOT EXISTS idx_memory_active_events_valid_until
+ON memory_active_events(validUntil);
+
 CREATE TABLE IF NOT EXISTS garden_wake_events (
   id TEXT PRIMARY KEY,
   reason TEXT NOT NULL,
@@ -267,6 +294,7 @@ ensureColumn('memory_search_logs', 'attemptId', 'TEXT');
 ensureColumn('memory_search_logs', 'actionType', 'TEXT');
 ensureColumn('memory_search_logs', 'generationCompletedAt', 'INTEGER');
 ensureColumn('memory_search_logs', 'generationError', 'TEXT');
+ensureColumn('memory_search_logs', 'activeEventShadow', 'TEXT');
 ensureColumn('memory_organization_runs', 'chatId', 'TEXT');
 ensureColumn('memory_clusters', 'subtype', "TEXT NOT NULL DEFAULT 'type_uncertain'");
 ensureColumn('memory_clusters', 'subtypeStatus', "TEXT NOT NULL DEFAULT 'candidate'");
@@ -1099,6 +1127,7 @@ function normalizeMemorySearchLog(row) {
     chroma: safeJsonParse(row.chroma, { attempted: false }),
     fts: safeJsonParse(row.fts, { attempted: false }),
     shadowPolicy: safeJsonParse(row.shadowPolicy, null),
+    activeEventShadow: safeJsonParse(row.activeEventShadow, null),
     turnId: row.turnId || '',
     attemptId: row.attemptId || '',
     actionType: row.actionType || 'reply',
@@ -1124,8 +1153,9 @@ function createMemorySearchLog(info = {}) {
     INSERT INTO memory_search_logs (
       id, chatId, source, query, queryVariants, requestedSearchEngine,
       searchMode, requestedLimit, candidateLimit, resultCount,
-      resultMemoryIds, resultsTop, chroma, fts, shadowPolicy, turnId, attemptId, actionType, status, createdAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidates', ?)
+      resultMemoryIds, resultsTop, chroma, fts, shadowPolicy, activeEventShadow,
+      turnId, attemptId, actionType, status, createdAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidates', ?)
   `).run(
     id,
     String(info.chatId || ''),
@@ -1142,6 +1172,7 @@ function createMemorySearchLog(info = {}) {
     safeJsonStringify(info.chroma || { attempted: false }),
     safeJsonStringify(info.fts || { attempted: false }),
     safeJsonStringify(info.shadowPolicy || null),
+    safeJsonStringify(info.activeEventShadow || null),
     String(info.turnId || ''),
     String(info.attemptId || ''),
     String(info.actionType || 'reply'),
@@ -2092,6 +2123,97 @@ function listMemoryOrganizationEntries(filters = {}) {
   };
 }
 
+function normalizeActiveEvent(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    proactiveMention: Boolean(row.proactiveMention),
+    aliases: safeJsonParse(row.aliases, []),
+    sourceMemoryIds: safeJsonParse(row.sourceMemoryIds, []),
+    evidence: safeJsonParse(row.evidence, {}),
+    confidence: Number(row.confidence || 0)
+  };
+}
+
+function listMemoryActiveEvents(filters = {}) {
+  const where = [];
+  const params = [];
+  if (filters.chatId) {
+    where.push('chatId = ?');
+    params.push(String(filters.chatId));
+  }
+  if (filters.status) {
+    where.push('status = ?');
+    params.push(String(filters.status));
+  } else if (!filters.includeArchived) {
+    where.push("status NOT IN ('completed', 'cancelled', 'archived')");
+  }
+  const limit = Math.min(200, Math.max(1, Number(filters.limit || 50)));
+  params.push(limit);
+  return db.prepare(`
+    SELECT * FROM memory_active_events
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    ORDER BY COALESCE(startAt, validUntil, updatedAt) ASC, updatedAt DESC
+    LIMIT ?
+  `).all(...params).map(normalizeActiveEvent);
+}
+
+function upsertMemoryActiveEvent(input = {}) {
+  const now = Date.now();
+  const chatId = String(input.chatId || '').trim();
+  const title = String(input.title || '').trim();
+  if (!chatId) throw new Error('chatId is required');
+  if (!title) throw new Error('title is required');
+  const allowedStatuses = new Set(['candidate', 'planned', 'active', 'completed', 'cancelled', 'archived']);
+  const allowedSurfaceModes = new Set(['on_reference', 'always_context', 'manual_only']);
+  const status = allowedStatuses.has(String(input.status || 'candidate')) ? String(input.status || 'candidate') : 'candidate';
+  const surfaceMode = allowedSurfaceModes.has(String(input.surfaceMode || 'on_reference'))
+    ? String(input.surfaceMode || 'on_reference')
+    : 'on_reference';
+  const id = String(input.id || `active_event_${now}_${crypto.randomBytes(4).toString('hex')}`);
+  const aliases = [...new Set((Array.isArray(input.aliases) ? input.aliases : [])
+    .map(value => String(value || '').trim()).filter(Boolean))].slice(0, 24);
+  const sourceMemoryIds = [...new Set((Array.isArray(input.sourceMemoryIds) ? input.sourceMemoryIds : [])
+    .map(value => String(value || '').trim()).filter(Boolean))].slice(0, 100);
+  const archivedAt = ['completed', 'cancelled', 'archived'].includes(status) ? Number(input.archivedAt || now) : null;
+  db.prepare(`
+    INSERT INTO memory_active_events (
+      id, chatId, title, summary, status, startAt, endAt, validUntil,
+      surfaceMode, proactiveMention, aliases, sourceMemoryIds, evidence,
+      confidence, createdAt, updatedAt, archivedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      chatId=excluded.chatId, title=excluded.title, summary=excluded.summary,
+      status=excluded.status, startAt=excluded.startAt, endAt=excluded.endAt,
+      validUntil=excluded.validUntil, surfaceMode=excluded.surfaceMode,
+      proactiveMention=excluded.proactiveMention, aliases=excluded.aliases,
+      sourceMemoryIds=excluded.sourceMemoryIds, evidence=excluded.evidence,
+      confidence=excluded.confidence, updatedAt=excluded.updatedAt,
+      archivedAt=excluded.archivedAt
+  `).run(
+    id, chatId, title, String(input.summary || ''), status,
+    Number(input.startAt || 0) || null, Number(input.endAt || 0) || null,
+    Number(input.validUntil || 0) || null, surfaceMode, input.proactiveMention === true ? 1 : 0,
+    safeJsonStringify(aliases), safeJsonStringify(sourceMemoryIds), safeJsonStringify(input.evidence || {}),
+    Math.max(0, Math.min(1, Number(input.confidence || 0))),
+    Number(input.createdAt || now), now, archivedAt
+  );
+  return normalizeActiveEvent(db.prepare('SELECT * FROM memory_active_events WHERE id = ?').get(id));
+}
+
+function archiveMemoryActiveEvent(id, status = 'archived') {
+  const safeId = String(id || '').trim();
+  if (!safeId) throw new Error('id is required');
+  const safeStatus = ['completed', 'cancelled', 'archived'].includes(String(status)) ? String(status) : 'archived';
+  const now = Date.now();
+  db.prepare(`
+    UPDATE memory_active_events
+    SET status = ?, archivedAt = ?, updatedAt = ?
+    WHERE id = ?
+  `).run(safeStatus, now, now, safeId);
+  return normalizeActiveEvent(db.prepare('SELECT * FROM memory_active_events WHERE id = ?').get(safeId));
+}
+
 module.exports = {
   db,
   addMemory,
@@ -2127,5 +2249,8 @@ module.exports = {
   getReliableEventClusterMap,
   processMemoryOrganizationQueue,
   listMemoryClusters,
-  listMemoryOrganizationEntries
+  listMemoryOrganizationEntries,
+  listMemoryActiveEvents,
+  upsertMemoryActiveEvent,
+  archiveMemoryActiveEvent
 };

@@ -37,7 +37,10 @@ const {
   getReliableEventClusterMap,
   processMemoryOrganizationQueue,
   listMemoryClusters,
-  listMemoryOrganizationEntries
+  listMemoryOrganizationEntries,
+  listMemoryActiveEvents,
+  upsertMemoryActiveEvent,
+  archiveMemoryActiveEvent
 } = require('./db');
 
 const {
@@ -55,6 +58,10 @@ const {
 const {
   runRecallShadowPolicy
 } = require('./recall-shadow-policy');
+
+const {
+  runActiveEventShadow
+} = require('./memory-active-event-shadow');
 
 const PORT = Number(process.env.PORT || 8765);
 const BACKUP_DIR = process.env.MEMORY_BACKUP_DIR
@@ -170,6 +177,7 @@ function updateLastMemorySearchState(info = {}) {
       error: fts.error || null
     },
     shadowPolicy,
+    activeEventShadow: info.activeEventShadow || null,
     resultsTop: results.slice(0, 10).map(memory => {
       const preview = compactMemorySearchPreview(memory);
       if (!preview) return null;
@@ -3736,6 +3744,51 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/memory/active-events' && req.method === 'GET') {
+    try {
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      const events = listMemoryActiveEvents({
+        chatId: url.searchParams.get('chatId') || '',
+        status: url.searchParams.get('status') || '',
+        includeArchived: url.searchParams.get('includeArchived') === 'true',
+        limit: url.searchParams.get('limit') || 50
+      });
+      sendJson(res, 200, { ok: true, count: events.length, events });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/active-events/upsert' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      if (String(body.confirm || '') !== 'UPSERT_ACTIVE_EVENT') {
+        throw new Error('Explicit confirmation is required to save an active event');
+      }
+      const event = upsertMemoryActiveEvent(body.event || body);
+      sendJson(res, 200, { ok: true, event });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/active-events/archive' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      if (String(body.confirm || '') !== 'ARCHIVE_ACTIVE_EVENT') {
+        throw new Error('Explicit confirmation is required to archive an active event');
+      }
+      const event = archiveMemoryActiveEvent(body.id, body.status || 'archived');
+      if (!event) throw new Error('Active event not found');
+      sendJson(res, 200, { ok: true, event });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message || String(error) });
+    }
+    return;
+  }
+
   if (pathname === '/memory/organization/clusters' && req.method === 'GET') {
     try {
       const url = new URL(req.url, `http://${req.headers.host}`);
@@ -4127,6 +4180,13 @@ const server = http.createServer(async (req, res) => {
       // remain low-weight context variants; assistant prose must never replace the
       // current user query, regardless of whether the experimental gate is enabled.
       const q = shadowPrimaryQuery || requestedQuery;
+      const activeEventShadow = runActiveEventShadow(listMemoryActiveEvents({
+        chatId: body.chatId || '',
+        limit: 50
+      }), {
+        query: q,
+        maxSelected: 2
+      });
       const safeLimit = clampNumber(body.limit || 20, 1, 200, 20);
       const debugQueries = buildMemorySearchQueries(q, body.queryVariants || body.cleanedQueries || body.queries || []);
 
@@ -4300,6 +4360,7 @@ const server = http.createServer(async (req, res) => {
                   },
                   fts: ftsMeta,
                   shadowPolicy: compactShadowPolicySummary(effectiveShadowPolicy),
+                  activeEventShadow,
                   memories: liveChromaMemories
                 };
 
@@ -4320,6 +4381,7 @@ const server = http.createServer(async (req, res) => {
                     chroma: responsePayload.chroma,
                     fts: responsePayload.fts,
                     shadowPolicy: effectiveShadowPolicy,
+                    activeEventShadow,
                     results: liveChromaMemories
                   });
                 }
@@ -4528,6 +4590,7 @@ const server = http.createServer(async (req, res) => {
         }),
         fts: ftsMeta,
         shadowPolicy: compactShadowPolicySummary(effectiveShadowPolicy),
+        activeEventShadow,
         memories: results
       };
 
@@ -4548,6 +4611,7 @@ const server = http.createServer(async (req, res) => {
           chroma: responsePayload.chroma,
           fts: responsePayload.fts,
           shadowPolicy: effectiveShadowPolicy,
+          activeEventShadow,
           results
         });
       }
