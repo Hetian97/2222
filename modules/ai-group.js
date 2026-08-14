@@ -530,7 +530,11 @@ ${formatRules}
 
   }
 
-  async function triggerInactiveAiAction(chatId) {
+  // 每个角色的后台活动共用一把锁，避免后台心跳重叠时同时启动
+  // 外部 MCP 自主活动和普通后台主动消息。
+  const backgroundAiActivityInFlight = new Set();
+
+  async function runInactiveAiAction(chatId) {
     const chat = state.chats[chatId];
     if (!chat) return;
     if (typeof window.isTimestampInDoNotDisturb === 'function' && window.isTimestampInDoNotDisturb()) {
@@ -1575,6 +1579,23 @@ ${longTimeNoSee ? `【重要提示】你们已经很久没聊天了！你【必�
       if (document.getElementById('qzone-screen').classList.contains('active')) {
         renderQzonePosts();
       }
+    }
+  }
+
+  // 统一入口：MCP、普通后台消息、线下后台活动都必须经过同一把锁。
+  // 无论成功、失败、异常还是提前 return，都由 finally 释放，避免锁死。
+  async function triggerInactiveAiAction(chatId) {
+    if (backgroundAiActivityInFlight.has(chatId)) {
+      const chat = state.chats[chatId];
+      console.log(`角色 "${chat?.name || chatId}" 已有后台活动正在执行，本轮跳过。`);
+      return;
+    }
+
+    backgroundAiActivityInFlight.add(chatId);
+    try {
+      return await runInactiveAiAction(chatId);
+    } finally {
+      backgroundAiActivityInFlight.delete(chatId);
     }
   }
 
