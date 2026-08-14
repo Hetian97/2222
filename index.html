@@ -102,7 +102,7 @@
   <!-- 第七层：其余功能 -->
   <script src="modules/tts-audio.js?v=0.0.36" defer></script>
   <script src="modules/appearance-theme.js?v=0.0.36" defer></script>
-  <script src="modules/notification-battery.js?v=0.0.39" defer></script>
+  <script src="modules/notification-battery.js?v=0.0.41" defer></script>
   <script src="modules/garden-wake.js?v=0.0.2" defer></script>
   <script src="modules/aisay-wake.js?v=0.0.2" defer></script>
   <script src="modules/background-activity.js?v=0.0.37" defer></script>
@@ -3397,7 +3397,7 @@
             <div class="settings-item">
                 <label>启用系统级通知</label>
                 <label class="toggle-switch">
-                    <input type="checkbox" id="system-notification-enabled-switch">
+                    <input type="checkbox" id="system-notification-enabled-switch" onchange="handleSystemNotificationToggle(this)">
                     <span class="slider"></span>
                 </label>
             </div>

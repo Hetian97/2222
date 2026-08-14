@@ -29,24 +29,6 @@
     }
   }
 
-  // Installed PWAs may suspend the reusable page audio element in background.
-  // Creating a fresh Audio instance matches the older background path that
-  // remains usable on more mobile browsers.
-  function playBackgroundNotificationSound() {
-    const soundUrl = state.globalSettings.notificationSoundUrl || DEFAULT_NOTIFICATION_SOUND;
-    if (!soundUrl || !soundUrl.trim()) return;
-
-    try {
-      const audio = new Audio(soundUrl);
-      audio.volume = state.globalSettings.notificationVolume !== undefined
-        ? state.globalSettings.notificationVolume
-        : 1.0;
-      audio.play().catch(error => console.log('[后台通知] 播放提示音失败:', error));
-    } catch (error) {
-      console.log('[后台通知] 初始化提示音失败:', error);
-    }
-  }
-
 // 原始位置：script.js 第 8891~8960 行
   function showNotification(chatId, messageContent) {
     const chat = state.chats[chatId];
@@ -56,10 +38,13 @@
     const isPageVisible = document.visibilityState === 'visible' && !document.hidden;
     const showInternalNotification = config.showInternalNotification !== false;
 
+    // Foreground sound is independent from whether the in-app banner is shown.
+    if (isPageVisible) {
+      playNotificationSound();
+    }
+
     // 应用前台且未查看对应聊天时，使用 EPhone 内部横幅。
     if (isPageVisible && showInternalNotification) {
-      playNotificationSound();
-
       clearTimeout(notificationTimeout);
 
       const bar = document.getElementById('notification-bar');
@@ -245,6 +230,28 @@
     }
   }
 
+  async function handleSystemNotificationToggle(enabledSwitch) {
+    if (!enabledSwitch || !state?.globalSettings?.systemNotification) return;
+
+    const detailsDiv = document.getElementById('system-notification-details');
+    if (enabledSwitch.checked) {
+      const granted = await requestNotificationPermission();
+      state.globalSettings.systemNotification.enabled = granted;
+      enabledSwitch.checked = granted;
+      if (detailsDiv) detailsDiv.style.display = granted ? 'block' : 'none';
+    } else {
+      state.globalSettings.systemNotification.enabled = false;
+      if (detailsDiv) detailsDiv.style.display = 'none';
+    }
+
+    await updateNotificationPermissionStatus();
+    if (typeof db !== 'undefined' && db.globalSettings) {
+      await db.globalSettings.put(state.globalSettings);
+    }
+  }
+
+  window.handleSystemNotificationToggle = handleSystemNotificationToggle;
+
   // 震动设备
   function vibrateDevice() {
     if (!('vibrate' in navigator)) {
@@ -313,6 +320,7 @@
         icon: icon,
         badge: icon,
         tag: uniqueTag,
+        silent: false,
         data: { chatId }
       };
 
@@ -359,13 +367,6 @@
           console.warn('[系统通知调试] 无可用的通知方式');
           return;
         }
-      }
-
-      // Some installed PWAs do not let the operating system notification
-      // channel play a sound. Reuse the appearance-level message sound while
-      // the page is in the background; there is no separate system sound setting.
-      if (document.hidden || document.visibilityState === 'hidden') {
-        playBackgroundNotificationSound();
       }
 
       // 触发震动（使用通用的Vibration API）
@@ -513,22 +514,7 @@
     const vibrationPattern = document.getElementById('vibration-pattern-select');
 
     if (enabledSwitch) {
-      enabledSwitch.addEventListener('change', async () => {
-        if (enabledSwitch.checked) {
-          const granted = await requestNotificationPermission();
-          if (granted) {
-            state.globalSettings.systemNotification.enabled = true;
-            detailsDiv.style.display = 'block';
-            updateNotificationPermissionStatus();
-          } else {
-            enabledSwitch.checked = false;
-          }
-        } else {
-          state.globalSettings.systemNotification.enabled = false;
-          detailsDiv.style.display = 'none';
-          updateNotificationPermissionStatus();
-        }
-      });
+      enabledSwitch.onchange = () => handleSystemNotificationToggle(enabledSwitch);
     }
 
     if (appNameInput) {
