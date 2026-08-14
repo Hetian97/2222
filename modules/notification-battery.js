@@ -29,6 +29,24 @@
     }
   }
 
+  // Installed PWAs may suspend the reusable page audio element in background.
+  // Creating a fresh Audio instance matches the older background path that
+  // remains usable on more mobile browsers.
+  function playBackgroundNotificationSound() {
+    const soundUrl = state.globalSettings.notificationSoundUrl || DEFAULT_NOTIFICATION_SOUND;
+    if (!soundUrl || !soundUrl.trim()) return;
+
+    try {
+      const audio = new Audio(soundUrl);
+      audio.volume = state.globalSettings.notificationVolume !== undefined
+        ? state.globalSettings.notificationVolume
+        : 1.0;
+      audio.play().catch(error => console.log('[后台通知] 播放提示音失败:', error));
+    } catch (error) {
+      console.log('[后台通知] 初始化提示音失败:', error);
+    }
+  }
+
 // 原始位置：script.js 第 8891~8960 行
   function showNotification(chatId, messageContent) {
     const chat = state.chats[chatId];
@@ -347,7 +365,7 @@
       // channel play a sound. Reuse the appearance-level message sound while
       // the page is in the background; there is no separate system sound setting.
       if (document.hidden || document.visibilityState === 'hidden') {
-        playNotificationSound();
+        playBackgroundNotificationSound();
       }
 
       // 触发震动（使用通用的Vibration API）
