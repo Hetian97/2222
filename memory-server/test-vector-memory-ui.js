@@ -200,6 +200,20 @@ async function main() {
   assert.equal(searchCall.body.shadowPrimaryQuery, '当前用户主问题');
   assert.deepEqual(searchCall.body.shadowContextQueries, ['旧话题只是上下文']);
   assert.equal(searchCall.body.actionType, 'regenerate');
+  const recalledAt = new Date(2026, 7, 13, 15, 42).getTime();
+  manager.externalMemoryRequest = async (_chat, requestPath) => {
+    if (requestPath === '/memory/search') return {
+      ok: true,
+      memories: [{ id: 'timed-memory', category: 'P', content: '明天早晨去湖边看日出', memoryTime: recalledAt, _searchScore: 0.9 }],
+      searchTraceId: 'trace-timed-memory'
+    };
+    if (requestPath === '/memory/search/commit') return { ok: true, log: { status: 'prompt_committed' }, recallUpdates: [] };
+    return { ok: true, recallUpdates: [] };
+  };
+  const timedPrompt = await manager.serializeForPrompt(chat, '湖边看日出');
+  assert(timedPrompt.includes('[记忆发生时间：2026-08-13 15:42]'));
+  assert(timedPrompt.includes('相对时间，均以该条标注的记忆发生时间为基准'));
+  assert(timedPrompt.includes('明天早晨去湖边看日出'));
   manager.externalMemoryRequest = async (_chat, requestPath) => {
     if (requestPath === '/memory/search') return { ok: true, memories: [], searchTraceId: 'trace-zero-recall' };
     if (requestPath === '/memory/search/commit') return { ok: true, log: { status: 'prompt_committed' }, recallUpdates: [] };

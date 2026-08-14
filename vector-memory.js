@@ -1262,6 +1262,7 @@ class VariableMemoryManager {
 
       if (nonCoreResults.length > 0) {
         output += '## 回闪记忆 (根据当前情境唤醒的记忆片段)\n';
+        output += '> 时间规则：每条记忆中的“昨天、今天、明天、今晚”等相对时间，均以该条标注的记忆发生时间为基准；记忆被召回不代表它刚刚发生。\n';
 
         // 按记忆发生时间排序，让 AI 更有时间顺序感
         nonCoreResults.sort((a, b) => {
@@ -1272,8 +1273,10 @@ class VariableMemoryManager {
 
         for (const r of nonCoreResults) {
           const memoryTime = Number(r.fragment.memoryTime || r.fragment.createdAt || r.fragment.updatedAt || Date.now());
-          const dateStr = new Date(memoryTime).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-          output += '[' + dateStr + '] ' + r.fragment.content + '\n';
+          const memoryDate = new Date(memoryTime);
+          const padTimePart = value => String(value).padStart(2, '0');
+          const dateStr = `${memoryDate.getFullYear()}-${padTimePart(memoryDate.getMonth() + 1)}-${padTimePart(memoryDate.getDate())} ${padTimePart(memoryDate.getHours())}:${padTimePart(memoryDate.getMinutes())}`;
+          output += '[记忆发生时间：' + dateStr + ']\n' + r.fragment.content + '\n';
         }
 
         output += '\n';
