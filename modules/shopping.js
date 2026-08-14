@@ -1253,10 +1253,12 @@ ${recentHistoryContext}
           const notification = chat.pendingCartClearNotification;
           const itemCount = notification.items.reduce((sum, item) => sum + item.quantity, 0);
 
-          await showCustomAlert(
-            `${chat.name} 帮你清空了购物车！`,
-            `共 ${itemCount} 件商品，总价 ¥${notification.totalCost.toFixed(2)}`
-          );
+          if ((chat.settings.enableCoupleSpaceNotify ?? chat.settings.coupleSpaceNotify) === true) {
+            await showCustomAlert(
+              `${chat.name} 帮你清空了购物车！`,
+              `共 ${itemCount} 件商品，总价 ¥${notification.totalCost.toFixed(2)}`
+            );
+          }
           
           // 清除通知标记
           delete chat.pendingCartClearNotification;
@@ -1492,11 +1494,13 @@ ${recentPurchases}
       }
       
       // 标记有待处理的通知
-      chat.pendingCartClearNotification = {
-        items: purchaseItems,
-        totalCost: totalCost,
-        timestamp: Date.now()
-      };
+      if ((chat.settings.enableCoupleSpaceNotify ?? chat.settings.coupleSpaceNotify) === true) {
+        chat.pendingCartClearNotification = {
+          items: purchaseItems,
+          totalCost: totalCost,
+          timestamp: Date.now()
+        };
+      }
       await db.chats.put(chat);
       
       console.log(`✅ 角色 "${chat.name}" 已清空购物车，总价: ¥${totalCost.toFixed(2)}`);

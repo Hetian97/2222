@@ -58,7 +58,7 @@
         '#char-reply-sanitizer-switch',
         '#char-reply-sanitizer-rules-row'
       ]);
-      automation.appendChild(single);
+      automation.insertBefore(single, automation.firstChild);
     }
 
     moveUnits(reply, automation, [
@@ -71,6 +71,12 @@
       '#ai-behavior-cross-chat-item',
       '#ai-behavior-status-item'
     ]);
+
+    if (single) {
+      const backgroundSwitchUnit = directChildContaining(single, '#char-background-activity-switch');
+      const cooldownUnit = directChildContaining(single, '#ai-cooldown-group') || directChildContaining(automation, '#ai-cooldown-group');
+      if (backgroundSwitchUnit && cooldownUnit) backgroundSwitchUnit.after(cooldownUnit);
+    }
 
     // 这些项目决定回复方式或角色能读取什么，归入“回复与记忆”。
     moveUnits(media, reply, [

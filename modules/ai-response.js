@@ -8296,7 +8296,7 @@ ${getActiveThoughtsPrompt()}
         await window.vectorMemoryManager.finishExternalMemoryGeneration(chat, generationOutcome, generationError);
       }
 
-      if (proactiveTodoScheduleCount > 0) {
+      if (proactiveTodoScheduleCount > 0 && (chat.settings.enableCoupleSpaceNotify ?? chat.settings.coupleSpaceNotify) === true) {
         const title = proactiveTodoScheduleCount === 1
           ? `${chat.name} 主动添加了待办/行程`
           : `${chat.name} 主动添加了 ${proactiveTodoScheduleCount} 项待办/行程`;
