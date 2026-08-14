@@ -343,6 +343,13 @@
         }
       }
 
+      // Some installed PWAs do not let the operating system notification
+      // channel play a sound. Reuse the appearance-level message sound while
+      // the page is in the background; there is no separate system sound setting.
+      if (document.hidden || document.visibilityState === 'hidden') {
+        playNotificationSound();
+      }
+
       // 触发震动（使用通用的Vibration API）
       if (state.globalSettings.systemNotification.vibration?.enabled) {
         console.log('[系统通知调试] 触发震动');
