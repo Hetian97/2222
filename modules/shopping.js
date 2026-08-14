@@ -1211,19 +1211,21 @@ ${recentHistoryContext}
               name: category.name
             });
           }
-          const productsToAdd = category.products.map(product => {
+          const productsToAdd = await Promise.all(category.products.map(async product => {
+            const productImage = await generateImageForScene(product.image_prompt, 'shopping', chat.id);
+            const variations = await Promise.all((product.variations || []).map(async v => {
+              const variationImage = await generateImageForScene(v.image_prompt, 'shopping', chat.id);
+              return { ...v, imageUrl: variationImage?.imageUrl || '' };
+            }));
             return {
               name: product.name,
               price: product.price || 0,
               description: product.description || '',
-              imageUrl: getPollinationsImageUrl(product.image_prompt),
-              variations: (product.variations || []).map(v => ({
-                ...v,
-                imageUrl: getPollinationsImageUrl(v.image_prompt)
-              })),
+              imageUrl: productImage?.imageUrl || '',
+              variations,
               categoryId: categoryId
             };
-          });
+          }));
           if (productsToAdd.length > 0) {
             await db.shoppingProducts.bulkAdd(productsToAdd);
           }

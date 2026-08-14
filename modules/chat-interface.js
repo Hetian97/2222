@@ -841,7 +841,7 @@
 
         if (msg.imageUrl) {
           finalImageUrl = msg.imageUrl;
-        } else if (state.globalSettings.enableAiDrawing && msg.image_prompt) {
+        } else if (isImageGenerationProviderAvailable('pollinations', 'chat') && msg.image_prompt) {
           finalImageUrl = getPollinationsImageUrl(msg.image_prompt);
         } else {
           finalImageUrl = 'https://s3plus.meituan.net/opapisdk/op_ticket_885190757_1756262526935_qdqqd_4uque3.jpeg';
@@ -854,7 +854,7 @@
         const altText = msg.type === 'user_photo' ? "用户描述的照片" : "AI生成的图片";
 
 
-        const imageUrl = state.globalSettings.enableAiDrawing && msg.image_prompt ?
+        const imageUrl = isImageGenerationProviderAvailable('pollinations', 'chat') && msg.image_prompt ?
           getPollinationsImageUrl(msg.image_prompt) :
           'https://i.postimg.cc/KYr2qRCK/1.jpg';
 

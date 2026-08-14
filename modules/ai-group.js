@@ -690,8 +690,8 @@ ${formatRules}
 
 
       let historySummary = "你们最近没有有效聊天记录。";
-      if (recentHistory.length > 0) {
-        historySummary = "这是你们最近的对话：\n" + recentHistory.map(msg => {
+      if (filteredHistory.length > 0) {
+        historySummary = "这是你们最近的对话：\n" + filteredHistory.map(msg => {
           const sender = msg.role === 'user' ? userNickname : chat.name;
           return `${sender}: ${String(msg.content).substring(0, 50)}...`;
         }).join('\n');
@@ -706,8 +706,8 @@ ${formatRules}
 
     } else {
 
-      if (recentHistory.length > 0) {
-        recentContextSummary = "这是你们最近的对话：\n" + recentHistory.map(msg => {
+      if (filteredHistory.length > 0) {
+        recentContextSummary = "这是你们最近的对话：\n" + filteredHistory.map(msg => {
           const sender = msg.role === 'user' ? userNickname : chat.name;
           return `${sender}: ${String(msg.content).substring(0, 50)}...`;
         }).join('\n');

@@ -1718,7 +1718,7 @@ async function handleCoupleSpaceAlbumAiRequest(data) {
     const albumSettings = JSON.parse(localStorage.getItem('coupleAlbumSettings_' + data.charId) || '{}');
     const genMode = albumSettings.imageGenMode || 'none';
 
-    if (genMode === 'pollinations' && result.imagePrompt) {
+    if (genMode === 'pollinations' && isImageGenerationProviderAvailable('pollinations', 'coupleSpace') && result.imagePrompt) {
       try {
         const pollinationsUrl = typeof getPollinationsImageUrl === 'function'
           ? getPollinationsImageUrl(result.imagePrompt)
@@ -1733,14 +1733,14 @@ async function handleCoupleSpaceAlbumAiRequest(data) {
           });
         }
       } catch(e) { console.error('Album Pollinations gen failed:', e); }
-    } else if (genMode === 'nai' && result.imagePrompt) {
+    } else if (genMode === 'nai' && isImageGenerationProviderAvailable('nai', 'coupleSpace') && result.imagePrompt) {
       try {
         const naiResult = await generateNaiImageFromPrompt(result.imagePrompt, data.charId);
         if (naiResult && naiResult.base64) {
           imageData = 'data:image/png;base64,' + naiResult.base64;
         }
       } catch(e) { console.error('Album NAI gen failed:', e); }
-    } else if (genMode === 'imagen' && result.imagePrompt) {
+    } else if (genMode === 'imagen' && isImageGenerationProviderAvailable('imagen', 'coupleSpace') && result.imagePrompt) {
       try {
         const imagenResult = await generateGoogleImagenFromPrompt(result.imagePrompt);
         if (imagenResult && imagenResult.base64) {
@@ -2005,7 +2005,7 @@ async function triggerAutoAlbumPost(charId, isTimer = false) {
       let imageData = null;
       const genMode = albumSettings.imageGenMode || 'none';
 
-    if (genMode === 'pollinations' && result.imagePrompt) {
+    if (genMode === 'pollinations' && isImageGenerationProviderAvailable('pollinations', 'coupleSpace') && result.imagePrompt) {
       try {
         const pollinationsUrl = typeof getPollinationsImageUrl === 'function'
           ? getPollinationsImageUrl(result.imagePrompt)
@@ -2020,12 +2020,12 @@ async function triggerAutoAlbumPost(charId, isTimer = false) {
           });
         }
       } catch(e) {}
-    } else if (genMode === 'nai' && result.imagePrompt) {
+    } else if (genMode === 'nai' && isImageGenerationProviderAvailable('nai', 'coupleSpace') && result.imagePrompt) {
       try {
         const naiResult = await generateNaiImageFromPrompt(result.imagePrompt, charId);
         if (naiResult && naiResult.base64) imageData = 'data:image/png;base64,' + naiResult.base64;
       } catch(e) {}
-    } else if (genMode === 'imagen' && result.imagePrompt) {
+    } else if (genMode === 'imagen' && isImageGenerationProviderAvailable('imagen', 'coupleSpace') && result.imagePrompt) {
       try {
         const imagenResult = await generateGoogleImagenFromPrompt(result.imagePrompt);
         if (imagenResult && imagenResult.base64) imageData = 'data:image/png;base64,' + imagenResult.base64;

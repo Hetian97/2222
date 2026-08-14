@@ -2177,10 +2177,10 @@ ${linkedContents}
         };
 
         if (msgData.type === 'ai_image') {
-          if (localStorage.getItem('novelai-enabled') === 'true') {
+          if (isImageGenerationProviderAvailable('nai', 'chat')) {
             msgData.type = 'naiimag';
             msgData.prompt = msgData.image_prompt || msgData.description || 'a beautiful scene';
-          } else if (localStorage.getItem('google-imagen-enabled') === 'true') {
+          } else if (isImageGenerationProviderAvailable('imagen', 'chat')) {
             msgData.type = 'googleimag';
             msgData.prompt = msgData.image_prompt || msgData.description || 'a beautiful scene';
           }
@@ -2212,6 +2212,7 @@ ${linkedContents}
             }
             break;
           case 'ai_image':
+            if (!isImageGenerationProviderAvailable('pollinations', 'chat')) break;
 
             aiMessage = {
               ...baseMessage,
@@ -6604,7 +6605,7 @@ ${getActiveThoughtsPrompt()}
 
 
 
-            if (msgData.postType === 'naiimag' && msgData.prompt) {
+            if (msgData.postType === 'naiimag' && isImageGenerationProviderAvailable('nai', 'qzone') && msgData.prompt) {
               try {
 
                 const prompts = Array.isArray(msgData.prompt) ? msgData.prompt.slice(0, 2) : [msgData.prompt];
@@ -6936,7 +6937,7 @@ ${getActiveThoughtsPrompt()}
             }
 
             // Google Imagen 动态图片生成
-            if (msgData.postType === 'googleimag' && msgData.prompt) {
+            if (msgData.postType === 'googleimag' && isImageGenerationProviderAvailable('imagen', 'qzone') && msgData.prompt) {
               try {
                 const googlePrompt = msgData.prompt || 'a beautiful scene';
                 console.log(`📸 动态Google Imagen图片生成开始，prompt:`, googlePrompt);
@@ -7763,6 +7764,7 @@ ${getActiveThoughtsPrompt()}
             }
             break;
           case 'ai_image':
+            if (!isImageGenerationProviderAvailable('pollinations', 'chat')) break;
             aiMessage = {
               ...baseMessage,
               type: 'ai_image',
@@ -7823,6 +7825,7 @@ ${getActiveThoughtsPrompt()}
             break;
 
           case 'naiimag':
+            if (!isImageGenerationProviderAvailable('nai', 'chat')) break;
 
             try {
               console.log('📸 NovelAI图片生成开始，AI提供的prompt:', msgData.prompt);
@@ -8145,6 +8148,7 @@ ${getActiveThoughtsPrompt()}
             break;
 
           case 'googleimag':
+            if (!isImageGenerationProviderAvailable('imagen', 'chat')) break;
             try {
               console.log('📸 Google Imagen图片生成开始，AI提供的prompt:', msgData.prompt);
               const googlePrompt = msgData.prompt || 'a beautiful scene';

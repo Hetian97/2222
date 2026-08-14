@@ -1280,7 +1280,6 @@ window.initFeatures = function(state, db) {
             break;
         }
       }
-      showCustomAlert('设置已应用', `AI生图功能已${isEnabled ? '开启' : '关闭'}。`);
     });
 
     // Pollinations Key 显示/隐藏切换

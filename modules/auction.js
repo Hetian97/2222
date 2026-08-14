@@ -79,10 +79,11 @@
       const text = getGeminiResponseText(data);
       const json = JSON.parse(text.replace(/^```json\s*/, '').replace(/```$/, ''));
 
-      const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(json.item.image_prompt)}`;
+      const generatedImage = await generateImageForScene(json.item.image_prompt, 'auction', state.activeChatId);
+      const imageUrl = generatedImage?.imageUrl || 'https://i.postimg.cc/Hs7BLh76/alipay.png';
       const limitMultiplier = 1.5 + Math.random() * 2.0;
 
-      auctionState.item = json.item;
+      auctionState.item = { ...json.item, generatedImageUrl: imageUrl };
       auctionState.basePrice = json.item.basePrice;
       auctionState.limitPrice = json.item.basePrice * limitMultiplier;
       auctionState.currentPrice = json.item.basePrice;
@@ -361,7 +362,7 @@
 
       await db.inventory.add({
         name: item.name, type: 'treasure', description: item.description,
-        image: item.image_prompt, acquiredPrice: finalPrice, acquiredTime: Date.now()
+        image: item.generatedImageUrl || item.image_prompt, acquiredPrice: finalPrice, acquiredTime: Date.now()
       });
 
       const giftConfirmed = await showCustomConfirm("竞拍成功！", `你已成功拍下【${item.name}】！\n\n要现在就把它作为礼物，送给某位角色吗？`, { confirmText: '🎁 立即赠送', cancelText: '放入仓库' });
@@ -456,7 +457,8 @@
     if (!chat) return;
 
     let imageUrl = 'https://i.postimg.cc/Hs7BLh76/alipay.png';
-    if (item.image_prompt) imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(item.image_prompt)}`;
+    if (item.generatedImageUrl) imageUrl = item.generatedImageUrl;
+    else if (item.image_prompt && isImageGenerationProviderAvailable('pollinations', 'auction')) imageUrl = getPollinationsImageUrl(item.image_prompt);
 
     const giftMessage = { role: 'user', type: 'gift', timestamp: Date.now(), items: [{ name: `[稀世珍宝] ${item.name}`, price: price, imageUrl: imageUrl, quantity: 1 }], total: price, recipients: null };
     chat.history.push(giftMessage);
@@ -488,7 +490,7 @@
         div.className = 'inventory-item';
         let imageUrl = 'https://i.postimg.cc/Hs7BLh76/alipay.png';
         if (item.image) {
-          imageUrl = (item.image.startsWith('http') || item.image.startsWith('data:')) ? item.image : `https://image.pollinations.ai/prompt/${encodeURIComponent(item.image)}`;
+          imageUrl = (item.image.startsWith('http') || item.image.startsWith('data:')) ? item.image : (isImageGenerationProviderAvailable('pollinations', 'auction') ? getPollinationsImageUrl(item.image) : imageUrl);
         }
         div.innerHTML = `<img src="${imageUrl}" class="inventory-img" loading="lazy"><div class="inventory-info"><div class="inventory-name">${item.name}</div><div class="inventory-desc">${item.description || '稀世珍宝'}</div><div class="inventory-price">入手价: ¥${(item.acquiredPrice || 0).toLocaleString()}</div></div><button class="inventory-use-btn">赠送</button>`;
         div.querySelector('.inventory-use-btn').onclick = () => handleGiftFromInventory(item);

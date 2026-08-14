@@ -159,7 +159,7 @@
         innerContentHtml = publicTextHtml ? `${publicTextHtml}<div style="margin-top:10px;"><img src="${targetPost.imageUrl}" class="chat-image"></div>` : `<img src="${targetPost.imageUrl}" class="chat-image">`;
       } else if (targetPost.type === 'text_image') {
 
-        const postImageUrl = state.globalSettings.enableAiDrawing && targetPost.image_prompt ? getPollinationsImageUrl(targetPost.image_prompt) : 'https://i.postimg.cc/KYr2qRCK/1.jpg';
+        const postImageUrl = isImageGenerationProviderAvailable('pollinations', 'qzone') && targetPost.image_prompt ? getPollinationsImageUrl(targetPost.image_prompt) : 'https://i.postimg.cc/KYr2qRCK/1.jpg';
         innerContentHtml = publicTextHtml ? `${publicTextHtml}<div style="margin-top:10px;"><img src="${postImageUrl}" class="chat-image" style="cursor: pointer;" data-hidden-text="${targetPost.hiddenContent}"></div>` : `<img src="${postImageUrl}" class="chat-image" style="cursor: pointer;" data-hidden-text="${targetPost.hiddenContent}">`;
       } else if (targetPost.type === 'naiimag' || targetPost.type === 'googleimag') {
 
@@ -634,10 +634,10 @@
         if (post.type === 'shuoshuo') {
           contentHtml = `<div class="post-content">${post.content.replace(/\n/g, '<br>')}</div>`;
         } else if (post.type === 'image_post' && post.imageUrl) {
-          const postImageUrl = state.globalSettings.enableAiDrawing && post.image_prompt ? getPollinationsImageUrl(post.image_prompt) : 'https://i.postimg.cc/KYr2qRCK/1.jpg';
+          const postImageUrl = isImageGenerationProviderAvailable('pollinations', 'qzone') && post.image_prompt ? getPollinationsImageUrl(post.image_prompt) : 'https://i.postimg.cc/KYr2qRCK/1.jpg';
           contentHtml = publicTextHtml ? `${publicTextHtml}<div style="margin-top:10px;"><img src="${postImageUrl}" class="chat-image"></div>` : `<img src="${postImageUrl}" class="chat-image">`;
         } else if (post.type === 'text_image') {
-          const postImageUrl = state.globalSettings.enableAiDrawing && post.image_prompt ? getPollinationsImageUrl(post.image_prompt) : 'https://i.postimg.cc/KYr2qRCK/1.jpg';
+          const postImageUrl = isImageGenerationProviderAvailable('pollinations', 'qzone') && post.image_prompt ? getPollinationsImageUrl(post.image_prompt) : 'https://i.postimg.cc/KYr2qRCK/1.jpg';
           contentHtml = publicTextHtml ? `${publicTextHtml}<div style="margin-top:10px;"><img src="${postImageUrl}" class="chat-image" style="cursor: pointer;" data-hidden-text="${post.hiddenContent}"></div>` : `<img src="${postImageUrl}" class="chat-image" style="cursor: pointer;" data-hidden-text="${post.hiddenContent}">`;
         }
 

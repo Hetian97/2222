@@ -55,6 +55,86 @@ function qqUndefinedFilter(content) {
   return filtered;
 }
 
+const IMAGE_GENERATION_SCENE_SETTINGS_KEY = 'image-generation-scene-settings';
+const IMAGE_GENERATION_SCENES = [
+  ['chat', '聊天内生图'],
+  ['qzone', 'QQ动态生图'],
+  ['auction', '黑市生图'],
+  ['shopping', '购物中心生图'],
+  ['coupleSpace', '情侣空间生图']
+];
+const DEFAULT_IMAGE_GENERATION_SCENE_SETTINGS = {
+  pollinations: { chat: true, qzone: true, auction: true, shopping: true, coupleSpace: true },
+  nai: { chat: true, qzone: true, auction: false, shopping: false, coupleSpace: true },
+  imagen: { chat: true, qzone: true, auction: false, shopping: false, coupleSpace: true }
+};
+
+function getImageGenerationSceneSettings() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(IMAGE_GENERATION_SCENE_SETTINGS_KEY) || '{}') || {}; } catch (_) {}
+  const result = {};
+  Object.keys(DEFAULT_IMAGE_GENERATION_SCENE_SETTINGS).forEach(provider => {
+    result[provider] = { ...DEFAULT_IMAGE_GENERATION_SCENE_SETTINGS[provider], ...(saved[provider] || {}) };
+  });
+  return result;
+}
+
+function isImageGenerationSceneEnabled(provider, scene) {
+  return getImageGenerationSceneSettings()[provider]?.[scene] === true;
+}
+
+function isImageGenerationProviderAvailable(provider, scene) {
+  if (!isImageGenerationSceneEnabled(provider, scene)) return false;
+  if (provider === 'pollinations') return typeof state !== 'undefined' && state.globalSettings?.enableAiDrawing === true;
+  if (provider === 'nai') return localStorage.getItem('novelai-enabled') === 'true';
+  if (provider === 'imagen') return localStorage.getItem('google-imagen-enabled') === 'true';
+  return false;
+}
+
+async function generateImageForScene(prompt, scene, chatId, preferredProvider) {
+  const providers = preferredProvider ? [preferredProvider] : ['pollinations', 'nai', 'imagen'];
+  const provider = providers.find(item => isImageGenerationProviderAvailable(item, scene));
+  if (!provider) return null;
+  if (provider === 'pollinations') return { provider, imageUrl: getPollinationsImageUrl(prompt) };
+  if (provider === 'nai') return { provider, ...(await generateNaiImageFromPrompt(prompt, chatId)) };
+  return { provider, ...(await generateGoogleImagenFromPrompt(prompt)) };
+}
+
+function renderImageGenerationSceneSettings() {
+  const settings = getImageGenerationSceneSettings();
+  const providerLayouts = [
+    ['enable-ai-drawing-switch', 'pollinations-details', 'Pollinations 生图'],
+    ['novelai-switch', 'novelai-details', 'Novel AI 生图'],
+    ['google-imagen-switch', 'google-imagen-details', 'Google Imagen']
+  ];
+  const imageSettingsSection = document.getElementById('enable-ai-drawing-switch')?.closest('.settings-section');
+  providerLayouts.forEach(([switchId, detailsId, title]) => {
+    const switchElement = document.getElementById(switchId);
+    const switchRow = switchElement?.closest('.settings-item');
+    const details = document.getElementById(detailsId);
+    if (!switchRow || !details || !imageSettingsSection) return;
+    const titleLabel = switchRow.querySelector('label:not(.toggle-switch)');
+    if (titleLabel) titleLabel.textContent = title;
+    imageSettingsSection.append(switchRow, details);
+  });
+  document.querySelectorAll('[data-image-scene-provider]').forEach(container => {
+    const provider = container.dataset.imageSceneProvider;
+    container.parentElement?.appendChild(container);
+    container.innerHTML = IMAGE_GENERATION_SCENES.map(([scene, label]) => `
+      <div class="settings-item">
+        <label>${label}</label>
+        <label class="toggle-switch"><input type="checkbox" data-image-scene="${scene}" ${settings[provider]?.[scene] ? 'checked' : ''}><span class="slider"></span></label>
+      </div>`).join('') + '<div style="padding:8px 15px;color:#888;font-size:11px;">同一场景请自行只开启一种提供商；测试生成不受限制。</div>';
+    container.querySelectorAll('[data-image-scene]').forEach(input => input.addEventListener('change', () => {
+      const latest = getImageGenerationSceneSettings();
+      latest[provider][input.dataset.imageScene] = input.checked;
+      localStorage.setItem(IMAGE_GENERATION_SCENE_SETTINGS_KEY, JSON.stringify(latest));
+    }));
+  });
+}
+
+document.addEventListener('DOMContentLoaded', renderImageGenerationSceneSettings);
+
 /**
  * Remove selected chat messages together with the MCP activity record that
  * belongs to the same assistant turn. New records carry explicit links;

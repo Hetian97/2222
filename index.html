@@ -60,30 +60,30 @@
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <!-- 拆分后的模块（按依赖顺序加载） -->
   <!-- 第一层：全局工具函数（DOMContentLoaded 之前） -->
-  <script src="modules/utils.js?v=0.0.39" defer></script>
+  <script src="modules/utils.js?v=0.0.41" defer></script>
   <script src="modules/translations.js?v=0.0.36" defer></script>
   <!-- 第二层：UI 通用组件 -->
   <script src="modules/ui-modals.js?v=0.0.36" defer></script>
   <script src="modules/ui-loaders.js?v=0.0.36" defer></script>
   <!-- 第三层：核心聊天功能 -->
   <script src="modules/chat-list.js?v=0.0.36" defer></script>
-  <script src="modules/chat-interface.js?v=0.0.39" defer></script>
+  <script src="modules/chat-interface.js?v=0.0.40" defer></script>
   <script src="modules/chat-input.js?v=0.0.37" defer></script>
   <!-- 第四层：AI 核心 -->
-  <script src="modules/ai-response.js?v=0.0.102" defer></script>
-  <script src="modules/ai-group.js?v=0.0.39" defer></script>
+  <script src="modules/ai-response.js?v=0.0.103" defer></script>
+  <script src="modules/ai-group.js?v=0.0.40" defer></script>
   <!-- 第五层：功能模块 -->
   <script src="modules/music-player.js?v=0.0.36" defer></script>
-  <script src="modules/qzone.js?v=0.0.36" defer></script>
+  <script src="modules/qzone.js?v=0.0.37" defer></script>
   <script src="modules/sticker-manager.js?v=0.0.36" defer></script>
   <script src="modules/memory-summary.js?v=0.0.51" defer></script>
   <script src="modules/video-voice-call.js?v=0.0.36" defer></script>
   <script src="modules/message-actions.js?v=0.0.37" defer></script>
   <script src="modules/nai-imagen.js?v=0.0.37" defer></script>
-  <script src="modules/backup-import-export.js?v=0.0.41" defer></script>
+  <script src="modules/backup-import-export.js?v=0.0.42" defer></script>
   <script src="modules/settings-presets.js?v=0.0.39" defer></script>
   <script src="modules/chat-settings-presets.js?v=0.0.37" defer></script>
-  <script src="modules/shopping.js?v=0.0.54" defer></script>
+  <script src="modules/shopping.js?v=0.0.55" defer></script>
   <script src="modules/rendering-rules.js?v=0.0.36" defer></script>
   <script src="modules/red-packet-poll.js?v=0.0.36" defer></script>
   <script src="modules/persona-library.js?v=0.0.36" defer></script>
@@ -91,7 +91,7 @@
   <script src="modules/gomoku.js?v=0.0.36" defer></script>
   <!-- 第六层：大型独立功能 -->
   <script src="modules/alipay.js?v=0.0.43" defer></script>
-  <script src="modules/auction.js?v=0.0.36" defer></script>
+  <script src="modules/auction.js?v=0.0.37" defer></script>
   <script src="modules/green-river.js?v=0.0.36" defer></script>
   <script src="modules/cphone.js?v=0.0.36" defer></script>
   <script src="modules/myphone.js?v=0.0.36" defer></script>
@@ -108,7 +108,7 @@
   <script src="modules/background-activity.js?v=0.0.37" defer></script>
   <script src="modules/card-import.js?v=0.0.36" defer></script>
   <script src="modules/character-export.js?v=0.0.37" defer></script>
-  <script src="modules/data-management.js?v=0.0.37" defer></script>
+  <script src="modules/data-management.js?v=0.0.38" defer></script>
   <script src="modules/misc-features.js?v=0.0.48" defer></script>
   <!-- 第八层：初始化（必须在所有模块之后） -->
   <!-- 数据定义（无依赖） -->
@@ -123,7 +123,7 @@
   <!-- 事件绑定和功能（依赖 state, db） -->
   <script src="modules/init-event-bindingsA.js?v=0.0.44" defer></script>
   <script src="modules/init-event-bindingsB.js?v=0.0.39" defer></script>
-  <script src="modules/init-features.js?v=0.0.36" defer></script>
+  <script src="modules/init-features.js?v=0.0.37" defer></script>
   <!-- 主入口（最后加载，调用 init） -->
   <script src="modules/init-and-state.js?v=0.0.38" defer></script>
   <!-- 第九层：DOMContentLoaded 外部的独立模块 -->
@@ -135,7 +135,7 @@
   <script src="period-tracker.js?v=0.0.37" defer></script>
   <script src="focus-timer.js?v=0.0.36" defer></script>
   <!-- 情侣空间（从内联 script 拆分） -->
-  <script src="couple-space.js?v=0.0.38"></script>
+  <script src="couple-space.js?v=0.0.39"></script>
   <script src="helper-assistant.js?v=0.0.36" defer></script>
   <script src="force-update.js?v=0.0.36" defer></script>
   <script src="modules/floating-ball.js?v=0.0.36" defer></script>
@@ -2686,6 +2686,7 @@
             </div>
             <!-- Pollinations 详情 (JS控制显示/隐藏) -->
             <div id="pollinations-details" style="display:none; background-color: #f9f9f9; border-top: 0.5px solid #ebedf0;">
+                <div data-image-scene-provider="pollinations"></div>
                 <div class="settings-item">
                     <label>API Key</label>
                     <div class="settings-right">
@@ -2731,6 +2732,7 @@
             
             <!-- Google Imagen 详情 (JS控制显示/隐藏) -->
             <div id="google-imagen-details" style="display:none; background-color: #f9f9f9; border-top: 0.5px solid #ebedf0;">
+                <div data-image-scene-provider="imagen"></div>
                 <div class="settings-item">
                     <label>API 地址</label>
                     <div class="settings-right">
@@ -2794,6 +2796,7 @@
 
             <!-- NovelAI 详情 (JS控制显示/隐藏) -->
             <div id="novelai-details" style="display:none; background-color: #f9f9f9; border-top: 0.5px solid #ebedf0;">
+                <div data-image-scene-provider="nai"></div>
                 <div class="settings-item">
                     <label>模型</label>
                     <div class="settings-right">

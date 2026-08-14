@@ -339,6 +339,10 @@ async function cleanupRedundantData() {
       const thoughtChainLocalStorageKeys = [
         'ephone_thought_chain_enabled',
         'ephone_thought_chain_items',
+        'ephone_thought_chain_call_enabled',
+        'ephone_thought_chain_call_items',
+        'ephone_thought_chain_offline_enabled',
+        'ephone_thought_chain_offline_items',
         'ephone_thought_chain_presets'
       ];
 

@@ -130,6 +130,10 @@
   const THOUGHT_CHAIN_LOCAL_STORAGE_KEYS = [
     'ephone_thought_chain_enabled',
     'ephone_thought_chain_items',
+    'ephone_thought_chain_call_enabled',
+    'ephone_thought_chain_call_items',
+    'ephone_thought_chain_offline_enabled',
+    'ephone_thought_chain_offline_items',
     'ephone_thought_chain_presets'
   ];
 
@@ -237,6 +241,7 @@
   const API_CONTEXT_LOCAL_STORAGE_KEYS = [
     'pollinations-api-key',
     'pollinations-model',
+    'image-generation-scene-settings',
 
     'google-imagen-enabled',
     'google-imagen-model',
@@ -707,6 +712,10 @@
       const thoughtChainLocalStorageKeys = [
         'ephone_thought_chain_enabled',
         'ephone_thought_chain_items',
+        'ephone_thought_chain_call_enabled',
+        'ephone_thought_chain_call_items',
+        'ephone_thought_chain_offline_enabled',
+        'ephone_thought_chain_offline_items',
         'ephone_thought_chain_presets'
       ];
 
