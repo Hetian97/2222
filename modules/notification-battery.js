@@ -29,6 +29,30 @@
     }
   }
 
+  const backgroundNotificationAudioPlayers = new Set();
+
+  function playBackgroundNotificationSound() {
+    const soundUrl = state.globalSettings.notificationSoundUrl || DEFAULT_NOTIFICATION_SOUND;
+    if (!soundUrl || !soundUrl.trim()) return;
+
+    try {
+      const audio = new Audio(soundUrl);
+      audio.volume = state.globalSettings.notificationVolume !== undefined
+        ? state.globalSettings.notificationVolume
+        : 1.0;
+      backgroundNotificationAudioPlayers.add(audio);
+      const release = () => backgroundNotificationAudioPlayers.delete(audio);
+      audio.addEventListener('ended', release, { once: true });
+      audio.addEventListener('error', release, { once: true });
+      audio.play().catch(error => {
+        release();
+        console.log('[后台网页提示音] 播放失败:', error);
+      });
+    } catch (error) {
+      console.log('[后台网页提示音] 初始化失败:', error);
+    }
+  }
+
 // 原始位置：script.js 第 8891~8960 行
   function showNotification(chatId, messageContent) {
     const chat = state.chats[chatId];
@@ -41,6 +65,10 @@
     // Foreground sound is independent from whether the in-app banner is shown.
     if (isPageVisible) {
       playNotificationSound();
+    } else {
+      // Play the appearance-level custom sound immediately. This intentionally
+      // does not depend on notification permission or a system banner.
+      playBackgroundNotificationSound();
     }
 
     // 应用前台且未查看对应聊天时，使用 EPhone 内部横幅。
