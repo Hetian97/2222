@@ -3197,7 +3197,10 @@
                 </div>
                 <div class="settings-desc">只保存 guide / help / schema 等只读资料，关闭网页不会自动清除。</div>
                 <div id="mcp-guide-cache-usage" style="margin-top:8px; color:var(--text-secondary); font-size:13px;">当前占用：0.00 MB / 10.00 MB</div>
-                <div id="mcp-guide-cache-list" style="margin-top:8px;"></div>
+                <details id="mcp-guide-cache-details" style="margin-top:10px; color:var(--text-secondary);">
+                    <summary style="cursor:pointer; font-size:13px;">查看各 MCP 缓存（按 MCP 清除）</summary>
+                    <div id="mcp-guide-cache-list" style="margin-top:8px;"></div>
+                </details>
             </div>
             
             <div style="font-size: 12px; color: #666; margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 6px;">
