@@ -145,6 +145,26 @@ function removeMessagesAndLinkedMcpActivities(history, timestamps) {
   const selected = timestamps instanceof Set ? timestamps : new Set(timestamps || []);
   if (selected.size === 0) return source;
 
+  // 外部唤醒的自然提示与技术上下文成对保存。删除任意一方时，
+  // 同一外部事件的另一方也必须一起删除，避免留下孤立的内部上下文。
+  const linkedExternalWakeMessages = new Set();
+  const selectedExternalWakeEventIds = new Set(
+    source
+      .filter(message => selected.has(message?.timestamp) && message?.externalWakeEventId)
+      .map(message => String(message.externalWakeEventId))
+  );
+  if (selectedExternalWakeEventIds.size > 0) {
+    source.forEach(message => {
+      if (
+        message?.source === 'external_wake' &&
+        message?.externalWakeEventId &&
+        selectedExternalWakeEventIds.has(String(message.externalWakeEventId))
+      ) {
+        linkedExternalWakeMessages.add(message.timestamp);
+      }
+    });
+  }
+
   const linkedActivities = new Set();
   source.forEach((message, index) => {
     if (message?.type !== 'mcp_activity') return;
@@ -170,7 +190,11 @@ function removeMessagesAndLinkedMcpActivities(history, timestamps) {
     }
   });
 
-  return source.filter(message => !selected.has(message?.timestamp) && !linkedActivities.has(message?.timestamp));
+  return source.filter(message =>
+    !selected.has(message?.timestamp) &&
+    !linkedExternalWakeMessages.has(message?.timestamp) &&
+    !linkedActivities.has(message?.timestamp)
+  );
 }
 // ========== QQ主屏幕Undefined过滤器结束 ==========
 

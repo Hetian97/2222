@@ -104,31 +104,18 @@
   }
 
   async function deliverEvent(event, chatId) {
-    const chat = appState.chats[chatId];
-    if (!chat) throw new Error('指定 Char 已不存在。');
-
-    const wakeMessage = {
-      role: 'user',
-      content: event.message,
-      timestamp: Date.now(),
-      source: 'aisay_wake',
-      aisayWakeCategory: event.category,
-      aisayWakeEventId: event.externalEventId || event.id
-    };
-
-    chat.history = Array.isArray(chat.history) ? chat.history : [];
-    chat.history.push(wakeMessage);
-    await appDb.chats.put(chat);
-
-    if (appState.activeChatId === chatId && typeof appendMessage === 'function') {
-      appendMessage(wakeMessage, chat);
+    if (typeof window.deliverExternalWakeEvent !== 'function') {
+      throw new Error('通用外部唤醒分发器尚未就绪。');
     }
-    if (typeof renderChatList === 'function') renderChatList();
-
-    if (typeof window.triggerAiResponse !== 'function') {
-      throw new Error('EPhone AI 响应入口尚未就绪。');
-    }
-    await window.triggerAiResponse(chatId);
+    await window.deliverExternalWakeEvent({
+      appState,
+      appDb,
+      chatId,
+      provider: 'AISay',
+      event,
+      visibleText: 'AISay 那边好像有新的动静，你要不要去看看？',
+      internalContext: event.message
+    });
   }
 
   async function pollOnce() {
