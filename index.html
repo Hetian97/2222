@@ -131,7 +131,7 @@
   <!-- 第九层：DOMContentLoaded 外部的独立模块 -->
   <script src="modules/video-optimization.js?v=0.0.36" defer></script>
   <script src="modules/clean-chat-detail.js?v=0.0.41" defer></script>
-  <script src="modules/clean-api-settings.js?v=0.0.41" defer></script>
+  <script src="modules/clean-api-settings.js?v=0.0.42" defer></script>
   <script src="modules/api-style-beautify.js?v=0.0.36" defer></script>
   <script src="modules/voice-recording.js?v=0.0.36" defer></script>
   <script src="period-tracker.js?v=0.0.37" defer></script>
@@ -3189,6 +3189,16 @@
                     <span class="slider"></span>
                 </label>
             </div>
+
+            <div class="settings-item-block" id="mcp-guide-cache-manager">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                    <label>清除 MCP 指南缓存</label>
+                    <button class="settings-mini-btn" id="clear-mcp-guide-cache-btn">清除全部</button>
+                </div>
+                <div class="settings-desc">只保存 guide / help / schema 等只读资料，关闭网页不会自动清除。</div>
+                <div id="mcp-guide-cache-usage" style="margin-top:8px; color:var(--text-secondary); font-size:13px;">当前占用：0.00 MB / 10.00 MB</div>
+                <div id="mcp-guide-cache-list" style="margin-top:8px;"></div>
+            </div>
             
             <div style="font-size: 12px; color: #666; margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 6px;">
                 💡 提示：这是全局默认设置。你可以在每个角色的聊天设置中单独覆盖这些选项。
@@ -3613,15 +3623,6 @@
             <button class="settings-full-btn" id="upload-couple-album-url-btn" onclick="uploadCoupleAlbumPhotosToImgBB()">上传情侣空间相册为URL</button>
             <button class="settings-full-btn" id="clear-chat-html-btn">清空聊天的HTML内容</button>
             <button class="settings-full-btn" id="clear-api-history-btn">清空所有API历史记录</button>
-            <div class="settings-item-block" id="mcp-guide-cache-manager">
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
-                    <label>清除 MCP 指南缓存</label>
-                    <button class="settings-mini-btn" id="clear-mcp-guide-cache-btn">清除全部</button>
-                </div>
-                <div class="settings-desc">只保存 guide / help / schema 等只读资料，关闭网页不会自动清除。</div>
-                <div id="mcp-guide-cache-usage" style="margin-top:8px; color:var(--text-secondary); font-size:13px;">当前占用：0.00 MB / 10.00 MB</div>
-                <div id="mcp-guide-cache-list" style="margin-top:8px;"></div>
-            </div>
             <button class="settings-full-btn" id="clear-stickers-btn">一键清空表情包</button>
             <button class="settings-full-btn" id="view-data-distribution-btn" data-lang-key="apiViewDataDistributionBtn">查看数据分布</button>
             <button class="settings-full-btn" id="export-data-btn" data-lang-key="apiExportDataBtn">导出所有数据</button>

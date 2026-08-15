@@ -255,6 +255,17 @@
       byService[key].sizeBytes += Number(entry.sizeBytes || 0);
       byService[key].entries++;
     });
+    // 即使某个 MCP 尚未产生缓存，也显示它的独立清除入口，方便用户知道操作位置。
+    if (Array.isArray(services)) services.filter(service => service && service.url).forEach(service => {
+      const key = serviceKey(service);
+      if (!byService[key]) byService[key] = {
+        serviceKey: key,
+        serviceName: String(service.name || service.url),
+        serviceUrl: String(service.url),
+        sizeBytes: 0,
+        entries: 0
+      };
+    });
     return { totalBytes: entries.reduce((sum, entry) => sum + Number(entry.sizeBytes || 0), 0), totalLimit: TOTAL_LIMIT, perServiceLimit: PER_SERVICE_LIMIT, services: Object.values(byService) };
   }
 

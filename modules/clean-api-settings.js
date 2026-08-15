@@ -98,6 +98,8 @@
 
     const dataSection = sectionAfterHeader(container, '数据管理');
     moveSettingUnit('#global-prompt-clear-memory-switch', dataSection);
+    // MCP 指南缓存紧跟“清空聊天连带长期记忆”，并保持在持久化存储保护之前。
+    moveSettingUnit('#mcp-guide-cache-manager', dataSection);
   }
 
   function buildGroups(container) {

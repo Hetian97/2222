@@ -2979,14 +2979,17 @@ async function cleanupRedundantData() {
         listEl.innerHTML = '<div style="color:var(--text-secondary); font-size:13px;">目前没有已缓存的 MCP 指南。</div>';
         return;
       }
-      listEl.innerHTML = stats.services.map(service => `
+      listEl.innerHTML = stats.services.map(service => {
+        const hasEntries = Number(service.entries || 0) > 0;
+        return `
         <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; border-top:1px solid var(--border-color, #eee);">
           <div style="min-width:0; flex:1;">
             <div style="font-size:14px;">${escapeMcpCacheHtml(service.serviceName)}</div>
-            <div style="color:var(--text-secondary); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${formatMcpCacheSize(service.sizeBytes)} · ${service.entries} 条资料</div>
+            <div style="color:var(--text-secondary); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${hasEntries ? `${formatMcpCacheSize(service.sizeBytes)} · ${service.entries} 条资料` : '暂无缓存'}</div>
           </div>
-          <button class="settings-mini-btn mcp-guide-cache-clear-one" data-cache-key="${encodeURIComponent(service.serviceKey)}">清除</button>
-        </div>`).join('');
+          <button class="settings-mini-btn mcp-guide-cache-clear-one" data-cache-key="${encodeURIComponent(service.serviceKey)}" ${hasEntries ? '' : 'disabled'}>清除</button>
+        </div>`;
+      }).join('');
       listEl.querySelectorAll('.mcp-guide-cache-clear-one').forEach(button => {
         button.addEventListener('click', async () => {
           if (typeof window.clearMcpGuideCacheService !== 'function') return;
