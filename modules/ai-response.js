@@ -5518,10 +5518,22 @@ ${getActiveThoughtsPrompt()}
               console.log("用户已确认外部 MCP 工具调用，开始执行:", stepLabel, requestWithActor);
             }
 
+            console.log(`[MCP] ${stepLabel} 开始：${activityServiceName} / ${requestWithActor.toolName || "(未知工具)"}`);
             const result = await executeExternalMcpToolRequest(requestWithActor, actor);
+            const resultError = getExternalMcpToolResultError(result);
+            const resultSummary = result && typeof result === "object"
+              ? {
+                  ok: result.ok,
+                  isError: result.isError,
+                  hasContent: Array.isArray(result.content) ? result.content.length > 0 : undefined,
+                  error: resultError ? String(resultError.message || resultError).slice(0, 240) : undefined
+                }
+              : { type: typeof result };
+            console.log(`[MCP] ${stepLabel} 返回：${activityServiceName} / ${requestWithActor.toolName || "(未知工具)"}`, resultSummary);
             updateExternalMcpActivityRecord(chat, activityRecord, activityCategory, 'success');
             return { approved: true, result };
           } catch (error) {
+            console.error(`[MCP] ${stepLabel} 失败：${activityServiceName} / ${requestWithActor.toolName || "(未知工具)"}`, error && error.message ? error.message : error);
             updateExternalMcpActivityRecord(chat, activityRecord, activityCategory, 'failed');
             throw error;
           }
