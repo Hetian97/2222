@@ -949,7 +949,7 @@ function buildExternalMcpProxyUrl(path) {
     // 只把 guide/help/schema 等只读资料放入独立的 MCP 指南缓存；缓存失败不能影响真实工具调用。
     if (typeof window.saveMcpGuideCache === 'function') {
       try {
-        await window.saveMcpGuideCache(service, toolName, data);
+        await window.saveMcpGuideCache(service, toolName, data, args);
       } catch (cacheError) {
         console.warn('[MCP Guide Cache] 保存失败，已忽略:', cacheError);
       }

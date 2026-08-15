@@ -78,8 +78,11 @@
     return String(tool?.description || '');
   }
 
-  function isGuideTool(service, toolName) {
-    const text = `${toolName || ''} ${toolDescription(service, toolName)}`.toLowerCase();
+  function isGuideTool(service, toolName, args = {}) {
+    const command = args && typeof args === 'object'
+      ? [args.command, args.cmd, args.action, args.subcommand].filter(Boolean).join(' ')
+      : '';
+    const text = `${toolName || ''} ${toolDescription(service, toolName)} ${command}`.toLowerCase();
     return /(guide|help|schema|manual|reference|instruction|discover|list|status|describe|documentation|指南|帮助|手册|说明|文档|目录|状态|发现)/i.test(text);
   }
 
@@ -136,8 +139,8 @@
     return entries.filter(entry => !expired.includes(entry.id));
   }
 
-  async function save(service, toolName, data) {
-    if (!service?.url || !toolName || !isGuideTool(service, toolName)) return false;
+  async function save(service, toolName, data, args = {}) {
+    if (!service?.url || !toolName || !isGuideTool(service, toolName, args)) return false;
     const rawText = redactSensitiveText(textFromValue(data)).trim();
     if (!rawText) return false;
     const text = truncateToBytes(rawText, PER_SERVICE_LIMIT);
