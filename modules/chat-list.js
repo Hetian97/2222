@@ -62,9 +62,13 @@
     }
     if (screenId === 'api-settings-screen') {
       window.renderApiSettingsProxy();
+      window.refreshMcpGuideCachePanel?.();
       if (state.globalSettings.cleanApiSettings && typeof window.openCleanApiSettings === 'function') {
         // 整洁模式：先让原有回显完成，再构建Tab界面
-        setTimeout(() => window.openCleanApiSettings(), 50);
+        setTimeout(() => {
+          window.openCleanApiSettings();
+          window.refreshMcpGuideCachePanel?.();
+        }, 50);
       }
     }
     if (screenId === 'wallpaper-screen') window.renderWallpaperScreenProxy();

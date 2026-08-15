@@ -946,6 +946,15 @@ function buildExternalMcpProxyUrl(path) {
       setExternalMcpToolCachedResult(cacheKey, data, (service.name || service.url) + " / " + toolName);
     }
 
+    // 只把 guide/help/schema 等只读资料放入独立的 MCP 指南缓存；缓存失败不能影响真实工具调用。
+    if (typeof window.saveMcpGuideCache === 'function') {
+      try {
+        await window.saveMcpGuideCache(service, toolName, data);
+      } catch (cacheError) {
+        console.warn('[MCP Guide Cache] 保存失败，已忽略:', cacheError);
+      }
+    }
+
     return {
       serviceName: service.name || service.url,
       toolName,
@@ -5094,6 +5103,22 @@ ${getActiveThoughtsPrompt()}
 
       if (mcpToolDirectoryPromptForMainChat) {
         systemPrompt += '\n\n' + mcpToolDirectoryPromptForMainChat;
+      }
+
+      // 指南缓存独立于聊天记录，仅在本轮需要 MCP 目录时作为隐藏参考注入，避免长指南反复膨胀上下文。
+      if (shouldEnableExternalMcpForThisChat && mcpToolDirectoryPromptForMainChat && typeof window.getMcpGuideCacheContext === 'function') {
+        try {
+          const cachedGuideContext = await window.getMcpGuideCacheContext(
+            getLatestUserTextForExternalMcpMemory(messagesPayload),
+            getExternalMcpServiceConfigsForChat()
+          );
+          if (cachedGuideContext) {
+            systemPrompt += '\n\n' + cachedGuideContext;
+            console.log('[MCP Guide Cache] 注入缓存指南上下文:', cachedGuideContext.length);
+          }
+        } catch (cacheError) {
+          console.warn('[MCP Guide Cache] 读取失败，已忽略:', cacheError);
+        }
       }
 
       // 注入 思维链 底部触发器

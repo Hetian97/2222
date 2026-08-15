@@ -67,11 +67,12 @@
   <script src="modules/ui-modals.js?v=0.0.36" defer></script>
   <script src="modules/ui-loaders.js?v=0.0.36" defer></script>
   <!-- 第三层：核心聊天功能 -->
-  <script src="modules/chat-list.js?v=0.0.37" defer></script>
+  <script src="modules/chat-list.js?v=0.0.38" defer></script>
   <script src="modules/chat-interface.js?v=0.0.42" defer></script>
   <script src="modules/chat-input.js?v=0.0.37" defer></script>
+  <script src="modules/mcp-guide-cache.js?v=0.0.1" defer></script>
   <!-- 第四层：AI 核心 -->
-  <script src="modules/ai-response.js?v=0.0.106" defer></script>
+  <script src="modules/ai-response.js?v=0.0.107" defer></script>
   <script src="modules/ai-group.js?v=0.0.40" defer></script>
   <!-- 第五层：功能模块 -->
   <script src="modules/music-player.js?v=0.0.36" defer></script>
@@ -109,7 +110,7 @@
   <script src="modules/background-activity.js?v=0.0.37" defer></script>
   <script src="modules/card-import.js?v=0.0.36" defer></script>
   <script src="modules/character-export.js?v=0.0.37" defer></script>
-  <script src="modules/data-management.js?v=0.0.38" defer></script>
+  <script src="modules/data-management.js?v=0.0.39" defer></script>
   <script src="modules/misc-features.js?v=0.0.48" defer></script>
   <!-- 第八层：初始化（必须在所有模块之后） -->
   <!-- 数据定义（无依赖） -->
@@ -124,7 +125,7 @@
   <!-- 事件绑定和功能（依赖 state, db） -->
   <script src="modules/init-event-bindingsA.js?v=0.0.44" defer></script>
   <script src="modules/init-event-bindingsB.js?v=0.0.39" defer></script>
-  <script src="modules/init-features.js?v=0.0.37" defer></script>
+  <script src="modules/init-features.js?v=0.0.38" defer></script>
   <!-- 主入口（最后加载，调用 init） -->
   <script src="modules/init-and-state.js?v=0.0.38" defer></script>
   <!-- 第九层：DOMContentLoaded 外部的独立模块 -->
@@ -3612,6 +3613,15 @@
             <button class="settings-full-btn" id="upload-couple-album-url-btn" onclick="uploadCoupleAlbumPhotosToImgBB()">上传情侣空间相册为URL</button>
             <button class="settings-full-btn" id="clear-chat-html-btn">清空聊天的HTML内容</button>
             <button class="settings-full-btn" id="clear-api-history-btn">清空所有API历史记录</button>
+            <div class="settings-item" id="mcp-guide-cache-manager" style="display:block;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                    <label>清除 MCP 指南缓存</label>
+                    <button class="settings-mini-btn" id="clear-mcp-guide-cache-btn">清除全部</button>
+                </div>
+                <div class="settings-desc">只保存 guide / help / schema 等只读资料，关闭网页不会自动清除。</div>
+                <div id="mcp-guide-cache-usage" style="margin-top:8px; color:var(--text-secondary); font-size:13px;">当前占用：0.00 MB / 10.00 MB</div>
+                <div id="mcp-guide-cache-list" style="margin-top:8px;"></div>
+            </div>
             <button class="settings-full-btn" id="clear-stickers-btn">一键清空表情包</button>
             <button class="settings-full-btn" id="view-data-distribution-btn" data-lang-key="apiViewDataDistributionBtn">查看数据分布</button>
             <button class="settings-full-btn" id="export-data-btn" data-lang-key="apiExportDataBtn">导出所有数据</button>

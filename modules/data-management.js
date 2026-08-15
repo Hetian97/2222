@@ -2957,6 +2957,64 @@ async function cleanupRedundantData() {
   }
 
   // ========== 全局暴露 ==========
+  // ========== MCP 指南缓存管理 ==========
+  function escapeMcpCacheHtml(value) {
+    return String(value || '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[char]));
+  }
+
+  function formatMcpCacheSize(bytes) {
+    return `${(Number(bytes || 0) / 1024 / 1024).toFixed(2)} MB`;
+  }
+
+  async function refreshMcpGuideCachePanel() {
+    const usageEl = document.getElementById('mcp-guide-cache-usage');
+    const listEl = document.getElementById('mcp-guide-cache-list');
+    if (!usageEl || !listEl || typeof window.getMcpGuideCacheStats !== 'function') return;
+    try {
+      const stats = await window.getMcpGuideCacheStats();
+      usageEl.textContent = `当前占用：${formatMcpCacheSize(stats.totalBytes)} / ${formatMcpCacheSize(stats.totalLimit)}（有效期 30 天，单个 MCP 上限 ${formatMcpCacheSize(stats.perServiceLimit)}）`;
+      if (!stats.services.length) {
+        listEl.innerHTML = '<div style="color:var(--text-secondary); font-size:13px;">目前没有已缓存的 MCP 指南。</div>';
+        return;
+      }
+      listEl.innerHTML = stats.services.map(service => `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 0; border-top:1px solid var(--border-color, #eee);">
+          <div style="min-width:0; flex:1;">
+            <div style="font-size:14px;">${escapeMcpCacheHtml(service.serviceName)}</div>
+            <div style="color:var(--text-secondary); font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${formatMcpCacheSize(service.sizeBytes)} · ${service.entries} 条资料</div>
+          </div>
+          <button class="settings-mini-btn mcp-guide-cache-clear-one" data-cache-key="${encodeURIComponent(service.serviceKey)}">清除</button>
+        </div>`).join('');
+      listEl.querySelectorAll('.mcp-guide-cache-clear-one').forEach(button => {
+        button.addEventListener('click', async () => {
+          if (typeof window.clearMcpGuideCacheService !== 'function') return;
+          const service = stats.services.find(item => encodeURIComponent(item.serviceKey) === button.dataset.cacheKey);
+          if (!service) return;
+          const confirmed = await showCustomConfirm('清除 MCP 指南缓存', `确定清除「${service.serviceName}」的指南缓存吗？`);
+          if (!confirmed) return;
+          await window.clearMcpGuideCacheService(service.serviceKey);
+          await refreshMcpGuideCachePanel();
+        });
+      });
+    } catch (error) {
+      console.warn('[MCP Guide Cache] 管理面板刷新失败:', error);
+      usageEl.textContent = '当前占用：暂时无法读取';
+      listEl.innerHTML = '<div style="color:var(--text-secondary); font-size:13px;">缓存数据库暂时不可用。</div>';
+    }
+  }
+
+  async function clearAllMcpGuideCacheFromUi() {
+    if (typeof window.clearMcpGuideCache !== 'function') return;
+    const confirmed = await showCustomConfirm('清除 MCP 指南缓存', '确定清除全部 MCP 指南缓存吗？这不会影响聊天记录、API 配置或 MCP 服务配置。');
+    if (!confirmed) return;
+    await window.clearMcpGuideCache();
+    await refreshMcpGuideCachePanel();
+  }
+
+  window.refreshMcpGuideCachePanel = refreshMcpGuideCachePanel;
+  window.clearAllMcpGuideCacheFromUi = clearAllMcpGuideCacheFromUi;
   window.openDataClearWizard = openDataClearWizard;
   window.openWorldBookDeletionModal = openWorldBookDeletionModal;
   window.openWorldBookEditor = openWorldBookEditor;

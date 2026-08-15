@@ -1585,6 +1585,12 @@ window.initFeatures = function(state, db) {
       }
     });
 
+    const clearMcpGuideCacheBtn = document.getElementById('clear-mcp-guide-cache-btn');
+    if (clearMcpGuideCacheBtn) {
+      clearMcpGuideCacheBtn.addEventListener('click', () => window.clearAllMcpGuideCacheFromUi?.());
+      window.refreshMcpGuideCachePanel?.();
+    }
+
     document.getElementById('clear-chat-images-modal').addEventListener('click', (e) => {
       const item = e.target.closest('.clear-posts-item');
       if (item) {
