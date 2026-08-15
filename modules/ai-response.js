@@ -232,7 +232,9 @@ function buildExternalMcpProxyUrl(path) {
           service.tools.length > 0 &&
           isExternalMcpServiceAllowedForActor(service, actor) &&
           (!isBackgroundActivity || service.backgroundActivityEnabled === true) &&
-          (isBackgroundActivity || isExternalMcpServiceTriggeredByMessage(service, latestUserText));
+          (isBackgroundActivity ||
+            isExternalMcpServiceTriggeredByMessage(service, latestUserText) ||
+            isExternalMcpServiceExplicitlyMentioned(service, latestUserText));
       }).map(service => isBackgroundActivity
         ? {
             ...service,
@@ -257,7 +259,7 @@ function buildExternalMcpProxyUrl(path) {
         '当前系统已启用以下外部 MCP 工具服务。你可以根据用户请求、当前对话语境和角色自身需要，自行判断是否需要使用外部 MCP 工具。',
         '',
         '重要规则：',
-        '1. 如果用户的问题可以直接回答，不要调用工具，正常回复即可。',
+        '1. 如果用户的问题可以直接回答，且没有明确提到某个外部 MCP 服务，不要调用工具，正常回复即可。',
         '2. 如果当前回复需要最新信息、外部事实、设备状态、屏幕/使用情况、网页搜索、公开网页、GitHub README、指定文章内容，且下方有合适工具，你可以主动发起工具调用请求；不必等用户明确说“使用 MCP”。',
         '3. 你不能自己执行工具，也不能假装已经搜索、读取或调用成功。',
         '4. 当你需要调用工具时，必须只输出一个 external_mcp_tool_call 代码块，不要添加任何解释、寒暄或多余文本。',
@@ -272,6 +274,9 @@ function buildExternalMcpProxyUrl(path) {
         '13. 对 search / bing_search / query 等搜索类工具，arguments.query 应尽量使用用户当前问题的核心原句，不要随意改写、扩写或换同义词；这样系统可以复用 5 分钟缓存。只有当用户问题太长或包含明显无关内容时，才做最小化清理。',
         '14. 工具返回结果是真实状态的唯一依据：只有返回明确成功状态、成功标识或成功生成的对象 ID 时，才能说“已完成/已发送/已发布/已删除”。如果返回 isError=true、ok=false、错误信息、空结果或无法确认，就必须如实说调用失败、未完成或暂时无法确认，不得为了保持剧情而说成成功。',
         '15. 工具调用可以自然融入线上或线下对话：可以简短提到服务名、工具名和正在进行的步骤，但必须区分“尝试调用”和“调用成功”，并以真实返回结果为准；不要隐藏失败，也不要把计划、请求或部分结果写成已经完成的动作。',
+        '16. 如果用户明确点名下方列出的某个 MCP 服务，或明确要求你去查看、进入、搜索、读取、操作该服务，这是真实外部操作请求，不是虚构剧情或角色过家家。你必须先发起真实 external_mcp_tool_call；不要顺着用户的话直接编造“我看到了”“我已经进入”或“我已经完成”。',
+        '17. 如果你不确定该服务的工具名称、子命令、参数或真实对象 ID，不要猜测，也不要把自然语言当成已经执行；先调用该服务提供的 help、guide、list、status、schema、get、show 等读取工具查明用法，再继续原请求。若目录中没有这些读取工具，就如实说明缺少可用工具。',
+        '18. 工具调用本身返回成功，不等于用户要求的业务目标已经达成；如果真实返回表示未找到、未加入、未发布、参数不匹配、需要补充信息或其他业务未达成，必须把该结果如实融入自然回复，并说明下一步需要核对什么。',
         '',
         '【Notion 私有日记路由规则】',
         'A. 当用户要求读取、查看、写入、追加、创建、更新 Notion 页面、Notion 数据库、交换日记、夏以昼的日记、夏芷鹤的日记等私有内容时，必须优先使用 Notion 交换日记服务，不要使用 Web Search。',
@@ -663,6 +668,22 @@ function buildExternalMcpProxyUrl(path) {
     if (!text.trim()) return false;
 
     return keywords.some(keyword => text.includes(keyword));
+  }
+
+  function isExternalMcpServiceExplicitlyMentioned(service, latestUserText) {
+    const normalizeMentionText = value => String(value || '')
+      .toLowerCase()
+      .replace(/[’‘`]/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim();
+    const text = normalizeMentionText(latestUserText);
+    if (!text.trim()) return false;
+
+    return getExternalMcpServiceAliases(service).some(alias => {
+      const normalizedAlias = normalizeMentionText(alias);
+      // 忽略过短的标识，避免把“AI”“MCP”等通用片段误判为点名服务。
+      return normalizedAlias.length >= 2 && text.includes(normalizedAlias);
+    });
   }
 
   function describeExternalMcpAllowedCallers(service) {
