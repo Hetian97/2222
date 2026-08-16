@@ -1664,6 +1664,28 @@
   window.loadMoreMessages = loadMoreMessages;
   window.scrollToOriginalMessage = scrollToOriginalMessage;
 
+  // 从后台回到 PWA 时，当前聊天页可能在后台期间收到了新消息。
+  // 后台响应会正常写入 chat.history，但不会直接操作已隐藏的聊天 DOM；
+  // 因此仅在“回到前台且仍停留在聊天页”时重新渲染当前会话。
+  // 消息列表/桌面的未读角标逻辑不受影响。
+  let chatPageRefreshOnResumeScheduled = false;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible' || chatPageRefreshOnResumeScheduled) return;
+    const chatScreen = document.getElementById('chat-interface-screen');
+    const chatId = state.activeChatId;
+    if (!chatScreen || !chatScreen.classList.contains('active') || !chatId || !state.chats[chatId]) return;
+
+    chatPageRefreshOnResumeScheduled = true;
+    requestAnimationFrame(async () => {
+      try {
+        // 让 PWA 从后台恢复后的 IndexedDB/state 写入先完成，再读取最新 history。
+        await renderChatInterface(chatId);
+      } finally {
+        chatPageRefreshOnResumeScheduled = false;
+      }
+    });
+  });
+
   // ========== 从 script.js 迁移：openChatSettings ==========
   function openChatSettings() {
     // 直接触发 chat-settings-btn 的 click，
