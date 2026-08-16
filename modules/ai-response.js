@@ -232,7 +232,7 @@ function buildExternalMcpProxyUrl(path) {
           service.tools.length > 0 &&
           isExternalMcpServiceAllowedForActor(service, actor) &&
           (!isBackgroundActivity || service.backgroundActivityEnabled === true) &&
-          (isBackgroundActivity ||
+          (isBackgroundActivity || options.includeUntriggeredDirectory === true ||
             isExternalMcpServiceTriggeredByMessage(service, latestUserText) ||
             isExternalMcpServiceExplicitlyMentioned(service, latestUserText));
       }).map(service => isBackgroundActivity
@@ -251,7 +251,11 @@ function buildExternalMcpProxyUrl(path) {
     try {
       const isBackgroundActivity = options.externalMcpBackground === true;
       const latestUserText = getLatestUserTextForExternalMcpMemory(messagesPayload);
-      const enabledServices = getEnabledExternalMcpServicesForTurn(chat, messagesPayload, options);
+      // 普通聊天保留轻量目录，但只有被当前消息点名/触发的服务才进入实际调用与指南缓存候选。
+      const enabledServices = getEnabledExternalMcpServicesForTurn(chat, messagesPayload, {
+        ...options,
+        includeUntriggeredDirectory: true
+      });
 
       console.log("[MCP Directory] 工具目录服务:", enabledServices.map(service => ({
         name: service.name || service.url,
