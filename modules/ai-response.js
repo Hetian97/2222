@@ -211,19 +211,19 @@ function buildExternalMcpProxyUrl(path) {
     return context;
   }
 
-  function buildEnabledMcpServicesPrompt(chat, messagesPayload, options = {}) {
+  function getEnabledExternalMcpServicesForTurn(chat, messagesPayload, options = {}) {
     try {
       const raw = localStorage.getItem('mcpServiceConfigs');
-      if (!raw) return '';
+      if (!raw) return [];
 
       const services = JSON.parse(raw);
-      if (!Array.isArray(services)) return '';
+      if (!Array.isArray(services)) return [];
 
       const isBackgroundActivity = options.externalMcpBackground === true;
       const actor = buildExternalMcpActorContext(chat, isBackgroundActivity ? "background_mcp" : undefined);
       const latestUserText = getLatestUserTextForExternalMcpMemory(messagesPayload);
 
-      const enabledServices = services.filter(service => {
+      return services.filter(service => {
         const mode = service && service.mode ? String(service.mode) : 'tools';
         return service &&
           service.enabled !== false &&
@@ -242,6 +242,16 @@ function buildExternalMcpProxyUrl(path) {
           }
         : service
       ).filter(service => service.tools.length > 0);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function buildEnabledMcpServicesPrompt(chat, messagesPayload, options = {}) {
+    try {
+      const isBackgroundActivity = options.externalMcpBackground === true;
+      const latestUserText = getLatestUserTextForExternalMcpMemory(messagesPayload);
+      const enabledServices = getEnabledExternalMcpServicesForTurn(chat, messagesPayload, options);
 
       console.log("[MCP Directory] 工具目录服务:", enabledServices.map(service => ({
         name: service.name || service.url,
@@ -5110,7 +5120,7 @@ ${getActiveThoughtsPrompt()}
         try {
           const cachedGuideContext = await window.getMcpGuideCacheContext(
             getLatestUserTextForExternalMcpMemory(messagesPayload),
-            getExternalMcpServiceConfigsForChat()
+            getEnabledExternalMcpServicesForTurn(chat, messagesPayload, responseOptions)
           );
           if (cachedGuideContext) {
             systemPrompt += '\n\n' + cachedGuideContext;
