@@ -1680,6 +1680,13 @@
       try {
         // 让 PWA 从后台恢复后的 IndexedDB/state 写入先完成，再读取最新 history。
         await renderChatInterface(chatId);
+        // 后台期间当前会话可能先被计入未读；用户已经回到该聊天页，
+        // 因此同步清零，避免返回消息列表后残留一个过期的未读角标。
+        const chat = state.chats[chatId];
+        if (chat && chat.unreadCount > 0) {
+          chat.unreadCount = 0;
+          await db.chats.put(chat);
+        }
       } finally {
         chatPageRefreshOnResumeScheduled = false;
       }
