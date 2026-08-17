@@ -232,9 +232,13 @@ function buildExternalMcpProxyUrl(path) {
           service.tools.length > 0 &&
           isExternalMcpServiceAllowedForActor(service, actor) &&
           (!isBackgroundActivity || service.backgroundActivityEnabled === true) &&
-          (isBackgroundActivity || options.includeUntriggeredDirectory === true ||
-            isExternalMcpServiceTriggeredByMessage(service, latestUserText) ||
-            isExternalMcpServiceExplicitlyMentioned(service, latestUserText));
+          (options.requireTriggerForGuide === true
+            ? ((parseExternalMcpTriggerKeywords(service).length > 0 &&
+                isExternalMcpServiceTriggeredByMessage(service, latestUserText)) ||
+              isExternalMcpServiceExplicitlyMentioned(service, latestUserText))
+            : (isBackgroundActivity || options.includeUntriggeredDirectory === true ||
+              isExternalMcpServiceTriggeredByMessage(service, latestUserText) ||
+              isExternalMcpServiceExplicitlyMentioned(service, latestUserText)));
       }).map(service => isBackgroundActivity
         ? {
             ...service,
@@ -5124,7 +5128,10 @@ ${getActiveThoughtsPrompt()}
         try {
           const cachedGuideContext = await window.getMcpGuideCacheContext(
             getLatestUserTextForExternalMcpMemory(messagesPayload),
-            getEnabledExternalMcpServicesForTurn(chat, messagesPayload, responseOptions)
+            getEnabledExternalMcpServicesForTurn(chat, messagesPayload, {
+              ...responseOptions,
+              requireTriggerForGuide: true
+            })
           );
           if (cachedGuideContext) {
             systemPrompt += '\n\n' + cachedGuideContext;
