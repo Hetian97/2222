@@ -4,14 +4,20 @@
   if (root) root.TimeZoneUtils = api;
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   const LEGACY_TIME_ZONE = 'Europe/London';
+  const validTimeZones = new Set(['UTC', LEGACY_TIME_ZONE]);
+  const invalidTimeZones = new Set();
 
   function isValidTimeZone(value) {
     const timeZone = String(value || '').trim();
     if (!timeZone) return false;
+    if (validTimeZones.has(timeZone)) return true;
+    if (invalidTimeZones.has(timeZone)) return false;
     try {
       new Intl.DateTimeFormat('en-US', { timeZone }).format(0);
+      validTimeZones.add(timeZone);
       return true;
     } catch (_) {
+      invalidTimeZones.add(timeZone);
       return false;
     }
   }
