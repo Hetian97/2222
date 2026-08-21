@@ -2,7 +2,7 @@
 // 【智能缓存策略】- 根据资源类型使用不同的缓存策略，优化加载速度
 
 // 缓存版本号（智能缓存策略）
-const CACHE_VERSION = 'v0.0.65';
+const CACHE_VERSION = 'v0.0.66';
 const CACHE_NAME = `ephone-cache-${CACHE_VERSION}`;
 
 // 需要被缓存的文件列表（仅用于离线访问）
@@ -11,7 +11,7 @@ const URLS_TO_CACHE = [
   './style.css',
   './online-app.css',
   './script.js',
-  'https://unpkg.com/dexie/dist/dexie.js',
+  './vendor/dexie.js?v=4.4.5',
   'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
   'https://phoebeboo.github.io/mewoooo/pp.js',
   'https://cdn.jsdelivr.net/npm/streamsaver@2.0.6/StreamSaver.min.js',
@@ -25,7 +25,11 @@ self.addEventListener('install', event => {
     caches.open(CACHE_NAME)
       .then(cache => {
         console.log('[SW] 缓存已打开，正在缓存核心文件（用于离线访问）...');
-        return cache.addAll(URLS_TO_CACHE);
+        return Promise.allSettled(URLS_TO_CACHE.map(url =>
+          cache.add(url).catch(error => {
+            console.warn('[SW] 跳过无法预缓存的资源:', url, error);
+          })
+        ));
       })
       .then(() => {
         console.log('[SW] 所有核心文件已缓存成功！');
