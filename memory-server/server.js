@@ -221,6 +221,16 @@ function now() {
   return Date.now();
 }
 
+function normalizeTimeZone(value, fallback = 'UTC') {
+  const candidate = String(value || '').trim();
+  try {
+    if (candidate) new Intl.DateTimeFormat('en-US', { timeZone: candidate }).format(0);
+    return candidate || fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
 function makeId() {
   return 'mem_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
 }
@@ -330,6 +340,10 @@ function normalizeMemoryFragment(body) {
 
     createdAt: body.createdAt ?? timestamp,
     memoryTime: body.memoryTime ?? timestamp,
+    memoryTimeZone: normalizeTimeZone(body.memoryTimeZone, ''),
+    createdAtTimeZone: normalizeTimeZone(body.createdAtTimeZone, normalizeTimeZone(body.memoryTimeZone, '')),
+    updatedAt: body.updatedAt ?? timestamp,
+    updatedAtTimeZone: normalizeTimeZone(body.updatedAtTimeZone, normalizeTimeZone(body.createdAtTimeZone, normalizeTimeZone(body.memoryTimeZone, ''))),
     lastRecalled: body.lastRecalled ?? 0,
     recallCount: clampNumber(body.recallCount, 0, 999999, 0),
 
@@ -337,6 +351,12 @@ function normalizeMemoryFragment(body) {
     embeddingModel: body.embeddingModel ? String(body.embeddingModel) : '',
     embeddingDim: Number(body.embeddingDim || (Array.isArray(body.embedding) ? body.embedding.length : 0)),
     embeddingUpdatedAt: body.embeddingUpdatedAt ? String(body.embeddingUpdatedAt) : '',
+    embeddingUpdatedAtTimeZone: body.embeddingUpdatedAt
+      ? normalizeTimeZone(body.embeddingUpdatedAtTimeZone, normalizeTimeZone(body.updatedAtTimeZone, ''))
+      : '',
+    lastRecalledTimeZone: body.lastRecalled
+      ? normalizeTimeZone(body.lastRecalledTimeZone, normalizeTimeZone(body.updatedAtTimeZone, ''))
+      : '',
 
     linkedMemories: normalizeLinkedMemories(body.linkedMemories),
 
@@ -3480,7 +3500,8 @@ const server = http.createServer(async (req, res) => {
         body.eventId,
         body.claimToken,
         body.status,
-        body.error || ''
+        body.error || '',
+        normalizeTimeZone(body.timeZone, 'UTC')
       );
 
       if (!updated) {

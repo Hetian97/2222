@@ -25,14 +25,18 @@ CREATE TABLE IF NOT EXISTS memories (
   emotionalWeight INTEGER DEFAULT 5,
   tags TEXT,
   memoryTime TEXT,
+  memoryTimeZone TEXT,
   createdAt TEXT,
+  createdAtTimeZone TEXT,
   updatedAt TEXT,
+  updatedAtTimeZone TEXT,
   lastRecalled TEXT,
   recallCount INTEGER DEFAULT 0,
   embedding TEXT,
   embeddingModel TEXT,
   embeddingDim INTEGER DEFAULT 0,
   embeddingUpdatedAt TEXT,
+  embeddingUpdatedAtTimeZone TEXT,
   linkedMemories TEXT,
   source TEXT,
   context TEXT
@@ -287,6 +291,24 @@ function ensureColumn(table, column, definition) {
 ensureColumn('memories', 'embeddingModel', 'TEXT');
 ensureColumn('memories', 'embeddingDim', 'INTEGER DEFAULT 0');
 ensureColumn('memories', 'embeddingUpdatedAt', 'TEXT');
+ensureColumn('memories', 'memoryTimeZone', 'TEXT');
+ensureColumn('memories', 'createdAtTimeZone', 'TEXT');
+ensureColumn('memories', 'updatedAtTimeZone', 'TEXT');
+ensureColumn('memories', 'embeddingUpdatedAtTimeZone', 'TEXT');
+ensureColumn('memories', 'lastRecalledTimeZone', 'TEXT');
+db.prepare(`UPDATE memories SET
+  memoryTimeZone = COALESCE(NULLIF(memoryTimeZone, ''), 'Europe/London'),
+  createdAtTimeZone = COALESCE(NULLIF(createdAtTimeZone, ''), 'Europe/London'),
+  updatedAtTimeZone = COALESCE(NULLIF(updatedAtTimeZone, ''), 'Europe/London'),
+  embeddingUpdatedAtTimeZone = CASE WHEN CAST(COALESCE(embeddingUpdatedAt, '0') AS INTEGER) > 0
+    THEN COALESCE(NULLIF(embeddingUpdatedAtTimeZone, ''), 'Europe/London') ELSE embeddingUpdatedAtTimeZone END,
+  lastRecalledTimeZone = CASE WHEN CAST(COALESCE(lastRecalled, '0') AS INTEGER) > 0
+    THEN COALESCE(NULLIF(lastRecalledTimeZone, ''), 'Europe/London') ELSE lastRecalledTimeZone END
+WHERE memoryTimeZone IS NULL OR memoryTimeZone = ''
+   OR createdAtTimeZone IS NULL OR createdAtTimeZone = ''
+   OR updatedAtTimeZone IS NULL OR updatedAtTimeZone = ''
+   OR (CAST(COALESCE(embeddingUpdatedAt, '0') AS INTEGER) > 0 AND (embeddingUpdatedAtTimeZone IS NULL OR embeddingUpdatedAtTimeZone = ''))
+   OR (CAST(COALESCE(lastRecalled, '0') AS INTEGER) > 0 AND (lastRecalledTimeZone IS NULL OR lastRecalledTimeZone = ''))`).run();
 ensureColumn('memory_search_logs', 'fts', 'TEXT');
 ensureColumn('memory_search_logs', 'shadowPolicy', 'TEXT');
 ensureColumn('memory_search_logs', 'turnId', 'TEXT');
@@ -524,14 +546,19 @@ function normalizeMemory(row) {
     emotionalWeight: row.emotionalWeight ?? 5,
     tags: safeJsonParse(row.tags, []),
     memoryTime: row.memoryTime,
+    memoryTimeZone: row.memoryTimeZone || '',
     createdAt: row.createdAt,
+    createdAtTimeZone: row.createdAtTimeZone || '',
     updatedAt: row.updatedAt,
+    updatedAtTimeZone: row.updatedAtTimeZone || '',
     lastRecalled: row.lastRecalled ?? 0,
     recallCount: row.recallCount || 0,
     embedding: safeJsonParse(row.embedding, null),
     embeddingModel: row.embeddingModel || '',
     embeddingDim: Number(row.embeddingDim || 0),
     embeddingUpdatedAt: row.embeddingUpdatedAt || '',
+    embeddingUpdatedAtTimeZone: row.embeddingUpdatedAtTimeZone || '',
+    lastRecalledTimeZone: row.lastRecalledTimeZone || '',
     linkedMemories: safeJsonParse(row.linkedMemories, []),
     source: row.source || 'external',
     context: row.context || ''
@@ -540,6 +567,7 @@ function normalizeMemory(row) {
 
 function addMemory(memory) {
   const now = Date.now();
+  const existing = memory.id ? db.prepare('SELECT * FROM memories WHERE id = ?').get(String(memory.id)) : null;
 
   const normalizedEmbedding =
     Array.isArray(memory.embedding) && memory.embedding.length > 0
@@ -555,14 +583,19 @@ function addMemory(memory) {
     emotionalWeight: Number(memory.emotionalWeight ?? 5),
     tags: safeJsonStringify(memory.tags || []),
     memoryTime: String(memory.memoryTime ?? now),
+    memoryTimeZone: String(memory.memoryTimeZone || existing?.memoryTimeZone || 'UTC'),
     createdAt: String(memory.createdAt ?? now),
+    createdAtTimeZone: String(memory.createdAtTimeZone || existing?.createdAtTimeZone || memory.memoryTimeZone || 'UTC'),
     updatedAt: String(memory.updatedAt ?? now),
+    updatedAtTimeZone: String(memory.updatedAtTimeZone || existing?.updatedAtTimeZone || memory.createdAtTimeZone || memory.memoryTimeZone || 'UTC'),
     lastRecalled: String(memory.lastRecalled ?? 0),
     recallCount: Number(memory.recallCount || 0),
     embedding: safeJsonStringify(normalizedEmbedding),
     embeddingModel: normalizedEmbedding ? (memory.embeddingModel ? String(memory.embeddingModel) : '') : '',
     embeddingDim: normalizedEmbedding ? Number(memory.embeddingDim || normalizedEmbedding.length) : 0,
     embeddingUpdatedAt: normalizedEmbedding ? (memory.embeddingUpdatedAt ? String(memory.embeddingUpdatedAt) : String(Date.now())) : '',
+    embeddingUpdatedAtTimeZone: normalizedEmbedding ? String(memory.embeddingUpdatedAtTimeZone || existing?.embeddingUpdatedAtTimeZone || memory.updatedAtTimeZone || memory.memoryTimeZone || 'UTC') : '',
+    lastRecalledTimeZone: String(memory.lastRecalledTimeZone || existing?.lastRecalledTimeZone || ''),
     linkedMemories: safeJsonStringify(memory.linkedMemories || []),
     source: memory.source ? String(memory.source) : 'external',
     context: memory.context ? String(memory.context) : ''
@@ -571,14 +604,14 @@ function addMemory(memory) {
   const stmt = db.prepare(`
     INSERT INTO memories (
       id, chatId, content, category, importance, emotionalWeight,
-      tags, memoryTime, createdAt, updatedAt, lastRecalled,
+      tags, memoryTime, memoryTimeZone, createdAt, createdAtTimeZone, updatedAt, updatedAtTimeZone, lastRecalled, lastRecalledTimeZone,
       recallCount, embedding, embeddingModel, embeddingDim, embeddingUpdatedAt,
-      linkedMemories, source, context
+      embeddingUpdatedAtTimeZone, linkedMemories, source, context
     ) VALUES (
       @id, @chatId, @content, @category, @importance, @emotionalWeight,
-      @tags, @memoryTime, @createdAt, @updatedAt, @lastRecalled,
+      @tags, @memoryTime, @memoryTimeZone, @createdAt, @createdAtTimeZone, @updatedAt, @updatedAtTimeZone, @lastRecalled, @lastRecalledTimeZone,
       @recallCount, @embedding, @embeddingModel, @embeddingDim, @embeddingUpdatedAt,
-      @linkedMemories, @source, @context
+      @embeddingUpdatedAtTimeZone, @linkedMemories, @source, @context
     )
     ON CONFLICT(id) DO UPDATE SET
       chatId = excluded.chatId,
@@ -588,14 +621,19 @@ function addMemory(memory) {
       emotionalWeight = excluded.emotionalWeight,
       tags = excluded.tags,
       memoryTime = excluded.memoryTime,
+      memoryTimeZone = excluded.memoryTimeZone,
       createdAt = excluded.createdAt,
+      createdAtTimeZone = excluded.createdAtTimeZone,
       updatedAt = excluded.updatedAt,
+      updatedAtTimeZone = excluded.updatedAtTimeZone,
       lastRecalled = excluded.lastRecalled,
+      lastRecalledTimeZone = excluded.lastRecalledTimeZone,
       recallCount = excluded.recallCount,
       embedding = excluded.embedding,
       embeddingModel = excluded.embeddingModel,
       embeddingDim = excluded.embeddingDim,
       embeddingUpdatedAt = excluded.embeddingUpdatedAt,
+      embeddingUpdatedAtTimeZone = excluded.embeddingUpdatedAtTimeZone,
       linkedMemories = excluded.linkedMemories,
       source = excluded.source,
       context = excluded.context
@@ -1246,7 +1284,7 @@ function commitMemorySearchInjection(searchId, requestedMemoryIds = []) {
   })();
 }
 
-function finishMemorySearchGeneration(searchId, outcome = 'succeeded', errorText = '') {
+function finishMemorySearchGeneration(searchId, outcome = 'succeeded', errorText = '', timeZone = 'UTC') {
   const safeSearchId = String(searchId || '').trim();
   if (!safeSearchId) throw new Error('searchId is required');
   const safeOutcome = outcome === 'failed' ? 'failed' : 'succeeded';
@@ -1269,11 +1307,12 @@ function finishMemorySearchGeneration(searchId, outcome = 'succeeded', errorText
     const updateMemory = db.prepare(`
       UPDATE memories
       SET recallCount = COALESCE(recallCount, 0) + 1,
-          lastRecalled = ?
+          lastRecalled = ?,
+          lastRecalledTimeZone = ?
       WHERE id = ?
     `);
     if (safeOutcome === 'succeeded') {
-      for (const memoryId of injectedMemoryIds) updateMemory.run(String(completedAt), memoryId);
+      for (const memoryId of injectedMemoryIds) updateMemory.run(String(completedAt), String(timeZone || 'UTC'), memoryId);
     }
 
     db.prepare(`

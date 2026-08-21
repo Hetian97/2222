@@ -423,6 +423,10 @@ class VariableMemoryManager {
         if (saved.embeddingUpdatedAt !== undefined) {
           fragment.embeddingUpdatedAt = saved.embeddingUpdatedAt || '';
         }
+        ['memoryTimeZone', 'createdAtTimeZone', 'updatedAtTimeZone', 'embeddingUpdatedAtTimeZone', 'lastRecalledTimeZone']
+          .forEach(field => {
+            if (saved[field] !== undefined) fragment[field] = saved[field] || '';
+          });
       }
 
       console.log('[变量记忆] 已同步到外部 memory-server:', result?.memory?.id || fragment.id);
@@ -495,6 +499,11 @@ class VariableMemoryManager {
       ? data.embedding
       : null;
 
+    const writeTimeZone = window.TimeZoneUtils?.normalizeTimeZone(
+      data.memoryTimeZone,
+      window.TimeZoneUtils.getCurrentTimeZone()
+    ) || 'UTC';
+    const createdAt = Date.now();
     const fragment = {
       id,
       chatId: chat.id || chat.chatId || window.state?.activeChatId || null,
@@ -503,8 +512,12 @@ class VariableMemoryManager {
       category: data.category || 'E',
       importance: data.importance || 5,
       emotionalWeight: data.emotionalWeight || 3,
-      createdAt: Date.now(),
-      memoryTime: data.memoryTime || Date.now(), // 发生时间（可自由修改）
+      createdAt,
+      createdAtTimeZone: writeTimeZone,
+      updatedAt: createdAt,
+      updatedAtTimeZone: writeTimeZone,
+      memoryTime: data.memoryTime || createdAt, // 发生时间（可自由修改）
+      memoryTimeZone: writeTimeZone,
       lastRecalled: 0,
       recallCount: 0,
       hasEmbedding: false,
@@ -512,6 +525,7 @@ class VariableMemoryManager {
       embeddingModel: '',
       embeddingDim: 0,
       embeddingUpdatedAt: '',
+      embeddingUpdatedAtTimeZone: '',
       linkedMemories: data.linkedMemories || [],
       source: data.source || 'auto',
       context: data.context || ''
@@ -551,6 +565,9 @@ class VariableMemoryManager {
     if (updates.importance !== undefined) frag.importance = updates.importance;
     if (updates.emotionalWeight !== undefined) frag.emotionalWeight = updates.emotionalWeight;
     if (updates.memoryTime !== undefined) frag.memoryTime = updates.memoryTime; // 核心：修改发生时间
+    if (updates.memoryTimeZone !== undefined) {
+      frag.memoryTimeZone = window.TimeZoneUtils?.normalizeTimeZone(updates.memoryTimeZone, frag.memoryTimeZone) || updates.memoryTimeZone;
+    }
     if (updates.linkedMemories !== undefined) frag.linkedMemories = updates.linkedMemories;
     if (updates.context !== undefined) frag.context = updates.context;
 
@@ -593,6 +610,8 @@ class VariableMemoryManager {
     } else if (this.isExternalMemoryEnabled(chat)) {
       await this.saveFragmentToExternalServer(chat, frag);
     }
+    frag.updatedAt = Date.now();
+    frag.updatedAtTimeZone = window.TimeZoneUtils?.getCurrentTimeZone() || 'UTC';
 
     vm.stats.lastUpdated = Date.now();
 
@@ -631,7 +650,7 @@ class VariableMemoryManager {
         : '';
       const timeValue = Number(frag.memoryTime || frag.createdAt || 0);
       const time = Number.isFinite(timeValue) && timeValue > 0
-        ? new Date(timeValue).toLocaleString('zh-CN')
+        ? window.TimeZoneUtils?.format(timeValue, frag.memoryTimeZone)
         : '';
 
       lines.push(`[${category}]${tags}${time ? ` (${time})` : ''}\n${frag.content || ''}`);
@@ -762,6 +781,7 @@ class VariableMemoryManager {
         importance: Number(item.importance || 5),
         emotionalWeight: Number(item.emotionalWeight || 3),
         memoryTime: item.memoryTime || item.createdAt || Date.now(),
+        memoryTimeZone: item.memoryTimeZone || item.createdAtTimeZone || window.TimeZoneUtils?.getCurrentTimeZone(),
         embedding,
         linkedMemories: Array.isArray(item.linkedMemories) ? item.linkedMemories : [],
         source: item.source || 'import',
@@ -1122,7 +1142,12 @@ class VariableMemoryManager {
     try {
       const result = await this.externalMemoryRequest(chat, '/memory/search/generation', {
         method: 'POST',
-        body: { searchTraceId, outcome, error: String(errorText || '').slice(0, 500) }
+        body: {
+          searchTraceId,
+          outcome,
+          error: String(errorText || '').slice(0, 500),
+          timeZone: window.TimeZoneUtils?.getCurrentTimeZone() || 'UTC'
+        }
       });
       if (outcome === 'succeeded') this.applyExternalRecallUpdates(chat, result?.recallUpdates);
       return result;
@@ -1273,10 +1298,9 @@ class VariableMemoryManager {
 
         for (const r of nonCoreResults) {
           const memoryTime = Number(r.fragment.memoryTime || r.fragment.createdAt || r.fragment.updatedAt || Date.now());
-          const memoryDate = new Date(memoryTime);
-          const padTimePart = value => String(value).padStart(2, '0');
-          const dateStr = `${memoryDate.getFullYear()}-${padTimePart(memoryDate.getMonth() + 1)}-${padTimePart(memoryDate.getDate())} ${padTimePart(memoryDate.getHours())}:${padTimePart(memoryDate.getMinutes())}`;
-          output += '[记忆发生时间：' + dateStr + ']\n' + r.fragment.content + '\n';
+          const memoryTimeZone = r.fragment.memoryTimeZone || 'Europe/London';
+          const dateStr = window.TimeZoneUtils?.format(memoryTime, memoryTimeZone) || '';
+          output += '[记忆发生时间：' + dateStr + '｜' + memoryTimeZone + ']\n' + r.fragment.content + '\n';
         }
 
         output += '\n';
@@ -1496,7 +1520,7 @@ ${output}`;
     }
   }
 
-  async mergeExtractedMemories(chat, extractedItems, defaultTime = Date.now()) {
+  async mergeExtractedMemories(chat, extractedItems, defaultTime = Date.now(), defaultTimeZone = null) {
     const vm = this.getVariableMemory(chat);
     const newIds = [];
     
@@ -1509,7 +1533,8 @@ ${output}`;
       const id = this.createFragment(chat, {
         ...item,
         embedding,
-        memoryTime: defaultTime // 新提取的记忆发生时间默认为传入时间
+        memoryTime: defaultTime, // 新提取的记忆发生时间默认为传入时间
+        memoryTimeZone: item.memoryTimeZone || defaultTimeZone || window.TimeZoneUtils?.getCurrentTimeZone()
       });
       newIds.push(id);
     }
@@ -2039,18 +2064,8 @@ ${output}`;
           rawTime = Date.now();
         }
 
-        const dateObj = new Date(rawTime);
-        
-        // 处理时区偏移
-        let localISOTime = '';
-        if (!Number.isNaN(dateObj.getTime())) {
-          const tzOffset = dateObj.getTimezoneOffset() * 60000;
-          localISOTime = new Date(dateObj.getTime() - tzOffset).toISOString().slice(0, 16);
-        } else {
-          const fallbackDate = new Date();
-          const tzOffset = fallbackDate.getTimezoneOffset() * 60000;
-          localISOTime = new Date(fallbackDate.getTime() - tzOffset).toISOString().slice(0, 16);
-        }
+        const memoryTimeZone = frag.memoryTimeZone || 'Europe/London';
+        const localISOTime = window.TimeZoneUtils?.toDateTimeLocal(rawTime, memoryTimeZone) || '';
 
         row.innerHTML = `
           <input type="checkbox" class="vm-batch-element vm-item-checkbox" style="display:none; margin-right:10px; width: 16px; height: 16px; flex-shrink: 0; align-self: flex-start; margin-top: 4px;" data-id="${frag.id}" data-type="${code === 'C' ? 'core' : 'fragment'}">
@@ -2540,12 +2555,10 @@ ${output}`;
       box-sizing: border-box;
     `;
 
-    const formatTime = (value) => {
+    const formatTime = (value, timeZone) => {
       const n = Number(value || 0);
       if (!Number.isFinite(n) || n <= 0) return '';
-      const d = new Date(n);
-      if (Number.isNaN(d.getTime())) return '';
-      return d.toLocaleString('zh-CN');
+      return window.TimeZoneUtils?.format(n, timeZone || frag.memoryTimeZone || 'Europe/London') || '';
     };
 
     const detailRows = [
@@ -2560,11 +2573,12 @@ ${output}`;
       ['context', frag.context || ''],
       ['embeddingModel', frag.embeddingModel || ''],
       ['embeddingDim', frag.embeddingDim || 0],
-      ['embeddingUpdatedAt', formatTime(frag.embeddingUpdatedAt)],
-      ['createdAt', formatTime(frag.createdAt)],
-      ['updatedAt', formatTime(frag.updatedAt)],
-      ['memoryTime', formatTime(frag.memoryTime)],
-      ['lastRecalled', formatTime(frag.lastRecalled)],
+      ['embeddingUpdatedAt', formatTime(frag.embeddingUpdatedAt, frag.embeddingUpdatedAtTimeZone)],
+      ['createdAt', formatTime(frag.createdAt, frag.createdAtTimeZone)],
+      ['updatedAt', formatTime(frag.updatedAt, frag.updatedAtTimeZone)],
+      ['memoryTime', formatTime(frag.memoryTime, frag.memoryTimeZone)],
+      ['memoryTimeZone', frag.memoryTimeZone || 'Europe/London'],
+      ['lastRecalled', formatTime(frag.lastRecalled, frag.lastRecalledTimeZone)],
       ['动态召回次数', frag.category === 'C' ? '不适用' : (frag.recallCount ?? 0)],
       ['linkedMemories', Array.isArray(frag.linkedMemories) ? frag.linkedMemories.join(', ') : '']
     ];

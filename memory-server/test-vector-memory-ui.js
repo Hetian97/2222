@@ -25,8 +25,10 @@ const sandbox = {
 };
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'vector-memory.js'), 'utf8');
+const timeZoneSource = fs.readFileSync(path.join(__dirname, '..', 'time-zone-utils.js'), 'utf8');
 const memorySummarySource = fs.readFileSync(path.join(__dirname, '..', 'modules', 'memory-summary.js'), 'utf8');
 const vectorMemoryCss = fs.readFileSync(path.join(__dirname, '..', 'vector-memory.css'), 'utf8');
+vm.runInNewContext(timeZoneSource, sandbox, { filename: 'time-zone-utils.js' });
 vm.runInNewContext(source, sandbox, { filename: 'vector-memory.js' });
 
 async function main() {
@@ -204,14 +206,14 @@ async function main() {
   manager.externalMemoryRequest = async (_chat, requestPath) => {
     if (requestPath === '/memory/search') return {
       ok: true,
-      memories: [{ id: 'timed-memory', category: 'P', content: '明天早晨去湖边看日出', memoryTime: recalledAt, _searchScore: 0.9 }],
+      memories: [{ id: 'timed-memory', category: 'P', content: '明天早晨去湖边看日出', memoryTime: recalledAt, memoryTimeZone: 'Asia/Shanghai', _searchScore: 0.9 }],
       searchTraceId: 'trace-timed-memory'
     };
     if (requestPath === '/memory/search/commit') return { ok: true, log: { status: 'prompt_committed' }, recallUpdates: [] };
     return { ok: true, recallUpdates: [] };
   };
   const timedPrompt = await manager.serializeForPrompt(chat, '湖边看日出');
-  assert(timedPrompt.includes('[记忆发生时间：2026-08-13 15:42]'));
+  assert(timedPrompt.includes('[记忆发生时间：2026-08-13 15:42｜Asia/Shanghai]'));
   assert(timedPrompt.includes('相对时间，均以该条标注的记忆发生时间为基准'));
   assert(timedPrompt.includes('明天早晨去湖边看日出'));
   manager.externalMemoryRequest = async (_chat, requestPath) => {

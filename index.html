@@ -53,9 +53,10 @@
   <script src="online-chat-integration.js?v=0.0.36" defer></script>
   <script src="sticker-vision.js?v=0.0.36" defer></script>
   <script src="notification-manager.js?v=0.0.36" defer></script>
-  <script src="character-generator.js?v=0.0.36" defer></script>
+    <script src="time-zone-utils.js?v=0.0.1" defer></script>
+    <script src="character-generator.js?v=0.0.36" defer></script>
   <script src="structured-memory.js?v=0.0.36" defer></script>
-  <script src="vector-memory.js?v=0.0.52" defer></script>
+  <script src="vector-memory.js?v=0.0.53" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <!-- 拆分后的模块（按依赖顺序加载） -->
@@ -65,22 +66,22 @@
   <script src="modules/translations.js?v=0.0.36" defer></script>
   <!-- 第二层：UI 通用组件 -->
   <script src="modules/ui-modals.js?v=0.0.36" defer></script>
-  <script src="modules/ui-loaders.js?v=0.0.36" defer></script>
+  <script src="modules/ui-loaders.js?v=0.0.37" defer></script>
   <!-- 第三层：核心聊天功能 -->
   <script src="modules/chat-list.js?v=0.0.38" defer></script>
-  <script src="modules/chat-interface.js?v=0.0.42" defer></script>
+  <script src="modules/chat-interface.js?v=0.0.43" defer></script>
   <script src="modules/chat-input.js?v=0.0.37" defer></script>
   <script src="modules/mcp-guide-cache.js?v=0.0.1" defer></script>
   <!-- 第四层：AI 核心 -->
-  <script src="modules/ai-response.js?v=0.0.107" defer></script>
+  <script src="modules/ai-response.js?v=0.0.108" defer></script>
   <script src="modules/ai-group.js?v=0.0.40" defer></script>
   <!-- 第五层：功能模块 -->
   <script src="modules/music-player.js?v=0.0.36" defer></script>
   <script src="modules/qzone.js?v=0.0.37" defer></script>
   <script src="modules/sticker-manager.js?v=0.0.36" defer></script>
-  <script src="modules/memory-summary.js?v=0.0.52" defer></script>
+  <script src="modules/memory-summary.js?v=0.0.53" defer></script>
   <script src="modules/video-voice-call.js?v=0.0.36" defer></script>
-  <script src="modules/message-actions.js?v=0.0.37" defer></script>
+  <script src="modules/message-actions.js?v=0.0.38" defer></script>
   <script src="modules/nai-imagen.js?v=0.0.37" defer></script>
   <script src="modules/backup-import-export.js?v=0.0.42" defer></script>
   <script src="modules/settings-presets.js?v=0.0.39" defer></script>
@@ -109,13 +110,13 @@
   <script src="modules/aisay-wake.js?v=0.0.3" defer></script>
   <script src="modules/background-activity.js?v=0.0.37" defer></script>
   <script src="modules/card-import.js?v=0.0.36" defer></script>
-  <script src="modules/character-export.js?v=0.0.37" defer></script>
+  <script src="modules/character-export.js?v=0.0.38" defer></script>
   <script src="modules/data-management.js?v=0.0.39" defer></script>
   <script src="modules/misc-features.js?v=0.0.48" defer></script>
   <!-- 第八层：初始化（必须在所有模块之后） -->
   <!-- 数据定义（无依赖） -->
   <script src="modules/init-avatar-frames.js?v=0.0.36" defer></script>
-  <script src="modules/init-db-schema.js?v=0.0.36" defer></script>
+  <script src="modules/init-db-schema.js?v=0.0.37" defer></script>
   <!-- 数据保护（依赖 db） -->
   <script src="modules/init-data-protection.js?v=0.0.37" defer></script>
   <!-- 崩溃恢复（依赖 data-protection） -->
@@ -127,7 +128,7 @@
   <script src="modules/init-event-bindingsB.js?v=0.0.39" defer></script>
   <script src="modules/init-features.js?v=0.0.38" defer></script>
   <!-- 主入口（最后加载，调用 init） -->
-  <script src="modules/init-and-state.js?v=0.0.38" defer></script>
+  <script src="modules/init-and-state.js?v=0.0.39" defer></script>
   <!-- 第九层：DOMContentLoaded 外部的独立模块 -->
   <script src="modules/video-optimization.js?v=0.0.36" defer></script>
   <script src="modules/clean-chat-detail.js?v=0.0.41" defer></script>

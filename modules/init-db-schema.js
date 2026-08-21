@@ -119,3 +119,19 @@ db.version(60).stores({
 });
 
 window.db = db;
+
+// Every chat save stamps newly-created messages with the time zone in which
+// they were written. Historical records are backfilled explicitly on load.
+db.chats.hook('creating', (_primaryKey, chat) => {
+  window.TimeZoneUtils?.stampChat(chat, window.TimeZoneUtils.getCurrentTimeZone());
+});
+db.chats.hook('updating', (modifications, _primaryKey, existingChat) => {
+  if (!Object.prototype.hasOwnProperty.call(modifications, 'history') &&
+      !Object.prototype.hasOwnProperty.call(modifications, 'variableMemory') &&
+      !Object.prototype.hasOwnProperty.call(modifications, 'vectorMemory')) return;
+  const candidate = { ...existingChat, ...modifications };
+  window.TimeZoneUtils?.stampChat(candidate, window.TimeZoneUtils.getCurrentTimeZone());
+  if (candidate.history) modifications.history = candidate.history;
+  if (candidate.variableMemory) modifications.variableMemory = candidate.variableMemory;
+  if (candidate.vectorMemory) modifications.vectorMemory = candidate.vectorMemory;
+});

@@ -992,8 +992,10 @@ function bindVectorMemoryEvents(chat, container) {
       const newTimeStr = e.target.value;
       if (!newTimeStr) return;
 
-      const newTime = new Date(newTimeStr).getTime();
-      await window.vectorMemoryManager.editFragment(chat, id, { memoryTime: newTime });
+      const frag = window.vectorMemoryManager.getFragment(chat, id);
+      const memoryTimeZone = frag?.memoryTimeZone || 'Europe/London';
+      const newTime = window.TimeZoneUtils.fromDateTimeLocal(newTimeStr, memoryTimeZone);
+      await window.vectorMemoryManager.editFragment(chat, id, { memoryTime: newTime, memoryTimeZone });
       await db.chats.put(chat);
       showToast('记忆时间已更新', 'success');
       renderVectorMemoryView();
@@ -1431,14 +1433,12 @@ function bindVectorMemoryEvents(chat, container) {
       const toDatetimeLocal = (value) => {
         const num = Number(value || 0);
         if (!Number.isFinite(num) || num <= 0) return '';
-        const d = new Date(num);
-        const pad = (n) => String(n).padStart(2, '0');
-        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        return window.TimeZoneUtils.toDateTimeLocal(num, frag.memoryTimeZone || 'Europe/London');
       };
 
       const fromDatetimeLocal = (value) => {
         if (!value) return frag.memoryTime || frag.createdAt || Date.now();
-        const time = new Date(value).getTime();
+        const time = window.TimeZoneUtils.fromDateTimeLocal(value, frag.memoryTimeZone || 'Europe/London');
         return Number.isFinite(time) ? time : (frag.memoryTime || frag.createdAt || Date.now());
       };
 
@@ -1654,7 +1654,8 @@ function bindVectorMemoryEvents(chat, container) {
           tags: newTags,
           importance: Number(importanceInput.value || 5),
           emotionalWeight: Number(emotionInput.value || 3),
-          memoryTime: fromDatetimeLocal(memoryTimeInput.value)
+          memoryTime: fromDatetimeLocal(memoryTimeInput.value),
+          memoryTimeZone: frag.memoryTimeZone || 'Europe/London'
         };
 
         const ok = await window.vectorMemoryManager.editFragment(chat, fragId, updates);
@@ -1996,7 +1997,8 @@ async function executeVectorExtraction(chat, messages, updateTimestamp = false) 
   const userNickname = chat.settings.myNickname || '用户';
   const formattedHistory = messages.map(msg => {
     const sender = msg.role === 'user' ? userNickname : (msg.senderName || chat.name || chat.originalName);
-    const time = new Date(msg.timestamp).toLocaleString('zh-CN');
+    const timeZone = msg.timestampTimeZone || 'Europe/London';
+    const time = `${window.TimeZoneUtils.format(msg.timestamp, timeZone)} ${timeZone}`;
     let content = '';
     if (msg.type === 'voice_message') content = `[语音] ${msg.content}`;
     else if (msg.type === 'ai_image') content = `[图片: ${msg.content}]`;
@@ -2005,8 +2007,10 @@ async function executeVectorExtraction(chat, messages, updateTimestamp = false) 
     return `(${time}) ${sender}: ${content}`;
   }).join('\n');
 
-  const firstTime = new Date(messages[0].timestamp).toLocaleString('zh-CN');
-  const lastTime = new Date(messages[messages.length - 1].timestamp).toLocaleString('zh-CN');
+  const firstZone = messages[0].timestampTimeZone || 'Europe/London';
+  const lastZone = messages[messages.length - 1].timestampTimeZone || 'Europe/London';
+  const firstTime = `${window.TimeZoneUtils.format(messages[0].timestamp, firstZone)} ${firstZone}`;
+  const lastTime = `${window.TimeZoneUtils.format(messages[messages.length - 1].timestamp, lastZone)} ${lastZone}`;
   const timeRangeStr = `${firstTime} ~ ${lastTime}`;
   
   // 构建对话时间范围对象
@@ -2059,7 +2063,8 @@ async function executeVectorExtraction(chat, messages, updateTimestamp = false) 
   if (extracted.length > 0) {
     // 使用提取的消息段中最后一条消息的时间作为这段记忆的发生时间
     const defaultMemoryTime = dialogueTimeRange.end || Date.now();
-    const newIds = await window.vectorMemoryManager.mergeExtractedMemories(chat, extracted, defaultMemoryTime);
+    const defaultMemoryTimeZone = messages[messages.length - 1].timestampTimeZone || 'Europe/London';
+    const newIds = await window.vectorMemoryManager.mergeExtractedMemories(chat, extracted, defaultMemoryTime, defaultMemoryTimeZone);
     if (updateTimestamp) {
       const vm = window.vectorMemoryManager.getVariableMemory(chat);
       if (processedLastIndex !== -1) {
@@ -3304,7 +3309,7 @@ async function triggerStructuredMemorySummary(chatId, forceUpdate = false) {
     } else {
       contentToSummarize = `[${msg.type || '消息'}]`;
     }
-    const msgTime = new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const msgTime = window.TimeZoneUtils.format(msg.timestamp, msg.timestampTimeZone || 'Europe/London', { timeOnly: true });
     return `[${msgTime}] ${sender}: ${contentToSummarize}`;
   }).filter(Boolean).join('\n');
 
@@ -3651,7 +3656,7 @@ async function executeStructuredSummary(chat, messages, updateTimestamp = false)
     } else {
       contentToSummarize = `[${msg.type || '消息'}]`;
     }
-    const msgTime = new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const msgTime = window.TimeZoneUtils.format(msg.timestamp, msg.timestampTimeZone || 'Europe/London', { timeOnly: true });
     return `[${msgTime}] ${sender}: ${contentToSummarize}`;
   }).filter(Boolean).join('\n');
 
@@ -4793,7 +4798,7 @@ async function triggerAutoSummary(chatId, force = false, customRange = null) {
       contentToSummarize = `[${msg.type || '复杂消息'}]`;
     }
 
-    const msgTime = new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const msgTime = window.TimeZoneUtils.format(msg.timestamp, msg.timestampTimeZone || 'Europe/London', { timeOnly: true });
     return `[${msgTime}] ${sender}: ${prefix}${contentToSummarize}`;
 
   }).filter(Boolean).join('\n');

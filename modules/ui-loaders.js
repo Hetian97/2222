@@ -11,12 +11,9 @@
 (function () {
   // state 通过全局作用域访问（window.state，由 init-and-state.js 初始化）
 
-  function formatTimestamp(timestamp, chatId = null) {
+  function formatTimestamp(timestamp, chatId = null, timeZone = null) {
     if (!timestamp) return '';
-    const date = new Date(timestamp);
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    const seconds = String(date.getSeconds()).padStart(2, '0');
+    const zone = window.TimeZoneUtils?.normalizeTimeZone(timeZone, 'Europe/London') || timeZone;
 
     // 判断是否显示秒数
     let showSeconds = false;
@@ -34,7 +31,9 @@
       showSeconds = state.globalSettings.showSeconds || false;
     }
 
-    return showSeconds ? `${hours}:${minutes}:${seconds}` : `${hours}:${minutes}`;
+    return window.TimeZoneUtils
+      ? window.TimeZoneUtils.format(timestamp, zone, { timeOnly: true, seconds: showSeconds })
+      : new Date(timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: showSeconds ? '2-digit' : undefined });
   }
 
   function formatTimeAgo(timestamp) {
@@ -59,40 +58,11 @@
     return `大约${years}年前`;
   }
 
-  function formatTimestampForAI(timestamp) {
+  function formatTimestampForAI(timestamp, timeZone = null) {
     if (!timestamp) return '';
-
-    const now = new Date();
-    const date = new Date(timestamp);
-
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    const timeString = `${hours}:${minutes}`;
-
-
-    if (now.toDateString() === date.toDateString()) {
-      return `今天 ${timeString}`;
-    }
-
-
-    const yesterday = new Date();
-    yesterday.setDate(now.getDate() - 1);
-    if (yesterday.toDateString() === date.toDateString()) {
-      return `昨天 ${timeString}`;
-    }
-
-
-    if (now.getFullYear() === date.getFullYear()) {
-      const month = String(date.getMonth() + 1);
-      const day = String(date.getDate());
-      return `${month}月${day}日 ${timeString}`;
-    }
-
-
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1);
-    const day = String(date.getDate());
-    return `${year}年${month}月${day}日 ${timeString}`;
+    const zone = window.TimeZoneUtils?.normalizeTimeZone(timeZone, 'Europe/London') || timeZone;
+    const stable = window.TimeZoneUtils?.format(timestamp, zone);
+    return stable ? `${stable}（${zone}）` : '';
   }
 
 
@@ -155,41 +125,14 @@
   }
 
 
-  function formatSystemTimestamp(timestamp) {
+  function formatSystemTimestamp(timestamp, timeZone = null) {
     if (!timestamp) return '';
-    const now = new Date();
-    const date = new Date(timestamp);
-
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    const timeString = `${hours}:${minutes}`;
-
-
-    if (now.toDateString() === date.toDateString()) {
-      return timeString;
-    }
-
-
-    const yesterday = new Date();
-    yesterday.setDate(now.getDate() - 1);
-    if (yesterday.toDateString() === date.toDateString()) {
-      return `昨天 ${timeString}`;
-    }
-
-
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-
-    if (now.getFullYear() === year) {
-      return `${month}月${day}日 ${timeString}`;
-    } else {
-      return `${year}年${month}月${day}日 ${timeString}`;
-    }
+    const zone = window.TimeZoneUtils?.normalizeTimeZone(timeZone, 'Europe/London') || timeZone;
+    return window.TimeZoneUtils?.format(timestamp, zone) || '';
   }
 
 
-  function createSystemTimestampElement(timestamp) {
+  function createSystemTimestampElement(timestamp, timeZone = null) {
     const wrapper = document.createElement('div');
 
     wrapper.className = 'message-wrapper system-pat';
@@ -199,7 +142,7 @@
     const bubble = document.createElement('div');
 
     bubble.className = 'message-bubble system-bubble';
-    bubble.textContent = formatSystemTimestamp(timestamp);
+    bubble.textContent = formatSystemTimestamp(timestamp, timeZone);
 
     wrapper.appendChild(bubble);
     return wrapper;

@@ -3308,8 +3308,8 @@ ${linkedContents}
           const lastAiMsg = historySlice.findLast(msg => msg.role === 'assistant' && !msg.isHidden);
 
           if (lastUserMsg && lastAiMsg) {
-            const lastUserMessageTime = formatTimestampForAI(lastUserMsg.timestamp);
-            const lastAiMessageTime = formatTimestampForAI(lastAiMsg.timestamp);
+            const lastUserMessageTime = formatTimestampForAI(lastUserMsg.timestamp, lastUserMsg.timestampTimeZone);
+            const lastAiMessageTime = formatTimestampForAI(lastAiMsg.timestamp, lastAiMsg.timestampTimeZone);
             timeContextText = `上一条消息发送于 ${lastAiMessageTime}，用户刚刚在 ${lastUserMessageTime} 回复了。`;
 
 
@@ -4235,9 +4235,9 @@ ${enabledEntries}
             const lastAiMsg = historySlice.findLast(msg => msg.role === 'assistant' && !msg.isHidden);
 
             if (lastUserMsg) {
-              const lastUserMessageTime = formatTimestampForAI(lastUserMsg.timestamp);
+              const lastUserMessageTime = formatTimestampForAI(lastUserMsg.timestamp, lastUserMsg.timestampTimeZone);
               if (lastAiMsg) {
-                const lastAiMessageTime = formatTimestampForAI(lastAiMsg.timestamp);
+                const lastAiMessageTime = formatTimestampForAI(lastAiMsg.timestamp, lastAiMsg.timestampTimeZone);
                 timeContext = `- **对话状态**: 你的上一条消息发送于 ${lastAiMessageTime}，用户刚刚在 ${lastUserMessageTime} 回复了你。`;
 
                 const timeDiffHours = (lastUserMsg.timestamp - lastAiMsg.timestamp) / (1000 * 60 * 60);

@@ -269,8 +269,12 @@ document.addEventListener('DOMContentLoaded', () => {
       ...(state.globalSettings.myphoneAppIcons || {})
     };
 
+    const timezoneMigratedChats = [];
     chatsArr.forEach(chat => {
       if (!chat) return;
+      if (window.TimeZoneUtils?.stampChat(chat, 'Europe/London')) {
+        timezoneMigratedChats.push(chat);
+      }
       if (!chat.settings) chat.settings = {};
       if (typeof chat.settings.enableTimePerception === 'undefined') {
         chat.settings.enableTimePerception = true;
@@ -289,6 +293,10 @@ document.addEventListener('DOMContentLoaded', () => {
         chat.originalName = chat.name;
       }
     });
+    if (timezoneMigratedChats.length > 0) {
+      await db.chats.bulkPut(timezoneMigratedChats);
+      console.log(`[时区迁移] 已为 ${timezoneMigratedChats.length} 个聊天的历史记录补记 Europe/London；原始 timestamp 未改变。`);
+    }
     state.chats = chatsArr.reduce((acc, chat) => {
       if (!chat) return acc;
       if (typeof chat.unreadCount === 'undefined') chat.unreadCount = 0;

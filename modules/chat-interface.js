@@ -146,7 +146,7 @@
     for (const msg of messagesToRender) {
       if (!msg.isHidden) {
         if (lastTimestamp > 0 && (msg.timestamp - lastTimestamp > 600000)) {
-          fragment.appendChild(createSystemTimestampElement(msg.timestamp));
+          fragment.appendChild(createSystemTimestampElement(msg.timestamp, msg.timestampTimeZone));
         }
         lastTimestamp = msg.timestamp;
       }
@@ -335,7 +335,7 @@
       if (!msg.isHidden) {
         if (lastTimestamp > 0 && (msg.timestamp - lastTimestamp > 600000)) {
 
-          fragment.appendChild(createSystemTimestampElement(msg.timestamp));
+          fragment.appendChild(createSystemTimestampElement(msg.timestamp, msg.timestampTimeZone));
         }
         lastTimestamp = msg.timestamp;
       }
@@ -445,7 +445,7 @@
       if (!msg.isHidden) {
 
         if (lastTimestampInNewBatch > 0 && (msg.timestamp - lastTimestampInNewBatch > 600000)) {
-          fragment.appendChild(createSystemTimestampElement(msg.timestamp));
+          fragment.appendChild(createSystemTimestampElement(msg.timestamp, msg.timestampTimeZone));
         }
         lastTimestampInNewBatch = msg.timestamp;
       }
@@ -457,7 +457,8 @@
     });
 
     if (timestampOfFirstVisible > 0 && (timestampOfFirstVisible - lastTimestampInNewBatch > 600000)) {
-      fragment.appendChild(createSystemTimestampElement(timestampOfFirstVisible));
+      const firstVisibleMessage = visibleMessages.find(message => message.timestamp === timestampOfFirstVisible);
+      fragment.appendChild(createSystemTimestampElement(timestampOfFirstVisible, firstVisibleMessage?.timestampTimeZone));
     }
 
 
@@ -675,7 +676,7 @@
 
     const timestampEl = document.createElement('span');
     timestampEl.className = 'timestamp';
-    timestampEl.textContent = formatTimestamp(msg.timestamp, chat.id);
+    timestampEl.textContent = formatTimestamp(msg.timestamp, chat.id, msg.timestampTimeZone);
 
     let avatarSrc, avatarFrameSrc = '';
     if (isUser) {
@@ -1481,7 +1482,7 @@
 
 
     if (lastMessage && (msg.timestamp - lastMessage.timestamp > 600000)) {
-      const timestampEl = createSystemTimestampElement(msg.timestamp);
+      const timestampEl = createSystemTimestampElement(msg.timestamp, msg.timestampTimeZone);
       messagesContainer.insertBefore(timestampEl, typingIndicator);
     }
 

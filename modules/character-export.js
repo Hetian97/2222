@@ -529,7 +529,8 @@
         if (exportableHistory.length > 0) {
           for (const msg of exportableHistory) {
             const role = msg.role === 'user' ? '我' : chat.name;
-            const time = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : '';
+            const zone = msg.timestampTimeZone || 'Europe/London';
+            const time = msg.timestamp ? `${window.TimeZoneUtils.format(msg.timestamp, zone)} ${zone}` : '';
             const content = getExportMessageText(msg);
             txtContent += `${role} [${time}]\n${content}\n\n`;
           }
@@ -670,7 +671,8 @@
           for (const msg of exportableHistory) {
             const isUser = msg.role === 'user';
             const role = isUser ? '我' : chat.name;
-            const time = msg.timestamp ? new Date(msg.timestamp).toLocaleString() : '';
+            const zone = msg.timestampTimeZone || 'Europe/London';
+            const time = msg.timestamp ? `${window.TimeZoneUtils.format(msg.timestamp, zone)} ${zone}` : '';
             const msgClass = isUser ? 'message user-msg' : 'message ai-msg';
             
             // 头像颜色稍微区分

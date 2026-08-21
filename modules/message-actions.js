@@ -131,8 +131,8 @@
         item.className = 'batch-exclude-item' + (msg.isExcluded ? ' is-excluded' : '');
         item.dataset.timestamp = msg.timestamp;
         const sender = msg.role === 'user' ? (chat.settings.myNickname || '我') : (msg.senderName || chat.name);
-        const time = new Date(msg.timestamp);
-        const timeStr = `${time.getMonth()+1}/${time.getDate()} ${String(time.getHours()).padStart(2,'0')}:${String(time.getMinutes()).padStart(2,'0')}`;
+        const stableTime = window.TimeZoneUtils.format(msg.timestamp, msg.timestampTimeZone || 'Europe/London');
+        const timeStr = stableTime.slice(5);
         let preview = '';
         if (typeof msg.content === 'string') {
           preview = msg.content.substring(0, 60);
