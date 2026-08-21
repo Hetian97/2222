@@ -1475,6 +1475,10 @@
 
   async function appendMessage(msg, chat, isInitialLoad = false) {
 
+    // 新消息可能在 Dexie 保存钩子回写之前上屏。此处立即记录当前
+    // IANA 时区，避免短暂按旧数据默认的 Europe/London 显示。
+    window.TimeZoneUtils?.stampMessage(msg, window.TimeZoneUtils.getCurrentTimeZone());
+
     const messagesContainer = document.getElementById('chat-messages');
     const typingIndicator = document.getElementById('typing-indicator');
 

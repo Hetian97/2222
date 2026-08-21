@@ -128,7 +128,24 @@
   function formatSystemTimestamp(timestamp, timeZone = null) {
     if (!timestamp) return '';
     const zone = window.TimeZoneUtils?.normalizeTimeZone(timeZone, 'Europe/London') || timeZone;
-    return window.TimeZoneUtils?.format(timestamp, zone) || '';
+    if (!window.TimeZoneUtils) return '';
+
+    const messageParts = window.TimeZoneUtils.getParts(timestamp, zone);
+    const nowParts = window.TimeZoneUtils.getParts(Date.now(), zone);
+    if (!messageParts || !nowParts) return '';
+
+    const pad = value => String(value).padStart(2, '0');
+    const timeText = `${pad(messageParts.hour)}:${pad(messageParts.minute)}`;
+    const messageDay = Date.UTC(messageParts.year, messageParts.month - 1, messageParts.day);
+    const nowDay = Date.UTC(nowParts.year, nowParts.month - 1, nowParts.day);
+    const dayDifference = Math.round((nowDay - messageDay) / 86400000);
+
+    if (dayDifference === 0) return timeText;
+    if (dayDifference === 1) return `昨天 ${timeText}`;
+    if (messageParts.year === nowParts.year) {
+      return `${pad(messageParts.month)}月${pad(messageParts.day)}日 ${timeText}`;
+    }
+    return `${messageParts.year}年${pad(messageParts.month)}月${pad(messageParts.day)}日 ${timeText}`;
   }
 
 
