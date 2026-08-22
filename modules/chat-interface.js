@@ -457,8 +457,11 @@
     });
 
     if (timestampOfFirstVisible > 0 && (timestampOfFirstVisible - lastTimestampInNewBatch > 600000)) {
-      const firstVisibleMessage = visibleMessages.find(message => message.timestamp === timestampOfFirstVisible);
-      fragment.appendChild(createSystemTimestampElement(timestampOfFirstVisible, firstVisibleMessage?.timestampTimeZone));
+      // The first already-rendered message belongs to the current chat history.
+      // Do not reference a render-local list here: pagination runs independently
+      // and must keep working after the initial render window is exhausted.
+      const firstRenderedHistoryMessage = chat.history.find(message => Number(message.timestamp) === timestampOfFirstVisible);
+      fragment.appendChild(createSystemTimestampElement(timestampOfFirstVisible, firstRenderedHistoryMessage?.timestampTimeZone));
     }
 
 

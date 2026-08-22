@@ -15,6 +15,8 @@ assert(bindingsSource.includes('await renderChatInterface(state.activeChatId)'))
 assert(chatSource.includes('messagesContainer.innerHTML ='));
 assert(chatSource.includes('msg.timestamp - lastTimestamp > 600000'));
 assert(chatSource.includes('TimeZoneUtils?.stampMessage(msg'));
+assert(chatSource.includes('chat.history.find(message => Number(message.timestamp) === timestampOfFirstVisible)'));
+assert(!chatSource.includes('visibleMessages.find(message => message.timestamp === timestampOfFirstVisible)'));
 
 const sandbox = {
   window: {},
