@@ -60,7 +60,8 @@ const {
 } = require('./recall-shadow-policy');
 
 const {
-  runActiveEventShadow
+  runActiveEventShadow,
+  runActiveEventExtractionShadow
 } = require('./memory-active-event-shadow');
 
 const PORT = Number(process.env.PORT || 8765);
@@ -4201,13 +4202,24 @@ const server = http.createServer(async (req, res) => {
       // remain low-weight context variants; assistant prose must never replace the
       // current user query, regardless of whether the experimental gate is enabled.
       const q = shadowPrimaryQuery || requestedQuery;
-      const activeEventShadow = runActiveEventShadow(listMemoryActiveEvents({
+      const activeEvents = listMemoryActiveEvents({
         chatId: body.chatId || '',
         limit: 50
-      }), {
+      });
+      const activeEventReferenceShadow = runActiveEventShadow(activeEvents, {
         query: q,
         maxSelected: 2
       });
+      const activeEventExtractionShadow = runActiveEventExtractionShadow(activeEvents, {
+        query: q,
+        timeZone: normalizeTimeZone(body.timeZone, 'UTC')
+      });
+      const activeEventShadow = {
+        ...activeEventReferenceShadow,
+        version: 'active-events-shadow-v2',
+        referenceVersion: activeEventReferenceShadow.version,
+        extraction: activeEventExtractionShadow
+      };
       const safeLimit = clampNumber(body.limit || 20, 1, 200, 20);
       const debugQueries = buildMemorySearchQueries(q, body.queryVariants || body.cleanedQueries || body.queries || []);
 

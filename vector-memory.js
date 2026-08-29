@@ -1050,6 +1050,7 @@ class VariableMemoryManager {
             ? (parseInt(vm.settings?.chromaCandidateLimit, 10) || 2000)
             : (parseInt(vm.settings?.sqliteCandidateLimit, 10) || 6000),
           chromaNResults: parseInt(vm.settings?.chromaNResults, 10) || 200,
+          timeZone: window.TimeZoneUtils?.getCurrentTimeZone() || 'UTC',
           turnId: String((chat?.history || []).filter(message => message?.role === 'user').slice(-1)[0]?.timestamp || ''),
           attemptId: `attempt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           actionType: String(retrievalMeta?.actionType || 'reply')
@@ -1259,6 +1260,46 @@ class VariableMemoryManager {
 
   // ==================== 序列化为 Prompt ====================
 
+  clarifyRelativeMemoryDatesForPrompt(content, memoryTime, memoryTimeZone) {
+    const source = String(content || '');
+    const anchor = window.TimeZoneUtils?.getParts(Number(memoryTime), memoryTimeZone);
+    if (!anchor) return source;
+
+    const pad = value => String(value).padStart(2, '0');
+    const formatRelativeDate = offset => {
+      const date = new Date(Date.UTC(anchor.year, anchor.month - 1, anchor.day + offset));
+      return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+    };
+    const dayOffsets = {
+      大前天: -3,
+      前天: -2,
+      昨天: -1,
+      今天: 0,
+      明天: 1,
+      后天: 2,
+      大后天: 3
+    };
+    const compactRelativeTimes = {
+      昨晚: { offset: -1, period: '晚上' },
+      今晚: { offset: 0, period: '晚上' },
+      明晚: { offset: 1, period: '晚上' },
+      今早: { offset: 0, period: '早上' },
+      明早: { offset: 1, period: '早上' }
+    };
+    const relativeTimePattern = /大前天|大后天|昨天(?:早上|上午|中午|下午|晚上|夜里|凌晨)?|今天(?:早上|上午|中午|下午|晚上|夜里|凌晨)?|明天(?:早上|上午|中午|下午|晚上|夜里|凌晨)?|前天|后天|昨晚|今晚|明晚|今早|明早/g;
+
+    return source.replace(relativeTimePattern, matched => {
+      const compact = compactRelativeTimes[matched];
+      if (compact) {
+        return `${formatRelativeDate(compact.offset)} ${compact.period}（原文称“${matched}”）`;
+      }
+      const dayLabel = Object.keys(dayOffsets).find(label => matched.startsWith(label));
+      if (!dayLabel) return matched;
+      const period = matched.slice(dayLabel.length);
+      return `${formatRelativeDate(dayOffsets[dayLabel])}${period ? ` ${period}` : ''}（原文称“${matched}”）`;
+    });
+  }
+
   async serializeForPrompt(chat, recentMessages = '', queryVariants = [], retrievalMeta = {}) {
     const vm = this.getVariableMemory(chat);
     let output = '';
@@ -1300,7 +1341,12 @@ class VariableMemoryManager {
           const memoryTime = Number(r.fragment.memoryTime || r.fragment.createdAt || r.fragment.updatedAt || Date.now());
           const memoryTimeZone = r.fragment.memoryTimeZone || 'Europe/London';
           const dateStr = window.TimeZoneUtils?.format(memoryTime, memoryTimeZone) || '';
-          output += '[记忆发生时间：' + dateStr + '｜' + memoryTimeZone + ']\n' + r.fragment.content + '\n';
+          const promptContent = this.clarifyRelativeMemoryDatesForPrompt(
+            r.fragment.content,
+            memoryTime,
+            memoryTimeZone
+          );
+          output += '[记忆发生时间：' + dateStr + '｜' + memoryTimeZone + ']\n' + promptContent + '\n';
         }
 
         output += '\n';

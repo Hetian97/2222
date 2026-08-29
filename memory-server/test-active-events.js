@@ -12,7 +12,7 @@ const {
   upsertMemoryActiveEvent,
   archiveMemoryActiveEvent
 } = require('./db');
-const { runActiveEventShadow } = require('./memory-active-event-shadow');
+const { runActiveEventShadow, runActiveEventExtractionShadow } = require('./memory-active-event-shadow');
 
 try {
   const event = upsertMemoryActiveEvent({
@@ -42,6 +42,42 @@ try {
   const indirect = runActiveEventShadow(events, { query: '我突然不想去了，怎么办？' });
   assert.deepStrictEqual(indirect.selectedEventIds, ['event-trip']);
   assert.strictEqual(indirect.decisions[0].route, 'indirect_reference');
+
+  const futureProposal = runActiveEventExtractionShadow([], {
+    query: '八天之后要出发，会议材料需要提前准备好。',
+    timeZone: 'Asia/Shanghai'
+  });
+  assert.strictEqual(futureProposal.writesEnabled, false);
+  assert.strictEqual(futureProposal.proposalCount, 1);
+  assert.strictEqual(futureProposal.proposals[0].action, 'create_candidate');
+  assert.ok(futureProposal.proposals[0].temporalEvidence.includes('八天之后'));
+
+  const pastOnly = runActiveEventExtractionShadow([], {
+    query: '昨天在家吃了一个苹果。',
+    timeZone: 'Asia/Shanghai'
+  });
+  assert.strictEqual(pastOnly.proposalCount, 0);
+  assert.ok(pastOnly.decisions[0].reasons.includes('past_only_not_active'));
+
+  const uncertainQuestion = runActiveEventExtractionShadow([], {
+    query: '如果明天下雨，吃什么比较好？',
+    timeZone: 'Asia/Shanghai'
+  });
+  assert.strictEqual(uncertainQuestion.proposalCount, 0);
+
+  const referencedUpdate = runActiveEventExtractionShadow(events, {
+    query: '二十号出发的安排继续照旧。',
+    timeZone: 'Asia/Shanghai'
+  });
+  assert.strictEqual(referencedUpdate.proposals[0].action, 'update_candidate');
+  assert.strictEqual(referencedUpdate.proposals[0].targetEventId, 'event-trip');
+
+  const referencedCancellation = runActiveEventExtractionShadow(events, {
+    query: '那件事取消了。',
+    timeZone: 'Asia/Shanghai'
+  });
+  assert.strictEqual(referencedCancellation.proposals[0].action, 'cancel_candidate');
+  assert.strictEqual(referencedCancellation.proposals[0].targetEventId, 'event-trip');
 
   upsertMemoryActiveEvent({
     id: 'event-dinner',

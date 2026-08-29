@@ -1,4 +1,15 @@
 const REFERENCE_CUE = /(?:那件事|这件事|那个(?:安排|计划|约定|地方)?|这个(?:安排|计划|约定)?|不想去|还去吗|要走|快到了|回来(?:以后|之后|再)|改期|改时间|推迟|提前|取消|出发)/u;
+const COMMITMENT_CUE = /(?:计划|打算|准备|安排|预约|预订|预定|约好|决定|承诺|答应|要去|要在|要于|将于|将会|会在|预计|必须|需要|截止|出发|启程|动身|返回|回来|开始|继续|提交|参加)/u;
+const ONGOING_CUE = /(?:正在|已经开始|还在|仍在|持续到|一直到|直到)/u;
+const COMPLETION_CUE = /(?:已经结束|结束了|已经完成|完成了|做完了|办完了|考完了|已经回来|回来了)/u;
+const CANCELLATION_CUE = /(?:取消了?|不去了|不再去了?|作废|改期|改时间|延期|推迟)/u;
+const QUESTION_CUE = /(?:吗|么|要不要|是否|什么|怎么|哪天|何时|\?|？)/u;
+const HYPOTHETICAL_CUE = /(?:如果|假如|假设|比如|可能|也许|或许)/u;
+const CURRENT_TIME_CUE = /(?:今天|今日|今晚|今早|现在|目前|本周|这周|本月|这个月)/u;
+const FUTURE_TIME_CUE = /(?:明天|明早|明晚|后天|大后天|下周|下星期|下个月|下月|月底|年后|过(?:\d{1,3}|[一二两三四五六七八九十百]+)天|(?:\d{1,3}|[一二两三四五六七八九十百]+)天(?:后|之后|以后))/u;
+const PAST_ONLY_CUE = /(?:昨天|昨日|昨晚|前天|大前天|上周|上个月|去年)/u;
+const EXPLICIT_DATE_CUE = /(?:\d{4}[年./-]\d{1,2}(?:[月./-]\d{1,2}日?)?|\d{1,2}月\d{1,2}[日号]|\d{1,2}号|(?:本|这|下|上)?(?:周|星期)[一二三四五六日天末])/u;
+const TEMPORAL_EVIDENCE_PATTERN = /\d{4}[年./-]\d{1,2}(?:[月./-]\d{1,2}日?)?|\d{1,2}月\d{1,2}[日号]|\d{1,2}号|(?:本|这|下|上)?(?:周|星期)[一二三四五六日天末]|大前天|前天|昨天|昨晚|今天|今晚|今早|明天|明早|明晚|后天|大后天|下个月|下月|月底|过(?:\d{1,3}|[一二两三四五六七八九十百]+)天|(?:\d{1,3}|[一二两三四五六七八九十百]+)天(?:后|之后|以后)/gu;
 
 function normalizeText(value) {
   return String(value || '')
@@ -32,6 +43,130 @@ function overlapScore(query, labels) {
     best = Math.max(best, shared / Math.max(1, Math.min(labelPieces.size, queryPieces.size)));
   }
   return Math.max(exact, best);
+}
+
+function clampScore(value) {
+  return Math.max(0, Math.min(1, Number(value || 0)));
+}
+
+function splitEventClauses(query) {
+  return String(query || '')
+    .split(/[。！？!?；;\n\r]+/u)
+    .map(value => value.trim())
+    .filter(value => value.length >= 2)
+    .slice(0, 8);
+}
+
+function extractTemporalEvidence(clause) {
+  return [...new Set(String(clause || '').match(TEMPORAL_EVIDENCE_PATTERN) || [])].slice(0, 8);
+}
+
+function findReferencedEvent(clause, eligibleEvents) {
+  const scored = eligibleEvents
+    .map(event => ({
+      event,
+      score: overlapScore(clause, [event.title, ...(Array.isArray(event.aliases) ? event.aliases : [])])
+    }))
+    .sort((a, b) => b.score - a.score);
+  if (scored[0]?.score >= 0.3) return { ...scored[0], route: 'direct_reference' };
+  if (REFERENCE_CUE.test(clause) && eligibleEvents.length === 1) {
+    return { event: eligibleEvents[0], score: scored[0]?.score || 0, route: 'single_event_indirect_reference' };
+  }
+  return null;
+}
+
+function runActiveEventExtractionShadow(events, options = {}) {
+  const now = Number(options.now || Date.now());
+  const query = String(options.query || '').trim();
+  const timeZone = String(options.timeZone || 'UTC');
+  const eligibleEvents = (Array.isArray(events) ? events : []).filter(event =>
+    event && ['candidate', 'planned', 'active'].includes(String(event.status)) &&
+    (!event.validUntil || Number(event.validUntil) >= now)
+  );
+  const decisions = splitEventClauses(query).map((clause, index) => {
+    const temporalEvidence = extractTemporalEvidence(clause);
+    const hasFutureTime = FUTURE_TIME_CUE.test(clause);
+    const hasCurrentTime = CURRENT_TIME_CUE.test(clause);
+    const hasExplicitDate = EXPLICIT_DATE_CUE.test(clause);
+    const hasPastOnlyTime = PAST_ONLY_CUE.test(clause) && !hasFutureTime && !hasCurrentTime && !hasExplicitDate;
+    const hasCommitment = COMMITMENT_CUE.test(clause);
+    const hasOngoing = ONGOING_CUE.test(clause);
+    const hasCompletion = COMPLETION_CUE.test(clause);
+    const hasCancellation = CANCELLATION_CUE.test(clause);
+    const referenced = findReferencedEvent(clause, eligibleEvents);
+    const reasons = [];
+    if (hasFutureTime) reasons.push('future_time_evidence');
+    if (hasCurrentTime) reasons.push('current_time_evidence');
+    if (hasExplicitDate) reasons.push('explicit_date_evidence');
+    if (hasCommitment) reasons.push('commitment_language');
+    if (hasOngoing) reasons.push('ongoing_language');
+    if (hasCompletion) reasons.push('completion_language');
+    if (hasCancellation) reasons.push('cancellation_language');
+    if (referenced) reasons.push(referenced.route);
+    if (QUESTION_CUE.test(clause)) reasons.push('question_or_uncertainty');
+    if (HYPOTHETICAL_CUE.test(clause)) reasons.push('hypothetical_language');
+
+    let action = 'none';
+    if (hasCancellation) action = 'cancel_candidate';
+    else if (hasCompletion) action = 'complete_candidate';
+    else if (referenced && (hasCommitment || hasOngoing || hasFutureTime || hasCurrentTime || hasExplicitDate)) action = 'update_candidate';
+    else if (
+      (hasCommitment && (hasFutureTime || hasCurrentTime || hasExplicitDate || hasOngoing)) ||
+      (hasFutureTime && !hasPastOnlyTime) ||
+      (hasOngoing && !hasPastOnlyTime)
+    ) action = 'create_candidate';
+
+    let confidence = 0.18;
+    if (hasFutureTime) confidence += 0.24;
+    if (hasCurrentTime) confidence += 0.08;
+    if (hasExplicitDate) confidence += 0.18;
+    if (hasCommitment) confidence += 0.22;
+    if (hasOngoing) confidence += 0.16;
+    if (hasCompletion || hasCancellation) confidence += 0.2;
+    if (referenced) confidence += referenced.route === 'direct_reference' ? 0.16 : 0.1;
+    if (QUESTION_CUE.test(clause)) confidence -= 0.12;
+    if (HYPOTHETICAL_CUE.test(clause)) confidence -= 0.18;
+    if (hasPastOnlyTime && !hasCompletion && !hasCancellation) confidence -= 0.2;
+    if ((hasCompletion || hasCancellation) && !referenced) {
+      confidence -= 0.16;
+      reasons.push('unresolved_lifecycle_reference');
+    }
+    confidence = clampScore(confidence);
+    const proposed = action !== 'none' && confidence >= 0.42;
+    if (!proposed) {
+      if (hasPastOnlyTime && !hasCompletion && !hasCancellation) reasons.push('past_only_not_active');
+      else if (action === 'none') reasons.push('insufficient_event_structure');
+      else reasons.push('below_proposal_floor');
+    }
+
+    return {
+      clauseIndex: index,
+      clause,
+      proposed,
+      action,
+      titlePreview: clause.slice(0, 120),
+      confidence: Number(confidence.toFixed(6)),
+      targetEventId: referenced?.event?.id || null,
+      referenceRoute: referenced?.route || 'none',
+      referenceScore: Number((referenced?.score || 0).toFixed(6)),
+      temporalEvidence,
+      reasons: [...new Set(reasons)]
+    };
+  });
+  const proposals = decisions.filter(item => item.proposed).slice(0, 4);
+  return {
+    mode: 'shadow',
+    version: 'active-event-extraction-shadow-v1',
+    behaviorChanged: false,
+    writesEnabled: false,
+    query,
+    timeZone,
+    clauseCount: decisions.length,
+    proposalCount: proposals.length,
+    proposals,
+    decisions,
+    stopReason: proposals.length ? 'shadow_proposals_recorded' : 'no_supported_event_proposal'
+  };
 }
 
 function runActiveEventShadow(events, options = {}) {
@@ -98,4 +233,4 @@ function runActiveEventShadow(events, options = {}) {
   };
 }
 
-module.exports = { runActiveEventShadow };
+module.exports = { runActiveEventShadow, runActiveEventExtractionShadow };

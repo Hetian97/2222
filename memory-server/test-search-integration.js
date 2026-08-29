@@ -237,9 +237,12 @@ async function main() {
     assert(realSearch.body.searchTraceId);
     assert(realSearch.body.memories.length > 0 && realSearch.body.memories.length <= 5);
     assert.equal(realSearch.body.activeEventShadow.mode, 'shadow');
+    assert.equal(realSearch.body.activeEventShadow.version, 'active-events-shadow-v2');
     assert.equal(realSearch.body.activeEventShadow.behaviorChanged, false);
     assert.equal(realSearch.body.activeEventShadow.injectionEnabled, false);
     assert.deepEqual(realSearch.body.activeEventShadow.selectedEventIds, ['active-beijing-trip']);
+    assert.equal(realSearch.body.activeEventShadow.extraction.version, 'active-event-extraction-shadow-v1');
+    assert.equal(realSearch.body.activeEventShadow.extraction.writesEnabled, false);
 
     const persistedShadow = await request('GET', '/memory/search/last');
     assert.equal(persistedShadow.body.lastSearch.shadowPolicy.mode, 'shadow');
@@ -249,6 +252,7 @@ async function main() {
     assert.equal(persistedShadow.body.lastSearch.attemptId, 'attempt-stage3-success');
     assert.equal(persistedShadow.body.lastSearch.actionType, 'reply');
     assert.deepEqual(persistedShadow.body.lastSearch.activeEventShadow.selectedEventIds, ['active-beijing-trip']);
+    assert.equal(persistedShadow.body.lastSearch.activeEventShadow.extraction.writesEnabled, false);
     assert(Array.isArray(persistedShadow.body.lastSearch.shadowPolicy.decisions));
     assert(persistedShadow.body.lastSearch.resultsTop.some(item => item.shadow));
     const noiseDecision = persistedShadow.body.lastSearch.shadowPolicy.decisions
