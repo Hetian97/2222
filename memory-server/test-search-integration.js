@@ -231,18 +231,29 @@ async function main() {
       chatId: 'chat-1',
       turnId: 'turn-stage3-lifecycle',
       attemptId: 'attempt-stage3-success',
+      activeEventSource: {
+        type: 'group',
+        sourceChatId: 'group-shadow-source',
+        mountedChatId: 'chat-1',
+        latestSpeakerId: 'member-a',
+        speakerIds: ['member-a', 'member-b']
+      },
       excludeCategories: ['C'],
       limit: 5
     });
     assert(realSearch.body.searchTraceId);
     assert(realSearch.body.memories.length > 0 && realSearch.body.memories.length <= 5);
     assert.equal(realSearch.body.activeEventShadow.mode, 'shadow');
-    assert.equal(realSearch.body.activeEventShadow.version, 'active-events-shadow-v2');
+    assert.equal(realSearch.body.activeEventShadow.version, 'active-events-shadow-v3');
     assert.equal(realSearch.body.activeEventShadow.behaviorChanged, false);
     assert.equal(realSearch.body.activeEventShadow.injectionEnabled, false);
     assert.deepEqual(realSearch.body.activeEventShadow.selectedEventIds, ['active-beijing-trip']);
-    assert.equal(realSearch.body.activeEventShadow.extraction.version, 'active-event-extraction-shadow-v1');
+    assert.equal(realSearch.body.activeEventShadow.extraction.version, 'active-event-extraction-shadow-v2');
     assert.equal(realSearch.body.activeEventShadow.extraction.writesEnabled, false);
+    assert.equal(realSearch.body.activeEventShadow.extraction.sourceScope.type, 'group');
+    assert.equal(realSearch.body.activeEventShadow.extraction.sourceScope.sourceChatId, 'group-shadow-source');
+    assert.equal(realSearch.body.activeEventShadow.extraction.sourceScope.mountedChatId, 'chat-1');
+    assert.equal(realSearch.body.activeEventShadow.extraction.sourceScope.privateMemoryEligible, false);
 
     const persistedShadow = await request('GET', '/memory/search/last');
     assert.equal(persistedShadow.body.lastSearch.shadowPolicy.mode, 'shadow');
@@ -253,6 +264,7 @@ async function main() {
     assert.equal(persistedShadow.body.lastSearch.actionType, 'reply');
     assert.deepEqual(persistedShadow.body.lastSearch.activeEventShadow.selectedEventIds, ['active-beijing-trip']);
     assert.equal(persistedShadow.body.lastSearch.activeEventShadow.extraction.writesEnabled, false);
+    assert.equal(persistedShadow.body.lastSearch.activeEventShadow.extraction.sourceScope.type, 'group');
     assert(Array.isArray(persistedShadow.body.lastSearch.shadowPolicy.decisions));
     assert(persistedShadow.body.lastSearch.resultsTop.some(item => item.shadow));
     const noiseDecision = persistedShadow.body.lastSearch.shadowPolicy.decisions

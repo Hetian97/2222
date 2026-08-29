@@ -2128,7 +2128,9 @@ ${linkedContents}
           let memberMemContent = '';
           
           if (memMode === 'vector' && window.vectorMemoryManager) {
-            memberMemContent = await window.vectorMemoryManager.serializeForPrompt(memberChat, queryTextForVector);
+            memberMemContent = await window.vectorMemoryManager.serializeForPrompt(memberChat, queryTextForVector, [], {
+              activeEventSource: window.vectorMemoryManager.createActiveEventSourceContext(chat, filteredHistory.slice(-5), memberChat)
+            });
           } else if (memMode === 'structured' && window.structuredMemoryManager) {
             memberMemContent = window.structuredMemoryManager.serializeForPrompt(memberChat);
           } else if (memberChat.longTermMemory && memberChat.longTermMemory.length > 0) {
@@ -3278,7 +3280,9 @@ ${linkedContents}
             let memberMemContent = '';
             
             if (memMode === 'vector' && window.vectorMemoryManager) {
-              memberMemContent = await window.vectorMemoryManager.serializeForPrompt(memberChat, queryTextForVector);
+              memberMemContent = await window.vectorMemoryManager.serializeForPrompt(memberChat, queryTextForVector, [], {
+                activeEventSource: window.vectorMemoryManager.createActiveEventSourceContext(chat, filteredHistory.slice(-5), memberChat)
+              });
             } else if (memMode === 'structured' && window.structuredMemoryManager) {
               memberMemContent = window.structuredMemoryManager.serializeForPrompt(memberChat);
             } else if (memberChat.longTermMemory && memberChat.longTermMemory.length > 0) {

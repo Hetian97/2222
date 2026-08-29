@@ -204,6 +204,25 @@ async function main() {
   assert.equal(searchCall.body.actionType, 'regenerate');
   assert.equal(typeof searchCall.body.timeZone, 'string');
   assert(searchCall.body.timeZone.length > 0);
+  assert.equal(searchCall.body.activeEventSource.type, 'private');
+  assert.equal(searchCall.body.activeEventSource.sourceChatId, 'chat-1');
+  assert.equal(searchCall.body.activeEventSource.mountedChatId, 'chat-1');
+
+  const groupSource = manager.createActiveEventSourceContext({
+    id: 'group-1',
+    isGroup: true,
+    members: [{ id: 'member-a' }, { id: 'member-b' }]
+  }, [
+    { role: 'assistant', senderId: 'member-a', content: '第一条' },
+    { role: 'user', senderId: 'user', content: '第二条' }
+  ], chat);
+  assert.equal(groupSource.type, 'group');
+  assert.equal(groupSource.sourceChatId, 'group-1');
+  assert.equal(groupSource.mountedChatId, 'chat-1');
+  assert.equal(groupSource.sourceMessageType, 'mounted_group_context');
+  assert.equal(groupSource.latestSpeakerId, 'user');
+  assert.deepEqual(Array.from(groupSource.speakerIds), ['member-a', 'user']);
+  assert.deepEqual(Array.from(groupSource.participantIds), ['member-a', 'member-b']);
   const recalledAt = sandbox.window.TimeZoneUtils.fromDateTimeLocal('2026-08-26T15:42', 'Asia/Shanghai');
   const timedMemory = {
     id: 'timed-memory',

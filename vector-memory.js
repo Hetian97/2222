@@ -120,6 +120,52 @@ class VariableMemoryManager {
     return [...new Set(values.map(value => String(value || '').normalize('NFKC').trim()).filter(value => value.length >= 2))];
   }
 
+  createActiveEventSourceContext(sourceChat, messages = [], mountedChat = null) {
+    const safeMessages = (Array.isArray(messages) ? messages : []).filter(Boolean);
+    const latestMessage = safeMessages.at(-1) || null;
+    const sourceType = sourceChat?.isGroup ? 'group' : 'private';
+    const speakerIds = [...new Set(safeMessages.map(message => String(
+      message?.senderId || message?.characterId || message?.memberId || (message?.role === 'user' ? 'user' : '')
+    ).trim()).filter(Boolean))].slice(0, 24);
+    const participantIds = sourceChat?.isGroup
+      ? [...new Set((Array.isArray(sourceChat?.members) ? sourceChat.members : [])
+          .map(member => String(member?.id || '').trim()).filter(Boolean))].slice(0, 50)
+      : [String(sourceChat?.id || sourceChat?.chatId || '').trim()].filter(Boolean);
+    return {
+      type: sourceType,
+      sourceChatId: String(sourceChat?.id || sourceChat?.chatId || '').trim(),
+      mountedChatId: String(mountedChat?.id || mountedChat?.chatId || sourceChat?.id || sourceChat?.chatId || '').trim(),
+      sourceMessageType: sourceType === 'group' ? 'mounted_group_context' : 'direct_private_message',
+      latestSpeakerId: String(
+        latestMessage?.senderId || latestMessage?.characterId || latestMessage?.memberId || (latestMessage?.role === 'user' ? 'user' : '')
+      ).trim(),
+      latestSpeakerRole: String(latestMessage?.role || '').trim(),
+      speakerIds,
+      participantIds
+    };
+  }
+
+  normalizeActiveEventSourceContext(source, chat) {
+    const fallback = this.createActiveEventSourceContext(chat, [], chat);
+    const input = source && typeof source === 'object' ? source : {};
+    const allowedTypes = new Set(['private', 'group', 'system', 'unknown']);
+    const requestedType = String(input.type || input.sourceType || fallback.type || 'unknown').trim().toLowerCase();
+    return {
+      ...fallback,
+      ...input,
+      type: allowedTypes.has(requestedType) ? requestedType : 'unknown',
+      sourceChatId: String(input.sourceChatId || fallback.sourceChatId || '').trim(),
+      mountedChatId: String(input.mountedChatId || fallback.mountedChatId || '').trim(),
+      sourceMessageType: String(input.sourceMessageType || fallback.sourceMessageType || '').trim(),
+      latestSpeakerId: String(input.latestSpeakerId || input.speakerId || fallback.latestSpeakerId || '').trim(),
+      latestSpeakerRole: String(input.latestSpeakerRole || input.speakerRole || fallback.latestSpeakerRole || '').trim(),
+      speakerIds: [...new Set((Array.isArray(input.speakerIds) ? input.speakerIds : fallback.speakerIds)
+        .map(value => String(value || '').trim()).filter(Boolean))].slice(0, 24),
+      participantIds: [...new Set((Array.isArray(input.participantIds) ? input.participantIds : fallback.participantIds)
+        .map(value => String(value || '').trim()).filter(Boolean))].slice(0, 50)
+    };
+  }
+
   filterMemoryTags(chat, tags) {
     const excluded = new Set(this.getMemoryParticipantNames(chat).map(value => value.toLowerCase()));
     return [...new Set((Array.isArray(tags) ? tags : [])
@@ -1030,6 +1076,7 @@ class VariableMemoryManager {
       ? queryVariants.map(v => String(v || '').trim()).filter(Boolean).slice(-5)
       : [];
     const primaryQuery = String(retrievalMeta?.primaryQuery || safeQueryVariants.at(-1) || query).trim();
+    const activeEventSource = this.normalizeActiveEventSourceContext(retrievalMeta?.activeEventSource, chat);
 
 
     try {
@@ -1041,6 +1088,7 @@ class VariableMemoryManager {
           participantNames: this.getMemoryParticipantNames(chat),
           shadowPrimaryQuery: primaryQuery,
           shadowContextQueries: safeQueryVariants.filter(value => value !== primaryQuery).slice(-4),
+          activeEventSource,
           limit,
           chatId: chat?.id || chat?.chatId || '',
           excludeCategories: ['C'],

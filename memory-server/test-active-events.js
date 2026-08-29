@@ -45,12 +45,50 @@ try {
 
   const futureProposal = runActiveEventExtractionShadow([], {
     query: '八天之后要出发，会议材料需要提前准备好。',
-    timeZone: 'Asia/Shanghai'
+    timeZone: 'Asia/Shanghai',
+    sourceScope: {
+      type: 'private',
+      sourceChatId: 'chat-1',
+      mountedChatId: 'chat-1',
+      latestSpeakerRole: 'user'
+    }
   });
+  assert.strictEqual(futureProposal.version, 'active-event-extraction-shadow-v2');
   assert.strictEqual(futureProposal.writesEnabled, false);
   assert.strictEqual(futureProposal.proposalCount, 1);
   assert.strictEqual(futureProposal.proposals[0].action, 'create_candidate');
   assert.ok(futureProposal.proposals[0].temporalEvidence.includes('八天之后'));
+  assert.strictEqual(futureProposal.sourceScope.type, 'private');
+  assert.strictEqual(futureProposal.sourceScope.privateMemoryEligible, true);
+
+  const adjacentDetails = runActiveEventExtractionShadow([], {
+    query: '今天已经来不及了。明天需要兑现先前的约定。之前答应共同整理项目材料。',
+    timeZone: 'Asia/Shanghai',
+    sourceScope: {
+      type: 'group',
+      sourceChatId: 'group-7',
+      mountedChatId: 'chat-1',
+      speakerIds: ['member-a', 'member-b'],
+      participantIds: ['member-a', 'member-b', 'chat-1']
+    }
+  });
+  assert.strictEqual(adjacentDetails.proposalCount, 1);
+  assert.strictEqual(adjacentDetails.proposals[0].mergedFromAdjacentClauses, true);
+  assert.deepStrictEqual(adjacentDetails.proposals[0].sourceClauseIndexes, [1, 2]);
+  assert.ok(adjacentDetails.proposals[0].clause.includes('共同整理项目材料'));
+  assert.ok(adjacentDetails.proposals[0].reasons.includes('adjacent_clause_context'));
+  assert.strictEqual(adjacentDetails.sourceScope.type, 'group');
+  assert.strictEqual(adjacentDetails.sourceScope.sourceChatId, 'group-7');
+  assert.strictEqual(adjacentDetails.sourceScope.mountedChatId, 'chat-1');
+  assert.strictEqual(adjacentDetails.sourceScope.privateMemoryEligible, false);
+  assert.strictEqual(adjacentDetails.sourceScope.visibilityHint, 'source_scope_on_reference');
+
+  const sameDayScene = runActiveEventExtractionShadow([], {
+    query: '今晚要吃完饭再去散步。',
+    timeZone: 'Asia/Shanghai',
+    sourceScope: { type: 'private', sourceChatId: 'chat-1' }
+  });
+  assert.strictEqual(sameDayScene.proposalCount, 0);
 
   const pastOnly = runActiveEventExtractionShadow([], {
     query: '昨天在家吃了一个苹果。',

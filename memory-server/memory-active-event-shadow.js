@@ -10,6 +10,7 @@ const FUTURE_TIME_CUE = /(?:明天|明早|明晚|后天|大后天|下周|下星�
 const PAST_ONLY_CUE = /(?:昨天|昨日|昨晚|前天|大前天|上周|上个月|去年)/u;
 const EXPLICIT_DATE_CUE = /(?:\d{4}[年./-]\d{1,2}(?:[月./-]\d{1,2}日?)?|\d{1,2}月\d{1,2}[日号]|\d{1,2}号|(?:本|这|下|上)?(?:周|星期)[一二三四五六日天末])/u;
 const TEMPORAL_EVIDENCE_PATTERN = /\d{4}[年./-]\d{1,2}(?:[月./-]\d{1,2}日?)?|\d{1,2}月\d{1,2}[日号]|\d{1,2}号|(?:本|这|下|上)?(?:周|星期)[一二三四五六日天末]|大前天|前天|昨天|昨晚|今天|今晚|今早|明天|明早|明晚|后天|大后天|下个月|下月|月底|过(?:\d{1,3}|[一二两三四五六七八九十百]+)天|(?:\d{1,3}|[一二两三四五六七八九十百]+)天(?:后|之后|以后)/gu;
+const ACTIVE_EVENT_SOURCE_TYPES = new Set(['private', 'group', 'system', 'unknown']);
 
 function normalizeText(value) {
   return String(value || '')
@@ -61,6 +62,106 @@ function extractTemporalEvidence(clause) {
   return [...new Set(String(clause || '').match(TEMPORAL_EVIDENCE_PATTERN) || [])].slice(0, 8);
 }
 
+function normalizeStringList(values, limit = 24) {
+  return [...new Set((Array.isArray(values) ? values : [])
+    .map(value => String(value || '').trim())
+    .filter(Boolean))].slice(0, limit);
+}
+
+function normalizeSourceScope(input = {}) {
+  const requestedType = String(input.type || input.sourceType || 'unknown').trim().toLowerCase();
+  const type = ACTIVE_EVENT_SOURCE_TYPES.has(requestedType) ? requestedType : 'unknown';
+  return {
+    type,
+    sourceChatId: String(input.sourceChatId || '').trim(),
+    mountedChatId: String(input.mountedChatId || '').trim(),
+    sourceMessageType: String(input.sourceMessageType || '').trim(),
+    latestSpeakerId: String(input.latestSpeakerId || input.speakerId || '').trim(),
+    latestSpeakerRole: String(input.latestSpeakerRole || input.speakerRole || '').trim(),
+    speakerIds: normalizeStringList(input.speakerIds),
+    participantIds: normalizeStringList(input.participantIds, 50),
+    ownershipResolved: false,
+    privateMemoryEligible: type === 'private',
+    visibilityHint: type === 'group' ? 'source_scope_on_reference' : (type === 'private' ? 'private_chat' : 'source_scope_only')
+  };
+}
+
+function getClauseSignals(clause) {
+  const temporalEvidence = extractTemporalEvidence(clause);
+  const hasFutureTime = FUTURE_TIME_CUE.test(clause);
+  const hasCurrentTime = CURRENT_TIME_CUE.test(clause);
+  const hasExplicitDate = EXPLICIT_DATE_CUE.test(clause);
+  return {
+    temporalEvidence,
+    hasFutureTime,
+    hasCurrentTime,
+    hasExplicitDate,
+    hasPastOnlyTime: PAST_ONLY_CUE.test(clause) && !hasFutureTime && !hasCurrentTime && !hasExplicitDate,
+    hasCommitment: COMMITMENT_CUE.test(clause),
+    hasOngoing: ONGOING_CUE.test(clause),
+    hasCompletion: COMPLETION_CUE.test(clause),
+    hasCancellation: CANCELLATION_CUE.test(clause),
+    hasQuestion: QUESTION_CUE.test(clause),
+    hasHypothetical: HYPOTHETICAL_CUE.test(clause)
+  };
+}
+
+function hasConflictingTemporalEvidence(baseSignals, adjacentSignals) {
+  if (!baseSignals.temporalEvidence.length || !adjacentSignals.temporalEvidence.length) return false;
+  const base = new Set(baseSignals.temporalEvidence);
+  return adjacentSignals.temporalEvidence.some(value => !base.has(value));
+}
+
+function isAdjacentEventSupport(base, adjacent) {
+  if (!adjacent || adjacent.clause.length < 4) return false;
+  const baseSignals = base.signals;
+  const adjacentSignals = adjacent.signals;
+  if (adjacentSignals.hasQuestion || adjacentSignals.hasHypothetical || adjacentSignals.hasCompletion || adjacentSignals.hasCancellation) {
+    return false;
+  }
+  if (hasConflictingTemporalEvidence(baseSignals, adjacentSignals)) return false;
+
+  const baseHasSchedule = baseSignals.hasFutureTime || baseSignals.hasExplicitDate;
+  const adjacentHasSchedule = adjacentSignals.hasFutureTime || adjacentSignals.hasExplicitDate;
+  return (
+    (baseHasSchedule && adjacentSignals.hasCommitment) ||
+    (baseSignals.hasCommitment && adjacentHasSchedule) ||
+    (baseHasSchedule && adjacentSignals.hasOngoing)
+  );
+}
+
+function mergeAdjacentProposalContext(assessments) {
+  return assessments.map((assessment, index) => {
+    if (!assessment.proposed) return assessment;
+    const adjacentIndexes = [];
+    // Prefer the following clause because natural Chinese often states the date or
+    // promise first, then supplies the concrete action/object in the next sentence.
+    for (const candidateIndex of [index + 1, index - 1]) {
+      const adjacent = assessments[candidateIndex];
+      if (!isAdjacentEventSupport(assessment, adjacent)) continue;
+      const candidateIndexes = [...adjacentIndexes, candidateIndex].sort((a, b) => a - b);
+      const combinedLength = [index, ...candidateIndexes]
+        .sort((a, b) => a - b)
+        .map(clauseIndex => assessments[clauseIndex].clause)
+        .join('。').length;
+      if (combinedLength > 240) continue;
+      adjacentIndexes.push(candidateIndex);
+      break;
+    }
+    if (!adjacentIndexes.length) return assessment;
+    const sourceClauseIndexes = [index, ...adjacentIndexes].sort((a, b) => a - b);
+    const mergedClause = sourceClauseIndexes.map(clauseIndex => assessments[clauseIndex].clause).join('。');
+    return {
+      ...assessment,
+      clause: mergedClause,
+      titlePreview: mergedClause.slice(0, 160),
+      sourceClauseIndexes,
+      mergedFromAdjacentClauses: true,
+      reasons: [...new Set([...assessment.reasons, 'adjacent_clause_context'])]
+    };
+  });
+}
+
 function findReferencedEvent(clause, eligibleEvents) {
   const scored = eligibleEvents
     .map(event => ({
@@ -79,20 +180,17 @@ function runActiveEventExtractionShadow(events, options = {}) {
   const now = Number(options.now || Date.now());
   const query = String(options.query || '').trim();
   const timeZone = String(options.timeZone || 'UTC');
+  const sourceScope = normalizeSourceScope(options.sourceScope || options.activeEventSource || {});
   const eligibleEvents = (Array.isArray(events) ? events : []).filter(event =>
     event && ['candidate', 'planned', 'active'].includes(String(event.status)) &&
     (!event.validUntil || Number(event.validUntil) >= now)
   );
-  const decisions = splitEventClauses(query).map((clause, index) => {
-    const temporalEvidence = extractTemporalEvidence(clause);
-    const hasFutureTime = FUTURE_TIME_CUE.test(clause);
-    const hasCurrentTime = CURRENT_TIME_CUE.test(clause);
-    const hasExplicitDate = EXPLICIT_DATE_CUE.test(clause);
-    const hasPastOnlyTime = PAST_ONLY_CUE.test(clause) && !hasFutureTime && !hasCurrentTime && !hasExplicitDate;
-    const hasCommitment = COMMITMENT_CUE.test(clause);
-    const hasOngoing = ONGOING_CUE.test(clause);
-    const hasCompletion = COMPLETION_CUE.test(clause);
-    const hasCancellation = CANCELLATION_CUE.test(clause);
+  const assessments = splitEventClauses(query).map((clause, index) => {
+    const signals = getClauseSignals(clause);
+    const {
+      temporalEvidence, hasFutureTime, hasCurrentTime, hasExplicitDate, hasPastOnlyTime,
+      hasCommitment, hasOngoing, hasCompletion, hasCancellation, hasQuestion, hasHypothetical
+    } = signals;
     const referenced = findReferencedEvent(clause, eligibleEvents);
     const reasons = [];
     if (hasFutureTime) reasons.push('future_time_evidence');
@@ -103,17 +201,16 @@ function runActiveEventExtractionShadow(events, options = {}) {
     if (hasCompletion) reasons.push('completion_language');
     if (hasCancellation) reasons.push('cancellation_language');
     if (referenced) reasons.push(referenced.route);
-    if (QUESTION_CUE.test(clause)) reasons.push('question_or_uncertainty');
-    if (HYPOTHETICAL_CUE.test(clause)) reasons.push('hypothetical_language');
+    if (hasQuestion) reasons.push('question_or_uncertainty');
+    if (hasHypothetical) reasons.push('hypothetical_language');
 
     let action = 'none';
     if (hasCancellation) action = 'cancel_candidate';
     else if (hasCompletion) action = 'complete_candidate';
     else if (referenced && (hasCommitment || hasOngoing || hasFutureTime || hasCurrentTime || hasExplicitDate)) action = 'update_candidate';
     else if (
-      (hasCommitment && (hasFutureTime || hasCurrentTime || hasExplicitDate || hasOngoing)) ||
-      (hasFutureTime && !hasPastOnlyTime) ||
-      (hasOngoing && !hasPastOnlyTime)
+      (hasCommitment && (hasFutureTime || hasExplicitDate)) ||
+      (hasFutureTime && !hasPastOnlyTime)
     ) action = 'create_candidate';
 
     let confidence = 0.18;
@@ -124,8 +221,8 @@ function runActiveEventExtractionShadow(events, options = {}) {
     if (hasOngoing) confidence += 0.16;
     if (hasCompletion || hasCancellation) confidence += 0.2;
     if (referenced) confidence += referenced.route === 'direct_reference' ? 0.16 : 0.1;
-    if (QUESTION_CUE.test(clause)) confidence -= 0.12;
-    if (HYPOTHETICAL_CUE.test(clause)) confidence -= 0.18;
+    if (hasQuestion) confidence -= 0.12;
+    if (hasHypothetical) confidence -= 0.18;
     if (hasPastOnlyTime && !hasCompletion && !hasCancellation) confidence -= 0.2;
     if ((hasCompletion || hasCancellation) && !referenced) {
       confidence -= 0.16;
@@ -150,17 +247,29 @@ function runActiveEventExtractionShadow(events, options = {}) {
       referenceRoute: referenced?.route || 'none',
       referenceScore: Number((referenced?.score || 0).toFixed(6)),
       temporalEvidence,
-      reasons: [...new Set(reasons)]
+      reasons: [...new Set(reasons)],
+      signals
+    };
+  });
+  const decisions = mergeAdjacentProposalContext(assessments).map(item => {
+    const { signals, ...publicDecision } = item;
+    return {
+      ...publicDecision,
+      sourceClauseIndexes: Array.isArray(publicDecision.sourceClauseIndexes)
+        ? publicDecision.sourceClauseIndexes
+        : [publicDecision.clauseIndex],
+      mergedFromAdjacentClauses: Boolean(publicDecision.mergedFromAdjacentClauses)
     };
   });
   const proposals = decisions.filter(item => item.proposed).slice(0, 4);
   return {
     mode: 'shadow',
-    version: 'active-event-extraction-shadow-v1',
+    version: 'active-event-extraction-shadow-v2',
     behaviorChanged: false,
     writesEnabled: false,
     query,
     timeZone,
+    sourceScope,
     clauseCount: decisions.length,
     proposalCount: proposals.length,
     proposals,

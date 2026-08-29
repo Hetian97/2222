@@ -4212,11 +4212,12 @@ const server = http.createServer(async (req, res) => {
       });
       const activeEventExtractionShadow = runActiveEventExtractionShadow(activeEvents, {
         query: q,
-        timeZone: normalizeTimeZone(body.timeZone, 'UTC')
+        timeZone: normalizeTimeZone(body.timeZone, 'UTC'),
+        sourceScope: body.activeEventSource || {}
       });
       const activeEventShadow = {
         ...activeEventReferenceShadow,
-        version: 'active-events-shadow-v2',
+        version: 'active-events-shadow-v3',
         referenceVersion: activeEventReferenceShadow.version,
         extraction: activeEventExtractionShadow
       };

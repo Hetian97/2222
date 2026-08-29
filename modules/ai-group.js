@@ -1733,7 +1733,9 @@ ${longTimeNoSee ? `【重要提示】你们已经很久没聊天了！你【必�
           let memberMemContent = '';
           
           if (memMode === 'vector' && window.vectorMemoryManager) {
-            memberMemContent = await window.vectorMemoryManager.serializeForPrompt(memberChat, queryTextForVector);
+            memberMemContent = await window.vectorMemoryManager.serializeForPrompt(memberChat, queryTextForVector, [], {
+              activeEventSource: window.vectorMemoryManager.createActiveEventSourceContext(chat, filteredHistory.slice(-5), memberChat)
+            });
           } else if (memMode === 'structured' && window.structuredMemoryManager) {
             memberMemContent = window.structuredMemoryManager.serializeForPrompt(memberChat);
           } else if (memberChat.longTermMemory && memberChat.longTermMemory.length > 0) {
