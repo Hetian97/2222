@@ -1314,10 +1314,20 @@ class VariableMemoryManager {
     if (!anchor) return source;
 
     const pad = value => String(value).padStart(2, '0');
-    const formatRelativeDate = offset => {
-      const date = new Date(Date.UTC(anchor.year, anchor.month - 1, anchor.day + offset));
+    const anchorDate = new Date(Date.UTC(anchor.year, anchor.month - 1, anchor.day));
+    const formatDate = date => {
       return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
     };
+    const formatRelativeDate = offset => {
+      const date = new Date(anchorDate);
+      date.setUTCDate(date.getUTCDate() + offset);
+      return formatDate(date);
+    };
+    const formatRelativeMonth = offset => {
+      const date = new Date(Date.UTC(anchor.year, anchor.month - 1 + offset, 1));
+      return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}`;
+    };
+    const clarify = (resolved, original) => `${resolved}（原文称“${original}”）`;
     const dayOffsets = {
       大前天: -3,
       前天: -2,
@@ -1334,17 +1344,66 @@ class VariableMemoryManager {
       今早: { offset: 0, period: '早上' },
       明早: { offset: 1, period: '早上' }
     };
-    const relativeTimePattern = /大前天|大后天|昨天(?:早上|上午|中午|下午|晚上|夜里|凌晨)?|今天(?:早上|上午|中午|下午|晚上|夜里|凌晨)?|明天(?:早上|上午|中午|下午|晚上|夜里|凌晨)?|前天|后天|昨晚|今晚|明晚|今早|明早/g;
+    const monthOffsets = {
+      上个月: -1,
+      上月: -1,
+      这个月: 0,
+      本月: 0,
+      下个月: 1,
+      下月: 1
+    };
+    const yearOffsets = {
+      前年: -2,
+      去年: -1,
+      今年: 0,
+      明年: 1
+    };
+    const weekdayIndexes = {
+      一: 0,
+      二: 1,
+      三: 2,
+      四: 3,
+      五: 4,
+      六: 5,
+      日: 6,
+      天: 6
+    };
+    const relativeTimePattern = /大前天|大后天|昨天(?:早上|上午|中午|下午|晚上|夜里|凌晨)?|今天(?:早上|上午|中午|下午|晚上|夜里|凌晨)?|明天(?:早上|上午|中午|下午|晚上|夜里|凌晨)?|前天|后天|昨晚|今晚|明晚|今早|明早|(?:上周|本周|这周|下周)(?:[一二三四五六日天])?|上个月|这个月|下个月|上月|本月|下月|(?:前年|去年|今年|明年)(?:春天|春季|夏天|夏季|秋天|秋季|冬天|冬季|\d{1,2}月)?/g;
 
     return source.replace(relativeTimePattern, matched => {
       const compact = compactRelativeTimes[matched];
       if (compact) {
-        return `${formatRelativeDate(compact.offset)} ${compact.period}（原文称“${matched}”）`;
+        return clarify(`${formatRelativeDate(compact.offset)} ${compact.period}`, matched);
       }
       const dayLabel = Object.keys(dayOffsets).find(label => matched.startsWith(label));
-      if (!dayLabel) return matched;
-      const period = matched.slice(dayLabel.length);
-      return `${formatRelativeDate(dayOffsets[dayLabel])}${period ? ` ${period}` : ''}（原文称“${matched}”）`;
+      if (dayLabel) {
+        const period = matched.slice(dayLabel.length);
+        return clarify(`${formatRelativeDate(dayOffsets[dayLabel])}${period ? ` ${period}` : ''}`, matched);
+      }
+      if (Object.prototype.hasOwnProperty.call(monthOffsets, matched)) {
+        return clarify(formatRelativeMonth(monthOffsets[matched]), matched);
+      }
+      const weekMatch = matched.match(/^(上周|本周|这周|下周)([一二三四五六日天])?$/);
+      if (weekMatch) {
+        const weekOffset = weekMatch[1] === '上周' ? -1 : weekMatch[1] === '下周' ? 1 : 0;
+        const anchorWeekday = (anchorDate.getUTCDay() + 6) % 7;
+        const mondayOffset = -anchorWeekday + weekOffset * 7;
+        if (weekMatch[2]) {
+          return clarify(formatRelativeDate(mondayOffset + weekdayIndexes[weekMatch[2]]), matched);
+        }
+        return clarify(`${formatRelativeDate(mondayOffset)}至${formatRelativeDate(mondayOffset + 6)}`, matched);
+      }
+      const yearMatch = matched.match(/^(前年|去年|今年|明年)(.*)$/);
+      if (yearMatch) {
+        const targetYear = anchor.year + yearOffsets[yearMatch[1]];
+        const suffix = yearMatch[2];
+        const numericMonth = suffix.match(/^(\d{1,2})月$/);
+        const resolved = numericMonth
+          ? `${targetYear}-${pad(Math.min(12, Math.max(1, Number(numericMonth[1]))))}`
+          : `${targetYear}年${suffix}`;
+        return clarify(resolved, matched);
+      }
+      return matched;
     });
   }
 
@@ -1376,9 +1435,9 @@ class VariableMemoryManager {
 
       if (nonCoreResults.length > 0) {
         output += '## 回闪记忆 (根据当前情境唤醒的记忆片段)\n';
-        output += '> 时间规则：每条记忆中的“昨天、今天、明天、今晚”等相对时间，均以该条标注的记忆发生时间为基准；记忆被召回不代表它刚刚发生。\n';
+        output += '> 时间规则：方括号标注的是该段记忆被记录或叙述时的时间基准，不保证是正文中所有事件的实际发生时间。正文中的“昨天、上周、去年”等相对时间已按该条基准换算，且只约束该条内明确对应的事件；严禁把一条记忆的时间修饰套到另一条记忆的事件上。记忆被召回不代表它刚刚发生。\n';
 
-        // 按记忆发生时间排序，让 AI 更有时间顺序感
+        // 按记忆记录基准时间排序，让 AI 更有时间顺序感
         nonCoreResults.sort((a, b) => {
           const at = Number(a.fragment.memoryTime || a.fragment.createdAt || a.fragment.updatedAt || 0);
           const bt = Number(b.fragment.memoryTime || b.fragment.createdAt || b.fragment.updatedAt || 0);
@@ -1394,7 +1453,7 @@ class VariableMemoryManager {
             memoryTime,
             memoryTimeZone
           );
-          output += '[记忆发生时间：' + dateStr + '｜' + memoryTimeZone + ']\n' + promptContent + '\n';
+          output += '[记忆记录基准时间：' + dateStr + '｜' + memoryTimeZone + ']\n' + promptContent + '\n';
         }
 
         output += '\n';

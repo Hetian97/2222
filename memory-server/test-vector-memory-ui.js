@@ -227,7 +227,7 @@ async function main() {
   const timedMemory = {
     id: 'timed-memory',
     category: 'P',
-    content: '前天开始准备，昨天发生了重要的事，今天下午复盘，明天继续，今晚早点休息，后天提交。',
+    content: '前天开始准备，昨天发生了重要的事，今天下午复盘，明天继续，今晚早点休息，后天提交。上周三复诊，上个月整理资料，去年夏天独自去医院，今年8月再次检查。',
     memoryTime: recalledAt,
     memoryTimeZone: 'Asia/Shanghai',
     _searchScore: 0.9
@@ -242,15 +242,21 @@ async function main() {
     return { ok: true, recallUpdates: [] };
   };
   const timedPrompt = await manager.serializeForPrompt(chat, '湖边看日出');
-  assert(timedPrompt.includes('[记忆发生时间：2026-08-26 15:42｜Asia/Shanghai]'));
-  assert(timedPrompt.includes('相对时间，均以该条标注的记忆发生时间为基准'));
+  assert(timedPrompt.includes('[记忆记录基准时间：2026-08-26 15:42｜Asia/Shanghai]'));
+  assert(timedPrompt.includes('被记录或叙述时的时间基准'));
+  assert(timedPrompt.includes('不保证是正文中所有事件的实际发生时间'));
+  assert(timedPrompt.includes('严禁把一条记忆的时间修饰套到另一条记忆的事件上'));
   assert(timedPrompt.includes('2026-08-24（原文称“前天”）开始准备'));
   assert(timedPrompt.includes('2026-08-25（原文称“昨天”）发生了重要的事'));
   assert(timedPrompt.includes('2026-08-26 下午（原文称“今天下午”）复盘'));
   assert(timedPrompt.includes('2026-08-27（原文称“明天”）继续'));
   assert(timedPrompt.includes('2026-08-26 晚上（原文称“今晚”）早点休息'));
   assert(timedPrompt.includes('2026-08-28（原文称“后天”）提交'));
-  assert.equal(timedMemory.content, '前天开始准备，昨天发生了重要的事，今天下午复盘，明天继续，今晚早点休息，后天提交。');
+  assert(timedPrompt.includes('2026-08-19（原文称“上周三”）复诊'));
+  assert(timedPrompt.includes('2026-07（原文称“上个月”）整理资料'));
+  assert(timedPrompt.includes('2025年夏天（原文称“去年夏天”）独自去医院'));
+  assert(timedPrompt.includes('2026-08（原文称“今年8月”）再次检查'));
+  assert.equal(timedMemory.content, '前天开始准备，昨天发生了重要的事，今天下午复盘，明天继续，今晚早点休息，后天提交。上周三复诊，上个月整理资料，去年夏天独自去医院，今年8月再次检查。');
   manager.externalMemoryRequest = async (_chat, requestPath) => {
     if (requestPath === '/memory/search') return { ok: true, memories: [], searchTraceId: 'trace-zero-recall' };
     if (requestPath === '/memory/search/commit') return { ok: true, log: { status: 'prompt_committed' }, recallUpdates: [] };
