@@ -4217,7 +4217,7 @@ const server = http.createServer(async (req, res) => {
       });
       const activeEventShadow = {
         ...activeEventReferenceShadow,
-        version: 'active-events-shadow-v3',
+        version: 'active-events-shadow-v4',
         referenceVersion: activeEventReferenceShadow.version,
         extraction: activeEventExtractionShadow
       };

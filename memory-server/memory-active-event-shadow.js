@@ -5,6 +5,9 @@ const COMPLETION_CUE = /(?:已经结束|结束了|已经完成|完成了|做完�
 const CANCELLATION_CUE = /(?:取消了?|不去了|不再去了?|作废|改期|改时间|延期|推迟)/u;
 const QUESTION_CUE = /(?:吗|么|要不要|是否|什么|怎么|哪天|何时|\?|？)/u;
 const HYPOTHETICAL_CUE = /(?:如果|假如|假设|比如|可能|也许|或许)/u;
+const EXECUTABLE_ACTION_CUE = /(?:做|制作|准备|整理|查看|看完|阅读|复习|检查|提交|发送|交给|参加|出发|启程|动身|返回|回来|搬|购买|买|预约|复诊|开会|考试|训练|处理|完成|开始|继续|去(?:往|到)?)/u;
+const CONCRETE_EVENT_CUE = /(?:会议|考试|预约|行程|航班|车次|截止|复诊|检查|训练|活动|出差|旅行|约会|任务|资料|材料)/u;
+const SOCIAL_FAREWELL_CUE = /(?:(?:晚安|睡吧|先睡|早点睡).{0,32}(?:明天见|回头见|改天见)|(?:明天见|回头见|改天见).{0,32}(?:晚安|睡吧|先睡|早点睡))/u;
 const CURRENT_TIME_CUE = /(?:今天|今日|今晚|今早|现在|目前|本周|这周|本月|这个月)/u;
 const FUTURE_TIME_CUE = /(?:明天|明早|明晚|后天|大后天|下周|下星期|下个月|下月|月底|年后|过(?:\d{1,3}|[一二两三四五六七八九十百]+)天|(?:\d{1,3}|[一二两三四五六七八九十百]+)天(?:后|之后|以后))/u;
 const PAST_ONLY_CUE = /(?:昨天|昨日|昨晚|前天|大前天|上周|上个月|去年)/u;
@@ -102,7 +105,9 @@ function getClauseSignals(clause) {
     hasCompletion: COMPLETION_CUE.test(clause),
     hasCancellation: CANCELLATION_CUE.test(clause),
     hasQuestion: QUESTION_CUE.test(clause),
-    hasHypothetical: HYPOTHETICAL_CUE.test(clause)
+    hasHypothetical: HYPOTHETICAL_CUE.test(clause),
+    hasActionableContent: EXECUTABLE_ACTION_CUE.test(clause) || CONCRETE_EVENT_CUE.test(clause),
+    hasSocialFarewell: SOCIAL_FAREWELL_CUE.test(clause)
   };
 }
 
@@ -189,7 +194,8 @@ function runActiveEventExtractionShadow(events, options = {}) {
     const signals = getClauseSignals(clause);
     const {
       temporalEvidence, hasFutureTime, hasCurrentTime, hasExplicitDate, hasPastOnlyTime,
-      hasCommitment, hasOngoing, hasCompletion, hasCancellation, hasQuestion, hasHypothetical
+      hasCommitment, hasOngoing, hasCompletion, hasCancellation, hasQuestion, hasHypothetical,
+      hasActionableContent, hasSocialFarewell
     } = signals;
     const referenced = findReferencedEvent(clause, eligibleEvents);
     const reasons = [];
@@ -203,14 +209,18 @@ function runActiveEventExtractionShadow(events, options = {}) {
     if (referenced) reasons.push(referenced.route);
     if (hasQuestion) reasons.push('question_or_uncertainty');
     if (hasHypothetical) reasons.push('hypothetical_language');
+    if (hasActionableContent) reasons.push('actionable_event_content');
+    if (hasSocialFarewell) reasons.push('social_farewell_not_active');
 
     let action = 'none';
     if (hasCancellation) action = 'cancel_candidate';
     else if (hasCompletion) action = 'complete_candidate';
     else if (referenced && (hasCommitment || hasOngoing || hasFutureTime || hasCurrentTime || hasExplicitDate)) action = 'update_candidate';
     else if (
-      (hasCommitment && (hasFutureTime || hasExplicitDate)) ||
-      (hasFutureTime && !hasPastOnlyTime)
+      !hasSocialFarewell &&
+      (hasFutureTime || hasExplicitDate) &&
+      (hasCommitment || hasActionableContent) &&
+      !hasPastOnlyTime
     ) action = 'create_candidate';
 
     let confidence = 0.18;
@@ -223,6 +233,8 @@ function runActiveEventExtractionShadow(events, options = {}) {
     if (referenced) confidence += referenced.route === 'direct_reference' ? 0.16 : 0.1;
     if (hasQuestion) confidence -= 0.12;
     if (hasHypothetical) confidence -= 0.18;
+    if (hasActionableContent) confidence += 0.16;
+    if (hasSocialFarewell) confidence -= 0.3;
     if (hasPastOnlyTime && !hasCompletion && !hasCancellation) confidence -= 0.2;
     if ((hasCompletion || hasCancellation) && !referenced) {
       confidence -= 0.16;
@@ -251,7 +263,7 @@ function runActiveEventExtractionShadow(events, options = {}) {
       signals
     };
   });
-  const decisions = mergeAdjacentProposalContext(assessments).map(item => {
+  let decisions = mergeAdjacentProposalContext(assessments).map(item => {
     const { signals, ...publicDecision } = item;
     return {
       ...publicDecision,
@@ -261,10 +273,18 @@ function runActiveEventExtractionShadow(events, options = {}) {
       mergedFromAdjacentClauses: Boolean(publicDecision.mergedFromAdjacentClauses)
     };
   });
+  if (!sourceScope.privateMemoryEligible) {
+    decisions = decisions.map(item => ({
+      ...item,
+      proposed: false,
+      action: 'none',
+      reasons: [...new Set([...item.reasons, 'non_private_source_excluded'])]
+    }));
+  }
   const proposals = decisions.filter(item => item.proposed).slice(0, 4);
   return {
     mode: 'shadow',
-    version: 'active-event-extraction-shadow-v2',
+    version: 'active-event-extraction-shadow-v3',
     behaviorChanged: false,
     writesEnabled: false,
     query,
@@ -274,7 +294,9 @@ function runActiveEventExtractionShadow(events, options = {}) {
     proposalCount: proposals.length,
     proposals,
     decisions,
-    stopReason: proposals.length ? 'shadow_proposals_recorded' : 'no_supported_event_proposal'
+    stopReason: proposals.length
+      ? 'shadow_proposals_recorded'
+      : (!sourceScope.privateMemoryEligible ? 'non_private_source_excluded' : 'no_supported_event_proposal')
   };
 }
 

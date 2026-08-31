@@ -53,7 +53,7 @@ try {
       latestSpeakerRole: 'user'
     }
   });
-  assert.strictEqual(futureProposal.version, 'active-event-extraction-shadow-v2');
+  assert.strictEqual(futureProposal.version, 'active-event-extraction-shadow-v3');
   assert.strictEqual(futureProposal.writesEnabled, false);
   assert.strictEqual(futureProposal.proposalCount, 1);
   assert.strictEqual(futureProposal.proposals[0].action, 'create_candidate');
@@ -65,11 +65,10 @@ try {
     query: '今天已经来不及了。明天需要兑现先前的约定。之前答应共同整理项目材料。',
     timeZone: 'Asia/Shanghai',
     sourceScope: {
-      type: 'group',
-      sourceChatId: 'group-7',
+      type: 'private',
+      sourceChatId: 'chat-1',
       mountedChatId: 'chat-1',
-      speakerIds: ['member-a', 'member-b'],
-      participantIds: ['member-a', 'member-b', 'chat-1']
+      latestSpeakerRole: 'user'
     }
   });
   assert.strictEqual(adjacentDetails.proposalCount, 1);
@@ -77,11 +76,36 @@ try {
   assert.deepStrictEqual(adjacentDetails.proposals[0].sourceClauseIndexes, [1, 2]);
   assert.ok(adjacentDetails.proposals[0].clause.includes('共同整理项目材料'));
   assert.ok(adjacentDetails.proposals[0].reasons.includes('adjacent_clause_context'));
-  assert.strictEqual(adjacentDetails.sourceScope.type, 'group');
-  assert.strictEqual(adjacentDetails.sourceScope.sourceChatId, 'group-7');
+  assert.strictEqual(adjacentDetails.sourceScope.type, 'private');
+  assert.strictEqual(adjacentDetails.sourceScope.sourceChatId, 'chat-1');
   assert.strictEqual(adjacentDetails.sourceScope.mountedChatId, 'chat-1');
-  assert.strictEqual(adjacentDetails.sourceScope.privateMemoryEligible, false);
-  assert.strictEqual(adjacentDetails.sourceScope.visibilityHint, 'source_scope_on_reference');
+  assert.strictEqual(adjacentDetails.sourceScope.privateMemoryEligible, true);
+  assert.strictEqual(adjacentDetails.sourceScope.visibilityHint, 'private_chat');
+
+  const concreteQuestionPlan = runActiveEventExtractionShadow([], {
+    query: '你要是感冒了，明天谁来做布丁和海棠糕？',
+    timeZone: 'Asia/Shanghai',
+    sourceScope: { type: 'private', sourceChatId: 'chat-1' }
+  });
+  assert.strictEqual(concreteQuestionPlan.proposalCount, 1);
+  assert.ok(concreteQuestionPlan.proposals[0].reasons.includes('actionable_event_content'));
+
+  const socialFarewell = runActiveEventExtractionShadow([], {
+    query: '挺好的。睡吧，明天见，我很爱你。',
+    timeZone: 'Asia/Shanghai',
+    sourceScope: { type: 'private', sourceChatId: 'chat-1' }
+  });
+  assert.strictEqual(socialFarewell.proposalCount, 0);
+  assert.ok(socialFarewell.decisions.some(item => item.reasons.includes('social_farewell_not_active')));
+
+  const groupIgnored = runActiveEventExtractionShadow([], {
+    query: '明早的测试别迟到，明天把训练参数再提高。',
+    timeZone: 'Asia/Shanghai',
+    sourceScope: { type: 'group', sourceChatId: 'group-7', mountedChatId: 'chat-1' }
+  });
+  assert.strictEqual(groupIgnored.proposalCount, 0);
+  assert.strictEqual(groupIgnored.stopReason, 'non_private_source_excluded');
+  assert.ok(groupIgnored.decisions.every(item => item.reasons.includes('non_private_source_excluded')));
 
   const sameDayScene = runActiveEventExtractionShadow([], {
     query: '今晚要吃完饭再去散步。',
@@ -105,14 +129,16 @@ try {
 
   const referencedUpdate = runActiveEventExtractionShadow(events, {
     query: '二十号出发的安排继续照旧。',
-    timeZone: 'Asia/Shanghai'
+    timeZone: 'Asia/Shanghai',
+    sourceScope: { type: 'private', sourceChatId: 'chat-1' }
   });
   assert.strictEqual(referencedUpdate.proposals[0].action, 'update_candidate');
   assert.strictEqual(referencedUpdate.proposals[0].targetEventId, 'event-trip');
 
   const referencedCancellation = runActiveEventExtractionShadow(events, {
     query: '那件事取消了。',
-    timeZone: 'Asia/Shanghai'
+    timeZone: 'Asia/Shanghai',
+    sourceScope: { type: 'private', sourceChatId: 'chat-1' }
   });
   assert.strictEqual(referencedCancellation.proposals[0].action, 'cancel_candidate');
   assert.strictEqual(referencedCancellation.proposals[0].targetEventId, 'event-trip');

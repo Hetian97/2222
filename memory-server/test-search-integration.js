@@ -244,11 +244,11 @@ async function main() {
     assert(realSearch.body.searchTraceId);
     assert(realSearch.body.memories.length > 0 && realSearch.body.memories.length <= 5);
     assert.equal(realSearch.body.activeEventShadow.mode, 'shadow');
-    assert.equal(realSearch.body.activeEventShadow.version, 'active-events-shadow-v3');
+    assert.equal(realSearch.body.activeEventShadow.version, 'active-events-shadow-v4');
     assert.equal(realSearch.body.activeEventShadow.behaviorChanged, false);
     assert.equal(realSearch.body.activeEventShadow.injectionEnabled, false);
     assert.deepEqual(realSearch.body.activeEventShadow.selectedEventIds, ['active-beijing-trip']);
-    assert.equal(realSearch.body.activeEventShadow.extraction.version, 'active-event-extraction-shadow-v2');
+    assert.equal(realSearch.body.activeEventShadow.extraction.version, 'active-event-extraction-shadow-v3');
     assert.equal(realSearch.body.activeEventShadow.extraction.writesEnabled, false);
     assert.equal(realSearch.body.activeEventShadow.extraction.sourceScope.type, 'group');
     assert.equal(realSearch.body.activeEventShadow.extraction.sourceScope.sourceChatId, 'group-shadow-source');
