@@ -6,6 +6,9 @@ const {
   decideIncrementalOrganization,
   createIncrementalClusterId
 } = require('./memory-organization-incremental');
+const {
+  planActiveEventWrites
+} = require('./memory-active-event-writer');
 
 const dbPath = process.env.MEMORY_DB_PATH
   ? path.resolve(process.env.MEMORY_DB_PATH)
@@ -63,6 +66,8 @@ CREATE TABLE IF NOT EXISTS memory_search_logs (
   chroma TEXT,
   fts TEXT,
   shadowPolicy TEXT,
+  activeEventShadow TEXT,
+  activeEventWrite TEXT,
   turnId TEXT,
   attemptId TEXT,
   actionType TEXT,
@@ -317,6 +322,7 @@ ensureColumn('memory_search_logs', 'actionType', 'TEXT');
 ensureColumn('memory_search_logs', 'generationCompletedAt', 'INTEGER');
 ensureColumn('memory_search_logs', 'generationError', 'TEXT');
 ensureColumn('memory_search_logs', 'activeEventShadow', 'TEXT');
+ensureColumn('memory_search_logs', 'activeEventWrite', 'TEXT');
 ensureColumn('memory_organization_runs', 'chatId', 'TEXT');
 ensureColumn('memory_clusters', 'subtype', "TEXT NOT NULL DEFAULT 'type_uncertain'");
 ensureColumn('memory_clusters', 'subtypeStatus', "TEXT NOT NULL DEFAULT 'candidate'");
@@ -1166,6 +1172,7 @@ function normalizeMemorySearchLog(row) {
     fts: safeJsonParse(row.fts, { attempted: false }),
     shadowPolicy: safeJsonParse(row.shadowPolicy, null),
     activeEventShadow: safeJsonParse(row.activeEventShadow, null),
+    activeEventWrite: safeJsonParse(row.activeEventWrite, null),
     turnId: row.turnId || '',
     attemptId: row.attemptId || '',
     actionType: row.actionType || 'reply',
@@ -2185,7 +2192,7 @@ function listMemoryActiveEvents(filters = {}) {
     where.push('status = ?');
     params.push(String(filters.status));
   } else if (!filters.includeArchived) {
-    where.push("status NOT IN ('completed', 'cancelled', 'archived')");
+    where.push("status NOT IN ('completed', 'cancelled', 'expired', 'archived')");
   }
   const limit = Math.min(200, Math.max(1, Number(filters.limit || 50)));
   params.push(limit);
@@ -2203,7 +2210,7 @@ function upsertMemoryActiveEvent(input = {}) {
   const title = String(input.title || '').trim();
   if (!chatId) throw new Error('chatId is required');
   if (!title) throw new Error('title is required');
-  const allowedStatuses = new Set(['candidate', 'planned', 'active', 'completed', 'cancelled', 'archived']);
+  const allowedStatuses = new Set(['candidate', 'planned', 'active', 'completed', 'cancelled', 'expired', 'archived']);
   const allowedSurfaceModes = new Set(['on_reference', 'always_context', 'manual_only']);
   const status = allowedStatuses.has(String(input.status || 'candidate')) ? String(input.status || 'candidate') : 'candidate';
   const surfaceMode = allowedSurfaceModes.has(String(input.surfaceMode || 'on_reference'))
@@ -2214,7 +2221,7 @@ function upsertMemoryActiveEvent(input = {}) {
     .map(value => String(value || '').trim()).filter(Boolean))].slice(0, 24);
   const sourceMemoryIds = [...new Set((Array.isArray(input.sourceMemoryIds) ? input.sourceMemoryIds : [])
     .map(value => String(value || '').trim()).filter(Boolean))].slice(0, 100);
-  const archivedAt = ['completed', 'cancelled', 'archived'].includes(status) ? Number(input.archivedAt || now) : null;
+  const archivedAt = ['completed', 'cancelled', 'expired', 'archived'].includes(status) ? Number(input.archivedAt || now) : null;
   db.prepare(`
     INSERT INTO memory_active_events (
       id, chatId, title, summary, status, startAt, endAt, validUntil,
@@ -2243,7 +2250,7 @@ function upsertMemoryActiveEvent(input = {}) {
 function archiveMemoryActiveEvent(id, status = 'archived') {
   const safeId = String(id || '').trim();
   if (!safeId) throw new Error('id is required');
-  const safeStatus = ['completed', 'cancelled', 'archived'].includes(String(status)) ? String(status) : 'archived';
+  const safeStatus = ['completed', 'cancelled', 'expired', 'archived'].includes(String(status)) ? String(status) : 'archived';
   const now = Date.now();
   db.prepare(`
     UPDATE memory_active_events
@@ -2251,6 +2258,65 @@ function archiveMemoryActiveEvent(id, status = 'archived') {
     WHERE id = ?
   `).run(safeStatus, now, now, safeId);
   return normalizeActiveEvent(db.prepare('SELECT * FROM memory_active_events WHERE id = ?').get(safeId));
+}
+
+function applyMemoryActiveEventWrites(searchId, options = {}) {
+  const safeSearchId = String(searchId || '').trim();
+  if (!safeSearchId) throw new Error('searchId is required');
+
+  return db.transaction(() => {
+    const row = db.prepare('SELECT * FROM memory_search_logs WHERE id = ?').get(safeSearchId);
+    if (!row) throw new Error('Memory search log not found');
+    const existingResult = safeJsonParse(row.activeEventWrite, null);
+    if (existingResult?.completed === true) {
+      return {
+        applied: false,
+        alreadyApplied: true,
+        result: existingResult,
+        events: []
+      };
+    }
+
+    const log = normalizeMemorySearchLog(row);
+    const existingEvents = listMemoryActiveEvents({
+      chatId: log.chatId,
+      includeArchived: true,
+      limit: 200
+    });
+    const plan = planActiveEventWrites(log, existingEvents, {
+      writesEnabled: options.writesEnabled === true
+    });
+    const savedEvents = [];
+    for (const operation of plan.operations || []) {
+      const saved = upsertMemoryActiveEvent(operation.event);
+      if (saved) savedEvents.push(saved);
+    }
+    const completedAt = Date.now();
+    const result = {
+      version: plan.version,
+      completed: true,
+      completedAt,
+      enabled: plan.enabled,
+      injectionEnabled: false,
+      status: savedEvents.length ? 'applied' : plan.status,
+      reason: plan.reason,
+      operationCount: savedEvents.length,
+      operations: (plan.operations || []).map(operation => ({
+        action: operation.action,
+        id: operation.id,
+        reason: operation.reason
+      })),
+      skipped: plan.skipped || []
+    };
+    db.prepare('UPDATE memory_search_logs SET activeEventWrite = ? WHERE id = ?')
+      .run(safeJsonStringify(result), safeSearchId);
+    return {
+      applied: savedEvents.length > 0,
+      alreadyApplied: false,
+      result,
+      events: savedEvents
+    };
+  })();
 }
 
 module.exports = {
@@ -2291,5 +2357,6 @@ module.exports = {
   listMemoryOrganizationEntries,
   listMemoryActiveEvents,
   upsertMemoryActiveEvent,
-  archiveMemoryActiveEvent
+  archiveMemoryActiveEvent,
+  applyMemoryActiveEventWrites
 };

@@ -40,7 +40,8 @@ const {
   listMemoryOrganizationEntries,
   listMemoryActiveEvents,
   upsertMemoryActiveEvent,
-  archiveMemoryActiveEvent
+  archiveMemoryActiveEvent,
+  applyMemoryActiveEventWrites
 } = require('./db');
 
 const {
@@ -230,6 +231,16 @@ function normalizeTimeZone(value, fallback = 'UTC') {
   } catch (_) {
     return fallback;
   }
+}
+
+function activeEventWritesEnabled() {
+  return String(process.env.MEMORY_ACTIVE_EVENT_WRITES_ENABLED || 'false').toLowerCase() === 'true';
+}
+
+function finishActiveEventWrites(searchTraceId) {
+  return applyMemoryActiveEventWrites(searchTraceId, {
+    writesEnabled: activeEventWritesEnabled()
+  });
 }
 
 function makeId() {
@@ -4135,11 +4146,13 @@ const server = http.createServer(async (req, res) => {
       );
       if (Number(body.lifecycleVersion || 1) < 2 && result.committed) {
         const legacyFinalized = finishMemorySearchGeneration(body.searchTraceId, 'succeeded');
+        const activeEventWrite = finishActiveEventWrites(body.searchTraceId);
         result = {
           ...result,
           recallDeferred: false,
           legacyLifecycle: true,
-          log: legacyFinalized.log
+          log: legacyFinalized.log,
+          activeEventWrite
         };
       }
       const recallUpdates = getMemoriesByIds(result.log?.injectedMemoryIds || []).map(memory => ({
@@ -4177,6 +4190,7 @@ const server = http.createServer(async (req, res) => {
         body.outcome,
         body.error || ''
       );
+      const activeEventWrite = finishActiveEventWrites(body.searchTraceId);
       const recallUpdates = result.recallApplied
         ? getMemoriesByIds(result.log?.injectedMemoryIds || []).map(memory => ({
             id: memory.id,
@@ -4184,7 +4198,7 @@ const server = http.createServer(async (req, res) => {
             lastRecalled: Number(memory.lastRecalled || 0) || null
           }))
         : [];
-      sendJson(res, 200, { ok: true, ...result, recallUpdates });
+      sendJson(res, 200, { ok: true, ...result, activeEventWrite, recallUpdates });
     } catch (error) {
       sendJson(res, 400, { ok: false, error: error.message || String(error) });
     }
@@ -4213,13 +4227,16 @@ const server = http.createServer(async (req, res) => {
       const activeEventExtractionShadow = runActiveEventExtractionShadow(activeEvents, {
         query: q,
         timeZone: normalizeTimeZone(body.timeZone, 'UTC'),
-        sourceScope: body.activeEventSource || {}
+        sourceScope: body.activeEventSource || {},
+        writesEnabled: activeEventWritesEnabled()
       });
       const activeEventShadow = {
         ...activeEventReferenceShadow,
-        version: 'active-events-shadow-v4',
+        version: 'active-events-write-only-v1',
         referenceVersion: activeEventReferenceShadow.version,
-        extraction: activeEventExtractionShadow
+        extraction: activeEventExtractionShadow,
+        writesEnabled: activeEventWritesEnabled(),
+        writeTiming: 'generation_succeeded_only'
       };
       const safeLimit = clampNumber(body.limit || 20, 1, 200, 20);
       const debugQueries = buildMemorySearchQueries(q, body.queryVariants || body.cleanedQueries || body.queries || []);

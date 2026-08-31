@@ -186,6 +186,7 @@ function runActiveEventExtractionShadow(events, options = {}) {
   const query = String(options.query || '').trim();
   const timeZone = String(options.timeZone || 'UTC');
   const sourceScope = normalizeSourceScope(options.sourceScope || options.activeEventSource || {});
+  const writesEnabled = options.writesEnabled === true;
   const eligibleEvents = (Array.isArray(events) ? events : []).filter(event =>
     event && ['candidate', 'planned', 'active'].includes(String(event.status)) &&
     (!event.validUntil || Number(event.validUntil) >= now)
@@ -284,9 +285,10 @@ function runActiveEventExtractionShadow(events, options = {}) {
   const proposals = decisions.filter(item => item.proposed).slice(0, 4);
   return {
     mode: 'shadow',
-    version: 'active-event-extraction-shadow-v3',
+    version: 'active-event-extraction-write-only-v1',
     behaviorChanged: false,
-    writesEnabled: false,
+    writesEnabled,
+    writeTiming: 'generation_succeeded_only',
     query,
     timeZone,
     sourceScope,

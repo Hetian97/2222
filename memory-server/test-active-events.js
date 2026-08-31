@@ -13,6 +13,7 @@ const {
   archiveMemoryActiveEvent
 } = require('./db');
 const { runActiveEventShadow, runActiveEventExtractionShadow } = require('./memory-active-event-shadow');
+const { resolveCrossDayWindow, planActiveEventWrites } = require('./memory-active-event-writer');
 
 try {
   const event = upsertMemoryActiveEvent({
@@ -53,7 +54,7 @@ try {
       latestSpeakerRole: 'user'
     }
   });
-  assert.strictEqual(futureProposal.version, 'active-event-extraction-shadow-v3');
+  assert.strictEqual(futureProposal.version, 'active-event-extraction-write-only-v1');
   assert.strictEqual(futureProposal.writesEnabled, false);
   assert.strictEqual(futureProposal.proposalCount, 1);
   assert.strictEqual(futureProposal.proposals[0].action, 'create_candidate');
@@ -89,6 +90,60 @@ try {
   });
   assert.strictEqual(concreteQuestionPlan.proposalCount, 1);
   assert.ok(concreteQuestionPlan.proposals[0].reasons.includes('actionable_event_content'));
+
+  const referenceTime = Date.parse('2026-08-31T02:00:00.000Z');
+  const tomorrowWindow = resolveCrossDayWindow('明天做布丁和海棠糕', referenceTime, 'Asia/Shanghai');
+  assert(tomorrowWindow);
+  assert.strictEqual(new Date(tomorrowWindow.startAt).toISOString(), '2026-08-31T16:00:00.000Z');
+  assert.strictEqual(resolveCrossDayWindow('今天晚上做布丁', referenceTime, 'Asia/Shanghai'), null);
+  assert.strictEqual(resolveCrossDayWindow('本周一提交材料', referenceTime, 'Asia/Shanghai'), null);
+  assert(resolveCrossDayWindow('下周一提交材料', referenceTime, 'Asia/Shanghai'));
+
+  const writePlan = planActiveEventWrites({
+    id: 'search-dessert',
+    chatId: 'chat-1',
+    status: 'generation_succeeded',
+    createdAt: referenceTime,
+    turnId: 'turn-dessert',
+    attemptId: 'attempt-dessert',
+    actionType: 'reply',
+    activeEventShadow: { extraction: concreteQuestionPlan }
+  }, [], { writesEnabled: true });
+  assert.strictEqual(writePlan.operationCount, 1);
+  assert.strictEqual(writePlan.operations[0].action, 'create');
+  assert.strictEqual(writePlan.operations[0].event.status, 'planned');
+  assert.strictEqual(writePlan.operations[0].event.surfaceMode, 'manual_only');
+  assert.strictEqual(writePlan.operations[0].event.proactiveMention, false);
+  const hiddenWrittenPlan = runActiveEventShadow([writePlan.operations[0].event], {
+    query: '明天做布丁和海棠糕'
+  });
+  assert.strictEqual(hiddenWrittenPlan.selectedCount, 0);
+  assert.strictEqual(hiddenWrittenPlan.injectionEnabled, false);
+
+  const failedWritePlan = planActiveEventWrites({
+    id: 'search-dessert-failed',
+    chatId: 'chat-1',
+    status: 'generation_failed',
+    createdAt: referenceTime,
+    activeEventShadow: { extraction: concreteQuestionPlan }
+  }, [], { writesEnabled: true });
+  assert.strictEqual(failedWritePlan.operationCount, 0);
+  assert.strictEqual(failedWritePlan.reason, 'generation_not_succeeded');
+
+  const mismatchedPrivatePlan = planActiveEventWrites({
+    id: 'search-mismatch',
+    chatId: 'chat-1',
+    status: 'generation_succeeded',
+    createdAt: referenceTime,
+    activeEventShadow: {
+      extraction: {
+        ...concreteQuestionPlan,
+        sourceScope: { ...concreteQuestionPlan.sourceScope, sourceChatId: 'chat-other' }
+      }
+    }
+  }, [], { writesEnabled: true });
+  assert.strictEqual(mismatchedPrivatePlan.operationCount, 0);
+  assert.strictEqual(mismatchedPrivatePlan.reason, 'private_source_chat_mismatch');
 
   const socialFarewell = runActiveEventExtractionShadow([], {
     query: '挺好的。睡吧，明天见，我很爱你。',

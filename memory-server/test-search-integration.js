@@ -115,6 +115,7 @@ async function main() {
       MEMORY_DB_PATH: dbPath,
       MEMORY_SEARCH_ENGINE: 'hybrid',
       MEMORY_ORGANIZATION_INCREMENTAL_ENABLED: 'false',
+      MEMORY_ACTIVE_EVENT_WRITES_ENABLED: 'true',
       EMBEDDING_ENDPOINT: '',
       EMBEDDING_API_KEY: ''
     },
@@ -244,12 +245,14 @@ async function main() {
     assert(realSearch.body.searchTraceId);
     assert(realSearch.body.memories.length > 0 && realSearch.body.memories.length <= 5);
     assert.equal(realSearch.body.activeEventShadow.mode, 'shadow');
-    assert.equal(realSearch.body.activeEventShadow.version, 'active-events-shadow-v4');
+    assert.equal(realSearch.body.activeEventShadow.version, 'active-events-write-only-v1');
     assert.equal(realSearch.body.activeEventShadow.behaviorChanged, false);
     assert.equal(realSearch.body.activeEventShadow.injectionEnabled, false);
     assert.deepEqual(realSearch.body.activeEventShadow.selectedEventIds, ['active-beijing-trip']);
-    assert.equal(realSearch.body.activeEventShadow.extraction.version, 'active-event-extraction-shadow-v3');
-    assert.equal(realSearch.body.activeEventShadow.extraction.writesEnabled, false);
+    assert.equal(realSearch.body.activeEventShadow.writesEnabled, true);
+    assert.equal(realSearch.body.activeEventShadow.writeTiming, 'generation_succeeded_only');
+    assert.equal(realSearch.body.activeEventShadow.extraction.version, 'active-event-extraction-write-only-v1');
+    assert.equal(realSearch.body.activeEventShadow.extraction.writesEnabled, true);
     assert.equal(realSearch.body.activeEventShadow.extraction.sourceScope.type, 'group');
     assert.equal(realSearch.body.activeEventShadow.extraction.sourceScope.sourceChatId, 'group-shadow-source');
     assert.equal(realSearch.body.activeEventShadow.extraction.sourceScope.mountedChatId, 'chat-1');
@@ -263,7 +266,7 @@ async function main() {
     assert.equal(persistedShadow.body.lastSearch.attemptId, 'attempt-stage3-success');
     assert.equal(persistedShadow.body.lastSearch.actionType, 'reply');
     assert.deepEqual(persistedShadow.body.lastSearch.activeEventShadow.selectedEventIds, ['active-beijing-trip']);
-    assert.equal(persistedShadow.body.lastSearch.activeEventShadow.extraction.writesEnabled, false);
+    assert.equal(persistedShadow.body.lastSearch.activeEventShadow.extraction.writesEnabled, true);
     assert.equal(persistedShadow.body.lastSearch.activeEventShadow.extraction.sourceScope.type, 'group');
     assert(Array.isArray(persistedShadow.body.lastSearch.shadowPolicy.decisions));
     assert(persistedShadow.body.lastSearch.resultsTop.some(item => item.shadow));
@@ -297,6 +300,8 @@ async function main() {
     assert.equal(generationSuccess.body.log.status, 'generation_succeeded');
     assert.equal(generationSuccess.body.recallUpdates[0].recallCount, 1);
     assert(generationSuccess.body.recallUpdates[0].lastRecalled > 0);
+    assert.equal(generationSuccess.body.activeEventWrite.applied, false);
+    assert.equal(generationSuccess.body.activeEventWrite.result.reason, 'non_private_source');
 
     const repeatedGenerationSuccess = await request('POST', '/memory/search/generation', {
       searchTraceId: realSearch.body.searchTraceId,
@@ -305,6 +310,57 @@ async function main() {
     assert.equal(repeatedGenerationSuccess.body.alreadyFinalized, true);
     assert.equal(repeatedGenerationSuccess.body.recallApplied, false);
     assert.equal(repeatedGenerationSuccess.body.recallUpdates.length, 0);
+    assert.equal(repeatedGenerationSuccess.body.activeEventWrite.alreadyApplied, true);
+
+    const privatePlanSearch = await request('POST', '/memory/search', {
+      query: '你要是感冒了，明天谁来做布丁和海棠糕？',
+      shadowPrimaryQuery: '你要是感冒了，明天谁来做布丁和海棠糕？',
+      searchEngine: 'sqlite',
+      chatId: 'chat-1',
+      turnId: 'turn-private-plan',
+      attemptId: 'attempt-private-plan',
+      actionType: 'reply',
+      timeZone: 'Asia/Shanghai',
+      activeEventSource: {
+        type: 'private',
+        sourceChatId: 'chat-1',
+        mountedChatId: 'chat-1',
+        latestSpeakerRole: 'user'
+      },
+      excludeCategories: ['C'],
+      limit: 3
+    });
+    assert.equal(privatePlanSearch.body.activeEventShadow.injectionEnabled, false);
+    assert.equal(privatePlanSearch.body.activeEventShadow.extraction.proposalCount, 1);
+    const beforePrivateGeneration = await request('GET', '/memory/active-events?chatId=chat-1');
+    assert.equal(beforePrivateGeneration.body.count, 1);
+    await request('POST', '/memory/search/commit', {
+      searchTraceId: privatePlanSearch.body.searchTraceId,
+      memoryIds: privatePlanSearch.body.memories.map(memory => memory.id),
+      lifecycleVersion: 2
+    });
+    const privatePlanGeneration = await request('POST', '/memory/search/generation', {
+      searchTraceId: privatePlanSearch.body.searchTraceId,
+      outcome: 'succeeded'
+    });
+    assert.equal(privatePlanGeneration.body.activeEventWrite.applied, true);
+    assert.equal(privatePlanGeneration.body.activeEventWrite.result.operationCount, 1);
+    const afterPrivateGeneration = await request('GET', '/memory/active-events?chatId=chat-1');
+    assert.equal(afterPrivateGeneration.body.count, 2);
+    const savedPrivatePlan = afterPrivateGeneration.body.events.find(event => event.id !== 'active-beijing-trip');
+    assert(savedPrivatePlan);
+    assert.equal(savedPrivatePlan.status, 'planned');
+    assert.equal(savedPrivatePlan.surfaceMode, 'manual_only');
+    assert.equal(savedPrivatePlan.proactiveMention, false);
+    assert.equal(savedPrivatePlan.evidence.sourceType, 'private');
+    assert.deepEqual(savedPrivatePlan.evidence.sourceSearchIds, [privatePlanSearch.body.searchTraceId]);
+    const repeatedPrivateGeneration = await request('POST', '/memory/search/generation', {
+      searchTraceId: privatePlanSearch.body.searchTraceId,
+      outcome: 'succeeded'
+    });
+    assert.equal(repeatedPrivateGeneration.body.activeEventWrite.alreadyApplied, true);
+    const afterRepeatedPrivateGeneration = await request('GET', '/memory/active-events?chatId=chat-1');
+    assert.equal(afterRepeatedPrivateGeneration.body.count, 2);
 
     const repeatedCommit = await request('POST', '/memory/search/commit', {
       searchTraceId: realSearch.body.searchTraceId,
@@ -314,7 +370,14 @@ async function main() {
     assert.equal(repeatedCommit.body.recallUpdates[0].recallCount, 1);
 
     const failedSearch = await request('POST', '/memory/search', {
-      query: '北京出差', searchEngine: 'hybrid', chatId: 'chat-1', excludeCategories: ['C'], limit: 5
+      query: '明天把会议材料提交给老师。',
+      shadowPrimaryQuery: '明天把会议材料提交给老师。',
+      searchEngine: 'hybrid',
+      chatId: 'chat-1',
+      timeZone: 'Asia/Shanghai',
+      activeEventSource: { type: 'private', sourceChatId: 'chat-1', mountedChatId: 'chat-1' },
+      excludeCategories: ['C'],
+      limit: 5
     });
     await request('POST', '/memory/search/commit', {
       searchTraceId: failedSearch.body.searchTraceId,
@@ -329,6 +392,10 @@ async function main() {
     assert.equal(generationFailure.body.recallApplied, false);
     assert.equal(generationFailure.body.log.status, 'generation_failed');
     assert.equal(generationFailure.body.recallUpdates.length, 0);
+    assert.equal(generationFailure.body.activeEventWrite.applied, false);
+    assert.equal(generationFailure.body.activeEventWrite.result.reason, 'generation_not_succeeded');
+    const afterFailedGeneration = await request('GET', '/memory/active-events?chatId=chat-1');
+    assert.equal(afterFailedGeneration.body.count, 2);
 
     const legacySearch = await request('POST', '/memory/search', {
       query: '北京出差', searchEngine: 'hybrid', chatId: 'chat-1', excludeCategories: ['C'], limit: 5
