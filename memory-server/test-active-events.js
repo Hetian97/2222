@@ -95,6 +95,13 @@ try {
   const tomorrowWindow = resolveCrossDayWindow('明天做布丁和海棠糕', referenceTime, 'Asia/Shanghai');
   assert(tomorrowWindow);
   assert.strictEqual(new Date(tomorrowWindow.startAt).toISOString(), '2026-08-31T16:00:00.000Z');
+  const tomorrowAfternoon = resolveCrossDayWindow('明天下午去商厦', referenceTime, 'Asia/Shanghai');
+  assert(tomorrowAfternoon);
+  assert.strictEqual(new Date(tomorrowAfternoon.startAt).toISOString(), '2026-09-01T04:00:00.000Z');
+  assert.strictEqual(new Date(tomorrowAfternoon.endAt).toISOString(), '2026-09-01T09:59:59.999Z');
+  assert.strictEqual(tomorrowAfternoon.precision, 'part_of_day');
+  assert.strictEqual(tomorrowAfternoon.partOfDay, '下午');
+  assert.strictEqual(tomorrowAfternoon.evidence, '明天·下午');
   assert.strictEqual(resolveCrossDayWindow('今天晚上做布丁', referenceTime, 'Asia/Shanghai'), null);
   assert.strictEqual(resolveCrossDayWindow('本周一提交材料', referenceTime, 'Asia/Shanghai'), null);
   assert(resolveCrossDayWindow('下周一提交材料', referenceTime, 'Asia/Shanghai'));
@@ -114,6 +121,41 @@ try {
   assert.strictEqual(writePlan.operations[0].event.status, 'planned');
   assert.strictEqual(writePlan.operations[0].event.surfaceMode, 'manual_only');
   assert.strictEqual(writePlan.operations[0].event.proactiveMention, false);
+
+  const mallEvent = {
+    ...writePlan.operations[0].event,
+    id: 'event-mall',
+    title: '这周六去寰飞商厦逛吃',
+    summary: '这周六去寰飞商厦逛吃',
+    aliases: ['这周六去寰飞商厦逛吃']
+  };
+  const rescheduleProposal = runActiveEventExtractionShadow([mallEvent], {
+    query: '把周六去寰飞商厦的计划改到明天下午。',
+    now: referenceTime,
+    timeZone: 'Asia/Shanghai',
+    sourceScope: { type: 'private', sourceChatId: 'chat-1' }
+  });
+  assert.strictEqual(rescheduleProposal.proposalCount, 1);
+  assert.strictEqual(rescheduleProposal.proposals[0].action, 'update_candidate');
+  assert.strictEqual(rescheduleProposal.proposals[0].targetEventId, 'event-mall');
+  const reschedulePlan = planActiveEventWrites({
+    id: 'search-mall-reschedule',
+    chatId: 'chat-1',
+    status: 'generation_succeeded',
+    createdAt: referenceTime,
+    turnId: 'turn-mall-reschedule',
+    attemptId: 'attempt-mall-reschedule',
+    actionType: 'reply',
+    activeEventShadow: { extraction: rescheduleProposal }
+  }, [mallEvent], { writesEnabled: true });
+  assert.strictEqual(reschedulePlan.operationCount, 1);
+  assert.strictEqual(reschedulePlan.operations[0].action, 'update');
+  assert.strictEqual(reschedulePlan.operations[0].id, 'event-mall');
+  assert.strictEqual(reschedulePlan.operations[0].event.title, '把周六去寰飞商厦的计划改到明天下午');
+  assert.strictEqual(reschedulePlan.operations[0].event.summary, '把周六去寰飞商厦的计划改到明天下午');
+  assert.strictEqual(new Date(reschedulePlan.operations[0].event.startAt).toISOString(), '2026-09-01T04:00:00.000Z');
+  assert.strictEqual(new Date(reschedulePlan.operations[0].event.endAt).toISOString(), '2026-09-01T09:59:59.999Z');
+  assert.ok(reschedulePlan.operations[0].event.aliases.includes('这周六去寰飞商厦逛吃'));
   const hiddenWrittenPlan = runActiveEventShadow([writePlan.operations[0].event], {
     query: '明天做布丁和海棠糕'
   });

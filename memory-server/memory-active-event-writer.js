@@ -57,6 +57,13 @@ function startOfLocalDay(parts, timeZone) {
   return localMidnight(parts, timeZone);
 }
 
+function localTime(parts, hour, minute, second, timeZone) {
+  return TimeZoneUtils.fromDateTimeLocal(
+    `${parts.year}-${pad(parts.month)}-${pad(parts.day)}T${pad(hour)}:${pad(minute)}:${pad(second)}`,
+    timeZone
+  );
+}
+
 function endOfLocalDay(parts, timeZone) {
   const nextDay = addLocalDays(parts, 1);
   return localMidnight(nextDay, timeZone) - 1;
@@ -91,6 +98,26 @@ function resolveWeekday(referenceParts, marker, weekdayCharacter) {
   if (marker === '下') delta += delta >= 0 ? 7 : 14;
   else if (!['本', '这'].includes(marker) && delta <= 0) delta += 7;
   return addLocalDays(referenceParts, delta);
+}
+
+function resolvePartOfDay(source, target, timeZone) {
+  const periods = [
+    { pattern: /凌晨/u, label: '凌晨', startHour: 0, endHour: 6 },
+    { pattern: /(?:明早|清晨|早晨|早上)/u, label: '早上', startHour: 6, endHour: 10 },
+    { pattern: /上午/u, label: '上午', startHour: 8, endHour: 12 },
+    { pattern: /中午/u, label: '中午', startHour: 11, endHour: 14 },
+    { pattern: /下午/u, label: '下午', startHour: 12, endHour: 18 },
+    { pattern: /傍晚/u, label: '傍晚', startHour: 17, endHour: 20 },
+    { pattern: /(?:明晚|晚上|夜晚|夜里)/u, label: '晚上', startHour: 18, endHour: 24 }
+  ];
+  const period = periods.find(item => item.pattern.test(source));
+  if (!period) return null;
+  const startAt = localTime(target, period.startHour, 0, 0, timeZone);
+  const endAt = period.endHour === 24
+    ? endOfLocalDay(target, timeZone)
+    : localTime(target, period.endHour, 0, 0, timeZone) - 1;
+  if (!Number.isFinite(startAt) || !Number.isFinite(endAt)) return null;
+  return { label: period.label, startAt, endAt };
 }
 
 function resolveCrossDayWindow(text, referenceTime = Date.now(), requestedTimeZone = 'UTC') {
@@ -165,16 +192,20 @@ function resolveCrossDayWindow(text, referenceTime = Date.now(), requestedTimeZo
 
   if (!target) return null;
   if (target.month < 1 || target.month > 12 || target.day < 1 || target.day > monthLength(target.year, target.month)) return null;
-  const startAt = startOfLocalDay(target, timeZone);
-  if (!Number.isFinite(startAt) || startAt < tomorrowStart) return null;
+  const targetDayStart = startOfLocalDay(target, timeZone);
+  if (!Number.isFinite(targetDayStart) || targetDayStart < tomorrowStart) return null;
   const endParts = addLocalDays(target, Math.max(1, rangeDays) - 1);
+  const partOfDay = rangeDays === 1 ? resolvePartOfDay(source, target, timeZone) : null;
+  const startAt = partOfDay?.startAt || targetDayStart;
+  const endAt = partOfDay?.endAt || endOfLocalDay(endParts, timeZone);
   return {
     timeZone,
-    evidence,
+    evidence: partOfDay ? `${evidence}·${partOfDay.label}` : evidence,
     startAt,
-    endAt: endOfLocalDay(endParts, timeZone),
+    endAt,
     validUntil: endOfLocalDay(addLocalDays(endParts, 2), timeZone),
-    precision: rangeDays > 1 ? 'range' : 'day'
+    precision: rangeDays > 1 ? 'range' : (partOfDay ? 'part_of_day' : 'day'),
+    partOfDay: partOfDay?.label || null
   };
 }
 
@@ -302,11 +333,18 @@ function planActiveEventWrites(log, existingEvents = [], options = {}) {
       const status = action === 'complete_candidate'
         ? 'completed'
         : (action === 'cancel_candidate' ? 'cancelled' : (existing.status === 'candidate' ? 'planned' : existing.status));
+      const updatedDescription = action === 'update_candidate'
+        ? {
+            title: clause.slice(0, 160),
+            summary: clause
+          }
+        : {};
       operations.push({
         action: action === 'update_candidate' ? 'update' : (status === 'completed' ? 'complete' : 'cancel'),
         id: targetId,
         event: {
           ...existing,
+          ...updatedDescription,
           status,
           startAt: temporalWindow?.startAt || existing.startAt,
           endAt: temporalWindow?.endAt || existing.endAt,
