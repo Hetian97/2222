@@ -9,6 +9,9 @@ const {
 const {
   planActiveEventWrites
 } = require('./memory-active-event-writer');
+const {
+  planCurrentFactWrites
+} = require('./memory-current-fact-writer');
 
 const dbPath = process.env.MEMORY_DB_PATH
   ? path.resolve(process.env.MEMORY_DB_PATH)
@@ -68,6 +71,8 @@ CREATE TABLE IF NOT EXISTS memory_search_logs (
   shadowPolicy TEXT,
   activeEventShadow TEXT,
   activeEventWrite TEXT,
+  currentFactShadow TEXT,
+  currentFactWrite TEXT,
   turnId TEXT,
   attemptId TEXT,
   actionType TEXT,
@@ -112,6 +117,42 @@ ON memory_active_events(chatId, status, updatedAt DESC);
 
 CREATE INDEX IF NOT EXISTS idx_memory_active_events_valid_until
 ON memory_active_events(validUntil);
+
+-- Versioned current-state candidates. Shadow candidates never enter retrieval or
+-- prompts; promotion to current is a separate, explicit lifecycle operation.
+CREATE TABLE IF NOT EXISTS memory_current_facts (
+  id TEXT PRIMARY KEY,
+  chatId TEXT NOT NULL,
+  subjectKey TEXT NOT NULL DEFAULT 'user',
+  factType TEXT NOT NULL,
+  slotKey TEXT NOT NULL,
+  value TEXT NOT NULL,
+  statement TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'shadow_candidate',
+  effectiveAt INTEGER,
+  validUntil INTEGER,
+  supersedesFactId TEXT,
+  supersededByFactId TEXT,
+  sourceSearchId TEXT,
+  evidence TEXT,
+  confidence REAL NOT NULL DEFAULT 0,
+  surfaceMode TEXT NOT NULL DEFAULT 'manual_only',
+  createdAt INTEGER NOT NULL,
+  updatedAt INTEGER NOT NULL,
+  invalidatedAt INTEGER,
+  FOREIGN KEY(supersedesFactId) REFERENCES memory_current_facts(id) ON DELETE SET NULL,
+  FOREIGN KEY(supersededByFactId) REFERENCES memory_current_facts(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_current_facts_chat_slot_status
+ON memory_current_facts(chatId, slotKey, status, effectiveAt DESC, updatedAt DESC);
+
+CREATE INDEX IF NOT EXISTS idx_memory_current_facts_source_search
+ON memory_current_facts(sourceSearchId);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_current_facts_one_current
+ON memory_current_facts(chatId, subjectKey, slotKey)
+WHERE status = 'current';
 
 CREATE TABLE IF NOT EXISTS garden_wake_events (
   id TEXT PRIMARY KEY,
@@ -323,6 +364,8 @@ ensureColumn('memory_search_logs', 'generationCompletedAt', 'INTEGER');
 ensureColumn('memory_search_logs', 'generationError', 'TEXT');
 ensureColumn('memory_search_logs', 'activeEventShadow', 'TEXT');
 ensureColumn('memory_search_logs', 'activeEventWrite', 'TEXT');
+ensureColumn('memory_search_logs', 'currentFactShadow', 'TEXT');
+ensureColumn('memory_search_logs', 'currentFactWrite', 'TEXT');
 ensureColumn('memory_organization_runs', 'chatId', 'TEXT');
 ensureColumn('memory_clusters', 'subtype', "TEXT NOT NULL DEFAULT 'type_uncertain'");
 ensureColumn('memory_clusters', 'subtypeStatus', "TEXT NOT NULL DEFAULT 'candidate'");
@@ -1173,6 +1216,8 @@ function normalizeMemorySearchLog(row) {
     shadowPolicy: safeJsonParse(row.shadowPolicy, null),
     activeEventShadow: safeJsonParse(row.activeEventShadow, null),
     activeEventWrite: safeJsonParse(row.activeEventWrite, null),
+    currentFactShadow: safeJsonParse(row.currentFactShadow, null),
+    currentFactWrite: safeJsonParse(row.currentFactWrite, null),
     turnId: row.turnId || '',
     attemptId: row.attemptId || '',
     actionType: row.actionType || 'reply',
@@ -1199,8 +1244,8 @@ function createMemorySearchLog(info = {}) {
       id, chatId, source, query, queryVariants, requestedSearchEngine,
       searchMode, requestedLimit, candidateLimit, resultCount,
       resultMemoryIds, resultsTop, chroma, fts, shadowPolicy, activeEventShadow,
-      turnId, attemptId, actionType, status, createdAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidates', ?)
+      currentFactShadow, turnId, attemptId, actionType, status, createdAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidates', ?)
   `).run(
     id,
     String(info.chatId || ''),
@@ -1218,6 +1263,7 @@ function createMemorySearchLog(info = {}) {
     safeJsonStringify(info.fts || { attempted: false }),
     safeJsonStringify(info.shadowPolicy || null),
     safeJsonStringify(info.activeEventShadow || null),
+    safeJsonStringify(info.currentFactShadow || null),
     String(info.turnId || ''),
     String(info.attemptId || ''),
     String(info.actionType || 'reply'),
@@ -2181,6 +2227,132 @@ function normalizeActiveEvent(row) {
   };
 }
 
+function normalizeCurrentFact(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    evidence: safeJsonParse(row.evidence, {}),
+    confidence: Number(row.confidence || 0),
+    effectiveAt: Number(row.effectiveAt || 0) || null,
+    validUntil: Number(row.validUntil || 0) || null,
+    invalidatedAt: Number(row.invalidatedAt || 0) || null
+  };
+}
+
+function listMemoryCurrentFacts(filters = {}) {
+  const where = [];
+  const params = [];
+  if (filters.chatId) {
+    where.push('chatId = ?');
+    params.push(String(filters.chatId));
+  }
+  if (filters.status) {
+    where.push('status = ?');
+    params.push(String(filters.status));
+  } else if (!filters.includeInactive) {
+    where.push("status IN ('shadow_candidate', 'current')");
+  }
+  if (filters.slotKey) {
+    where.push('slotKey = ?');
+    params.push(String(filters.slotKey));
+  }
+  const limit = Math.min(500, Math.max(1, Number(filters.limit || 100)));
+  params.push(limit);
+  return db.prepare(`
+    SELECT * FROM memory_current_facts
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    ORDER BY COALESCE(effectiveAt, updatedAt) DESC, updatedAt DESC
+    LIMIT ?
+  `).all(...params).map(normalizeCurrentFact);
+}
+
+function upsertMemoryCurrentFact(input = {}) {
+  const now = Date.now();
+  const chatId = String(input.chatId || '').trim();
+  const slotKey = String(input.slotKey || '').trim();
+  const value = String(input.value || '').trim();
+  const statement = String(input.statement || value).trim();
+  if (!chatId) throw new Error('chatId is required');
+  if (!slotKey) throw new Error('slotKey is required');
+  if (!value || !statement) throw new Error('value and statement are required');
+  const allowedStatuses = new Set(['shadow_candidate', 'current', 'superseded', 'retracted', 'expired', 'archived', 'rejected']);
+  const status = allowedStatuses.has(String(input.status || 'shadow_candidate'))
+    ? String(input.status || 'shadow_candidate')
+    : 'shadow_candidate';
+  const id = String(input.id || `current_fact_${now}_${crypto.randomBytes(4).toString('hex')}`);
+  db.prepare(`
+    INSERT INTO memory_current_facts (
+      id, chatId, subjectKey, factType, slotKey, value, statement, status,
+      effectiveAt, validUntil, supersedesFactId, supersededByFactId,
+      sourceSearchId, evidence, confidence, surfaceMode,
+      createdAt, updatedAt, invalidatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      chatId=excluded.chatId, subjectKey=excluded.subjectKey, factType=excluded.factType,
+      slotKey=excluded.slotKey, value=excluded.value, statement=excluded.statement,
+      status=excluded.status, effectiveAt=excluded.effectiveAt, validUntil=excluded.validUntil,
+      supersedesFactId=excluded.supersedesFactId, supersededByFactId=excluded.supersededByFactId,
+      sourceSearchId=excluded.sourceSearchId, evidence=excluded.evidence,
+      confidence=excluded.confidence, surfaceMode=excluded.surfaceMode,
+      updatedAt=excluded.updatedAt, invalidatedAt=excluded.invalidatedAt
+  `).run(
+    id, chatId, String(input.subjectKey || 'user'), String(input.factType || 'type_uncertain'),
+    slotKey, value.slice(0, 500), statement.slice(0, 500), status,
+    Number(input.effectiveAt || now), Number(input.validUntil || 0) || null,
+    String(input.supersedesFactId || '') || null, String(input.supersededByFactId || '') || null,
+    String(input.sourceSearchId || '') || null, safeJsonStringify(input.evidence || {}),
+    Math.max(0, Math.min(1, Number(input.confidence || 0))), 'manual_only',
+    Number(input.createdAt || now), now, Number(input.invalidatedAt || 0) || null
+  );
+  return normalizeCurrentFact(db.prepare('SELECT * FROM memory_current_facts WHERE id = ?').get(id));
+}
+
+function promoteMemoryCurrentFact(id) {
+  const safeId = String(id || '').trim();
+  if (!safeId) throw new Error('id is required');
+  return db.transaction(() => {
+    const candidate = db.prepare('SELECT * FROM memory_current_facts WHERE id = ?').get(safeId);
+    if (!candidate) throw new Error('Current fact candidate not found');
+    if (!['shadow_candidate', 'current'].includes(candidate.status)) throw new Error('Current fact candidate cannot be promoted');
+    if (candidate.status === 'current') return normalizeCurrentFact(candidate);
+    const now = Date.now();
+    const previous = candidate.supersedesFactId
+      ? db.prepare('SELECT * FROM memory_current_facts WHERE id = ?').get(candidate.supersedesFactId)
+      : db.prepare(`
+          SELECT * FROM memory_current_facts
+          WHERE chatId = ? AND subjectKey = ? AND slotKey = ? AND status = 'current'
+          ORDER BY effectiveAt DESC, updatedAt DESC LIMIT 1
+        `).get(candidate.chatId, candidate.subjectKey, candidate.slotKey);
+    if (previous && previous.id !== safeId) {
+      db.prepare(`
+        UPDATE memory_current_facts
+        SET status = 'superseded', supersededByFactId = ?, invalidatedAt = ?, updatedAt = ?
+        WHERE id = ?
+      `).run(safeId, now, now, previous.id);
+    }
+    db.prepare(`
+      UPDATE memory_current_facts
+      SET status = 'current', supersedesFactId = ?, supersededByFactId = NULL,
+          invalidatedAt = NULL, updatedAt = ?
+      WHERE id = ?
+    `).run(previous?.id || candidate.supersedesFactId || null, now, safeId);
+    return normalizeCurrentFact(db.prepare('SELECT * FROM memory_current_facts WHERE id = ?').get(safeId));
+  })();
+}
+
+function invalidateMemoryCurrentFact(id, status = 'archived') {
+  const safeId = String(id || '').trim();
+  if (!safeId) throw new Error('id is required');
+  const safeStatus = ['retracted', 'expired', 'archived', 'rejected'].includes(String(status)) ? String(status) : 'archived';
+  const now = Date.now();
+  db.prepare(`
+    UPDATE memory_current_facts
+    SET status = ?, invalidatedAt = ?, updatedAt = ?
+    WHERE id = ?
+  `).run(safeStatus, now, now, safeId);
+  return normalizeCurrentFact(db.prepare('SELECT * FROM memory_current_facts WHERE id = ?').get(safeId));
+}
+
 function listMemoryActiveEvents(filters = {}) {
   const where = [];
   const params = [];
@@ -2319,6 +2491,61 @@ function applyMemoryActiveEventWrites(searchId, options = {}) {
   })();
 }
 
+function applyMemoryCurrentFactWrites(searchId, options = {}) {
+  const safeSearchId = String(searchId || '').trim();
+  if (!safeSearchId) throw new Error('searchId is required');
+
+  return db.transaction(() => {
+    const row = db.prepare('SELECT * FROM memory_search_logs WHERE id = ?').get(safeSearchId);
+    if (!row) throw new Error('Memory search log not found');
+    const existingResult = safeJsonParse(row.currentFactWrite, null);
+    if (existingResult?.completed === true) {
+      return { applied: false, alreadyApplied: true, result: existingResult, facts: [] };
+    }
+    const log = normalizeMemorySearchLog(row);
+    const existingFacts = listMemoryCurrentFacts({
+      chatId: log.chatId,
+      includeInactive: true,
+      limit: 500
+    });
+    const plan = planCurrentFactWrites(log, existingFacts, {
+      writesEnabled: options.writesEnabled === true
+    });
+    const savedFacts = [];
+    for (const operation of plan.operations || []) {
+      const saved = upsertMemoryCurrentFact(operation.fact);
+      if (saved) savedFacts.push(saved);
+    }
+    const completedAt = Date.now();
+    const result = {
+      version: plan.version,
+      completed: true,
+      completedAt,
+      enabled: plan.enabled,
+      injectionEnabled: false,
+      status: savedFacts.length ? 'applied' : plan.status,
+      reason: plan.reason,
+      operationCount: savedFacts.length,
+      operations: (plan.operations || []).map(operation => ({
+        action: operation.action,
+        id: operation.id,
+        reason: operation.reason,
+        slotKey: operation.fact?.slotKey || '',
+        supersedesFactId: operation.fact?.supersedesFactId || null
+      })),
+      skipped: plan.skipped || []
+    };
+    db.prepare('UPDATE memory_search_logs SET currentFactWrite = ? WHERE id = ?')
+      .run(safeJsonStringify(result), safeSearchId);
+    return {
+      applied: savedFacts.length > 0,
+      alreadyApplied: false,
+      result,
+      facts: savedFacts
+    };
+  })();
+}
+
 module.exports = {
   db,
   addMemory,
@@ -2358,5 +2585,10 @@ module.exports = {
   listMemoryActiveEvents,
   upsertMemoryActiveEvent,
   archiveMemoryActiveEvent,
-  applyMemoryActiveEventWrites
+  applyMemoryActiveEventWrites,
+  listMemoryCurrentFacts,
+  upsertMemoryCurrentFact,
+  promoteMemoryCurrentFact,
+  invalidateMemoryCurrentFact,
+  applyMemoryCurrentFactWrites
 };

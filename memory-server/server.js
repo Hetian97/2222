@@ -41,7 +41,9 @@ const {
   listMemoryActiveEvents,
   upsertMemoryActiveEvent,
   archiveMemoryActiveEvent,
-  applyMemoryActiveEventWrites
+  applyMemoryActiveEventWrites,
+  listMemoryCurrentFacts,
+  applyMemoryCurrentFactWrites
 } = require('./db');
 
 const {
@@ -64,6 +66,10 @@ const {
   runActiveEventShadow,
   runActiveEventExtractionShadow
 } = require('./memory-active-event-shadow');
+
+const {
+  runCurrentFactShadow
+} = require('./memory-current-fact-shadow');
 
 const PORT = Number(process.env.PORT || 8765);
 const BACKUP_DIR = process.env.MEMORY_BACKUP_DIR
@@ -180,6 +186,7 @@ function updateLastMemorySearchState(info = {}) {
     },
     shadowPolicy,
     activeEventShadow: info.activeEventShadow || null,
+    currentFactShadow: info.currentFactShadow || null,
     resultsTop: results.slice(0, 10).map(memory => {
       const preview = compactMemorySearchPreview(memory);
       if (!preview) return null;
@@ -240,6 +247,16 @@ function activeEventWritesEnabled() {
 function finishActiveEventWrites(searchTraceId) {
   return applyMemoryActiveEventWrites(searchTraceId, {
     writesEnabled: activeEventWritesEnabled()
+  });
+}
+
+function currentFactWritesEnabled() {
+  return String(process.env.MEMORY_CURRENT_FACT_WRITES_ENABLED || 'false').toLowerCase() === 'true';
+}
+
+function finishCurrentFactWrites(searchTraceId) {
+  return applyMemoryCurrentFactWrites(searchTraceId, {
+    writesEnabled: currentFactWritesEnabled()
   });
 }
 
@@ -3793,6 +3810,31 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/memory/current-facts' && req.method === 'GET') {
+    try {
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      const facts = listMemoryCurrentFacts({
+        chatId: url.searchParams.get('chatId') || '',
+        status: url.searchParams.get('status') || '',
+        slotKey: url.searchParams.get('slotKey') || '',
+        includeInactive: url.searchParams.get('includeInactive') === 'true',
+        limit: url.searchParams.get('limit') || 100
+      });
+      sendJson(res, 200, {
+        ok: true,
+        mode: 'shadow',
+        behaviorChanged: false,
+        injectionEnabled: false,
+        writesEnabled: currentFactWritesEnabled(),
+        count: facts.length,
+        facts
+      });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error.message || String(error) });
+    }
+    return;
+  }
+
   if (pathname === '/memory/active-events/upsert' && req.method === 'POST') {
     try {
       const body = await readRequestBody(req);
@@ -4147,12 +4189,14 @@ const server = http.createServer(async (req, res) => {
       if (Number(body.lifecycleVersion || 1) < 2 && result.committed) {
         const legacyFinalized = finishMemorySearchGeneration(body.searchTraceId, 'succeeded');
         const activeEventWrite = finishActiveEventWrites(body.searchTraceId);
+        const currentFactWrite = finishCurrentFactWrites(body.searchTraceId);
         result = {
           ...result,
           recallDeferred: false,
           legacyLifecycle: true,
           log: legacyFinalized.log,
-          activeEventWrite
+          activeEventWrite,
+          currentFactWrite
         };
       }
       const recallUpdates = getMemoriesByIds(result.log?.injectedMemoryIds || []).map(memory => ({
@@ -4170,6 +4214,8 @@ const server = http.createServer(async (req, res) => {
         searchTraceId: result.log?.id || '',
         injectedCount: result.log?.injectedCount || 0,
         injectedMemoryIds: result.log?.injectedMemoryIds || [],
+        activeEventWrite: result.activeEventWrite || null,
+        currentFactWrite: result.currentFactWrite || null,
         recallUpdates
       });
     } catch (error) {
@@ -4191,6 +4237,7 @@ const server = http.createServer(async (req, res) => {
         body.error || ''
       );
       const activeEventWrite = finishActiveEventWrites(body.searchTraceId);
+      const currentFactWrite = finishCurrentFactWrites(body.searchTraceId);
       const recallUpdates = result.recallApplied
         ? getMemoriesByIds(result.log?.injectedMemoryIds || []).map(memory => ({
             id: memory.id,
@@ -4198,7 +4245,7 @@ const server = http.createServer(async (req, res) => {
             lastRecalled: Number(memory.lastRecalled || 0) || null
           }))
         : [];
-      sendJson(res, 200, { ok: true, ...result, activeEventWrite, recallUpdates });
+      sendJson(res, 200, { ok: true, ...result, activeEventWrite, currentFactWrite, recallUpdates });
     } catch (error) {
       sendJson(res, 400, { ok: false, error: error.message || String(error) });
     }
@@ -4238,6 +4285,16 @@ const server = http.createServer(async (req, res) => {
         writesEnabled: activeEventWritesEnabled(),
         writeTiming: 'generation_succeeded_only'
       };
+      const currentFacts = listMemoryCurrentFacts({
+        chatId: body.chatId || '',
+        includeInactive: true,
+        limit: 500
+      });
+      const currentFactShadow = runCurrentFactShadow(currentFacts, {
+        query: q,
+        sourceScope: body.activeEventSource || {},
+        writesEnabled: currentFactWritesEnabled()
+      });
       const safeLimit = clampNumber(body.limit || 20, 1, 200, 20);
       const debugQueries = buildMemorySearchQueries(q, body.queryVariants || body.cleanedQueries || body.queries || []);
 
@@ -4412,6 +4469,7 @@ const server = http.createServer(async (req, res) => {
                   fts: ftsMeta,
                   shadowPolicy: compactShadowPolicySummary(effectiveShadowPolicy),
                   activeEventShadow,
+                  currentFactShadow,
                   memories: liveChromaMemories
                 };
 
@@ -4433,6 +4491,7 @@ const server = http.createServer(async (req, res) => {
                     fts: responsePayload.fts,
                     shadowPolicy: effectiveShadowPolicy,
                     activeEventShadow,
+                    currentFactShadow,
                     results: liveChromaMemories
                   });
                 }
@@ -4642,6 +4701,7 @@ const server = http.createServer(async (req, res) => {
         fts: ftsMeta,
         shadowPolicy: compactShadowPolicySummary(effectiveShadowPolicy),
         activeEventShadow,
+        currentFactShadow,
         memories: results
       };
 
@@ -4663,6 +4723,7 @@ const server = http.createServer(async (req, res) => {
           fts: responsePayload.fts,
           shadowPolicy: effectiveShadowPolicy,
           activeEventShadow,
+          currentFactShadow,
           results
         });
       }
