@@ -529,24 +529,30 @@ async function main() {
   assert(source.includes("action === 'restore'"), '撤回必须接上事件处理');
   assert(source.includes('不要把「我」当成你自己'), '注入段必须声明条目里的「我」指用户');
 
-  // 防误删：删除/清理必须二次确认，且拿不到弹窗组件时退回 confirm（fail closed）
-  assert.equal(typeof manager.confirmPanelAction, 'function');
+  // 防误删：确认框必须是面板内联展开（全局弹窗在 index.html 里有 8 个同 id 元素，不可靠）
+  assert.equal(typeof manager.askInlineConfirm, 'function');
+  assert.equal(typeof manager.askDeletePlan, 'function');
+  assert.equal(typeof manager.askDeleteFact, 'function');
   assert(source.includes('确认要删除这条计划吗'), '删除计划必须有确认文案');
   assert(source.includes('确认要删除这条事实吗'), '删除事实必须有确认文案');
   assert(source.includes('确认要清理吗'), '「清理已结束」必须有确认文案');
-  assert(source.includes("typeof window.showCustomConfirm === 'function'"), '应优先使用站内弹窗');
-  assert(source.includes('return false;'), '拿不到任何弹窗时必须拒绝执行，而不是放行');
+  assert(source.includes('data-inline-confirm'), '确认必须内联展开在面板里');
+  assert.ok(!source.includes('window.showCustomConfirm('), '不得再调用有 id 冲突的全局弹窗');
   assert.ok(
-    (source.match(/this\.confirmPanelAction\(/g) || []).length >= 3,
-    '删除计划、删除事实、清理已结束三处都要接上确认'
+    (source.match(/this\.askInlineConfirm\(/g) || []).length >= 3,
+    '删除计划、删除事实、清理已结束三处都要接上内联确认'
   );
+  assert(source.includes('getPanelBuildTag'), '面板必须显示实际加载的脚本版本');
 
-  // 已归档的计划 = 用户已删除，不得再出现在列表里（否则「删除」看起来没生效）
-  const archivedHidden = manager.normalizePlanPanelList([
+  // 已删除（归档）的计划必须仍能看到并撤回，不能凭空消失
+  const archiveView = manager.normalizePlanPanelList([
     { id: 'a1', title: '被删除的计划', status: 'archived', startAt: panelNow + 1000, validUntil: panelNow + 999000 },
     { id: 'a2', title: '还活着的计划', status: 'planned', startAt: panelNow + 1000, validUntil: panelNow + 999000 }
   ], { includeFinished: true, now: panelNow });
-  assert.deepEqual(Array.from(archivedHidden.map(plan => plan.id)), ['a2'], '已归档的计划必须从列表消失');
+  assert.equal(archiveView.find(plan => plan.id === 'a1').deleted, true, '已归档 = 已删除，必须打标记');
+  assert.equal(archiveView.find(plan => plan.id === 'a2').deleted, false);
+  assert(source.includes('已删除（'), '必须有「已删除」分区，误删才能撤回');
+  assert(source.includes('误删可以在'), '删除确认里要提示可以撤回');
 
   // 槽位里所有版本都被删除时整组消失；只要还有有效版本，被删的版本不能当当前值
   assert.equal(

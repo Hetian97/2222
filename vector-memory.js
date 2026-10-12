@@ -2119,6 +2119,21 @@ ${output}`;
   // 与「向量记忆」（memories 表 + Chroma 向量索引）完全无关：任何查看/编辑/删除
   // 都不会碰单条记忆和向量，也不会影响「单条记忆」「记忆簇预览」两个既有视图。
 
+  // 读取页面实际加载的 vector-memory.js 的 ?v= 参数。
+  // 用来一眼确认「新代码到底有没有生效」——如果面板上显示的还是旧版本号，
+  // 就说明手机/浏览器在用缓存里的旧脚本，而不是代码没改对。
+  getPanelBuildTag() {
+    try {
+      if (typeof document === 'undefined') return 'unknown';
+      const scripts = Array.from(document.getElementsByTagName('script') || []);
+      const script = scripts.find(item => String(item.src || '').includes('vector-memory.js'));
+      const match = script ? String(script.src).match(/[?&]v=([^&]+)/) : null;
+      return match ? match[1] : 'dev';
+    } catch (error) {
+      return 'unknown';
+    }
+  }
+
   formatPlanPanelTime(value) {
     const timestamp = Number(value);
     if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
@@ -2167,8 +2182,7 @@ ${output}`;
     const includeFinished = options.includeFinished === true;
     const finishedStatuses = this.getFinishedPlanStatuses();
     return (Array.isArray(events) ? events : [])
-      // archived = 用户已删除，不再展示（否则「删除」看起来没生效）
-      .filter(event => event && event.id && String(event.status || '') !== 'archived')
+      .filter(event => event && event.id)
       .map(event => {
         const status = String(event.status || 'planned');
         const validUntil = Number(event.validUntil || 0) || null;
@@ -2180,6 +2194,7 @@ ${output}`;
           validUntil,
           confidence: Number(event.confidence || 0),
           manual: event?.evidence?.manual === true,
+          deleted: status === 'archived',
           finished: finishedStatuses.includes(status),
           expired: Boolean(validUntil) && Number(validUntil) < now
         };
@@ -2283,17 +2298,51 @@ ${output}`;
     console.warn('[变量记忆] ' + message);
   }
 
-  // 危险操作前的二次确认。
-  // 拿不到弹窗组件时退回 window.confirm；两者都没有就一律不执行（fail closed），
-  // 绝不因为「弹窗不可用」就静默把删除放过去。
-  async confirmPanelAction(title, message) {
-    if (typeof window.showCustomConfirm === 'function') {
-      return Boolean(await window.showCustomConfirm(title, message));
-    }
-    if (typeof window.confirm === 'function') {
-      return Boolean(window.confirm(`${title}\n\n${message}`));
-    }
-    return false;
+  // 面板内联确认。
+  // 刻意不依赖全局的 showCustomConfirm：index.html 里有 8 个 id="custom-modal" 的元素，
+  // getElementById 只绑得到第一个，弹窗可能渲染在隐藏容器里、或被面板浮层盖住
+  // （实测点「删除」毫无反应就是这个原因）。内联确认就展开在你点的那一行下面，不会有层级问题。
+  askInlineConfirm(host, message, onConfirm) {
+    if (!host) return;
+    host.querySelectorAll('[data-inline-confirm]').forEach(node => node.remove());
+    const box = document.createElement('div');
+    box.dataset.inlineConfirm = '1';
+    box.style.cssText = 'margin-top:8px;padding:8px 10px;border-radius:10px;'
+      + 'background:rgba(255,59,48,0.08);border:1px solid rgba(255,59,48,0.35);'
+      + 'display:flex;flex-direction:column;gap:8px;';
+    box.innerHTML = `
+      <div style="font-size:13px;line-height:1.5;word-break:break-word;">${this._escapeHtml(message)}</div>
+      <div style="display:flex;gap:8px;">
+        <button class="vm-toolbar-btn" data-inline="yes" style="color:#ff3b30">确认</button>
+        <button class="vm-toolbar-btn" data-inline="no">取消</button>
+      </div>
+    `;
+    box.querySelector('[data-inline="no"]').addEventListener('click', () => box.remove());
+    box.querySelector('[data-inline="yes"]').addEventListener('click', () => {
+      box.remove();
+      onConfirm();
+    });
+    host.appendChild(box);
+  }
+
+  askDeletePlan(chat, body, data, planId, row) {
+    const raw = (data.events || []).find(event => String(event.id) === String(planId));
+    if (!raw) return;
+    this.askInlineConfirm(
+      row,
+      `确认要删除这条计划吗？\n\n${raw.title || '(无标题)'}\n\n删除后不再注入提示词；误删可以在「已删除」分区里撤回。`,
+      () => this.applyPlanPanelAction(chat, body, data, planId, 'delete')
+    );
+  }
+
+  askDeleteFact(chat, body, group, card) {
+    const fact = group?.current;
+    if (!fact) return;
+    this.askInlineConfirm(
+      card,
+      `确认要删除这条事实吗？\n\n${group.slotKey}\n${fact.statement || fact.value || ''}\n\n删除后该槽位不再显示、也不会参与注入。`,
+      () => this.applyFactPanelAction(chat, body, group, 'delete')
+    );
   }
 
   async renderPlanFactPanel(chat, container) {
@@ -2359,8 +2408,9 @@ ${output}`;
     const tab = vm._planFactTab === 'facts' ? 'facts' : 'plans';
     const escape = value => this._escapeHtml(value);
     const plans = this.normalizePlanPanelList(data.events, { includeFinished: true, now: data.now });
-    const livePlans = plans.filter(plan => !plan.finished && !plan.expired);
-    const historyPlans = plans.filter(plan => plan.finished || plan.expired);
+    const livePlans = plans.filter(plan => !plan.deleted && !plan.finished && !plan.expired);
+    const historyPlans = plans.filter(plan => !plan.deleted && (plan.finished || plan.expired));
+    const deletedPlans = plans.filter(plan => plan.deleted);
     const factGroups = this.normalizeFactPanelList(data.facts);
 
     const planRow = plan => `
@@ -2373,10 +2423,10 @@ ${output}`;
             </div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">
-            ${(plan.finished || plan.expired)
+            ${(plan.deleted || plan.finished || plan.expired)
               ? '<button class="vm-toolbar-btn" data-action="restore">撤回</button>'
               : '<button class="vm-toolbar-btn" data-action="edit">编辑</button><button class="vm-toolbar-btn" data-action="complete">完成</button>'}
-            <button class="vm-toolbar-btn" data-action="delete" style="color:#ff3b30">删除</button>
+            ${plan.deleted ? '' : '<button class="vm-toolbar-btn" data-action="delete" style="color:#ff3b30">删除</button>'}
           </div>
         </div>
       </div>
@@ -2411,6 +2461,12 @@ ${output}`;
           <div style="margin-top:8px;">${historyPlans.slice(0, 50).map(planRow).join('')}</div>
         </details>
       ` : ''}
+      ${deletedPlans.length ? `
+        <details style="margin-top:12px;">
+          <summary style="cursor:pointer;font-size:13px;color:#666;">已删除（${deletedPlans.length}）— 误删可以在这里撤回</summary>
+          <div style="margin-top:8px;">${deletedPlans.slice(0, 50).map(planRow).join('')}</div>
+        </details>
+      ` : ''}
     `;
 
     const factsHtml = tab !== 'facts' ? '' : `
@@ -2423,7 +2479,7 @@ ${output}`;
 
     body.innerHTML = `
       <div class="vm-preview-warning">
-        <strong>计划与事实（独立于向量记忆）</strong>
+        <strong>计划与事实（独立于向量记忆｜脚本 v${escape(this.getPanelBuildTag())}）</strong>
         <span>这里只管理计划与事实两张表，任何改动都不会影响「单条记忆」和向量索引。条目里的「我」都指你（用户），「你」指角色。</span>
       </div>
       <div class="vm-toolbar" style="margin-bottom:10px;flex-wrap:wrap;">
@@ -2435,6 +2491,7 @@ ${output}`;
         <button class="vm-toolbar-btn" data-action="purge">清理已结束</button>
         <button class="vm-toolbar-btn" data-action="reload">刷新</button>
       </div>
+      <div data-panel-confirm-host></div>
       ${plansHtml}
       ${factsHtml}
     `;
@@ -2467,6 +2524,10 @@ ${output}`;
             this.openPlanEditForm(chat, body, data, planId, row);
             return;
           }
+          if (action === 'delete') {
+            this.askDeletePlan(chat, body, data, planId, row);
+            return;
+          }
           this.applyPlanPanelAction(chat, body, data, planId, action);
         });
       });
@@ -2479,6 +2540,10 @@ ${output}`;
           const action = button.dataset.factAction;
           if (action === 'edit') {
             this.openFactEditForm(chat, body, group, card);
+            return;
+          }
+          if (action === 'delete') {
+            this.askDeleteFact(chat, body, group, card);
             return;
           }
           this.applyFactPanelAction(chat, body, group, action);
@@ -2569,16 +2634,11 @@ ${output}`;
         });
         this.notifyPlanPanel('已标记为完成，不再注入提示词');
       } else if (action === 'delete') {
-        const confirmed = await this.confirmPanelAction(
-          '删除计划',
-          `确认要删除这条计划吗？\n\n${raw.title || '(无标题)'}\n\n删除后它不再出现在列表里、也不再注入提示词。此操作不影响向量记忆。`
-        );
-        if (!confirmed) return;
         await this.externalMemoryRequest(chat, '/memory/active-events/archive', {
           method: 'POST',
           body: this.buildPlanArchiveBody(planId, 'archived')
         });
-        this.notifyPlanPanel('已删除该计划');
+        this.notifyPlanPanel('已删除该计划（可在「已删除」分区里撤回）');
       } else {
         return;
       }
@@ -2606,11 +2666,6 @@ ${output}`;
         });
         this.notifyPlanPanel('已设为当前事实');
       } else if (action === 'delete') {
-        const confirmed = await this.confirmPanelAction(
-          '删除事实',
-          `确认要删除这条事实吗？\n\n${group?.slotKey || ''}\n${fact.statement || fact.value || ''}\n\n删除后该槽位不再显示、也不会参与注入。此操作不影响向量记忆。`
-        );
-        if (!confirmed) return;
         await this.externalMemoryRequest(chat, '/memory/current-facts/invalidate', {
           method: 'POST',
           body: this.buildFactInvalidateBody(fact.id, 'archived')
@@ -2626,14 +2681,19 @@ ${output}`;
     }
   }
 
-  async purgeFinishedPlans(chat, container, candidateCount = 0) {
-    const confirmed = await this.confirmPanelAction(
-      '清理已结束的计划',
+  purgeFinishedPlans(chat, body, candidateCount = 0) {
+    const host = body?.querySelector
+      ? (body.querySelector('[data-panel-confirm-host]') || body)
+      : body;
+    this.askInlineConfirm(
+      host,
       `确认要清理吗？\n\n将永久删除 ${candidateCount} 条已完成 / 已取消 / 已过期 / 已归档的计划，`
-        + '删除后无法恢复。\n\n这些条目与向量记忆完全无关，不会影响任何记忆或向量索引。'
+        + '删除后无法恢复。\n\n这些条目与向量记忆完全无关，不会影响任何记忆或向量索引。',
+      () => this.runPurgeFinishedPlans(chat, body)
     );
-    if (!confirmed) return;
+  }
 
+  async runPurgeFinishedPlans(chat, body) {
     try {
       const chatId = this.getOrganizationChatId(chat);
       const result = await this.externalMemoryRequest(chat, '/memory/active-events/purge-finished', {
@@ -2641,7 +2701,7 @@ ${output}`;
         body: { confirm: 'PURGE_FINISHED_ACTIVE_EVENTS', chatId }
       });
       this.notifyPlanPanel(`已清理 ${Number(result?.deleted || 0)} 条已结束的计划`);
-      await this.renderPlanFactPanel(chat, container);
+      await this.renderPlanFactPanel(chat, body?.parentNode || body);
     } catch (error) {
       const message = String(error?.message || error);
       this.notifyPlanPanel(
