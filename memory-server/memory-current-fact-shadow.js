@@ -9,7 +9,11 @@ const QUESTION_CUE = /(?:吗|么|是不是|是否|什么|哪里|哪儿|怎么|�
 const RESIDENCE_CUE = /(?:住在|住到了|搬到|搬回|定居在|长期住在)/u;
 const TRIP_CUE = /(?:出差|旅行|旅程|行程|返程|启程|出发|到达|抵达|回程)/u;
 const TRIP_STATE_CUE = /(?:正在|还在|仍在|已经|刚刚|刚|到了|到达|抵达|出发|启程|回来|返回|结束)/u;
-const BODY_STATE_CUE = /(?:现在|目前|今天|还在|仍然|刚刚|刚|已经|开始|结束|过去|好了|恢复|不再|没有|又)/u;
+const BODY_STATE_CUE = /(?:现在|目前|今天|今晚|还在|仍然|一直|还是|刚刚|刚|已经|开始|结束|过去|好了|恢复|不再|没有|又|有点|有些|很|好|特别|非常|轻微|剧烈|最近)/u;
+// 「已经不疼了 / 已经好了 / 没事了」是状态收束，必须识别成缓解。
+// 历史上「而且我今天肚子已经不疼了」被反过来存成了 abdominal_pain（疼痛），
+// 这是最危险的一类错误：把「好了」记成「还在疼」。
+const BODY_RESOLVED_CUE = /(?:(?:不|没|没有|不再)(?:怎么|再|那么)?(?:疼|痛|咳|烧|难受|不舒服)(?:了|啦)|(?:已经|早就)?(?:好|痊愈|康复|缓解|恢复|没事)(?:了|啦))/u;
 const TASK_OBJECT = /(?:任务|项目|工作|报告|材料|论文|申请|手续|课程|训练|检查|治疗)/u;
 const TASK_STATE_CUE = /(?:正在|还在|仍在|已经|刚刚|刚|完成|提交|处理|进行|暂停|结束|取消)/u;
 const LOCATION_PATTERN = /(?:我|本人)(?:(?:现在|目前|这会儿|此刻|已经|刚刚|刚)){0,3}(?:人)?(?:正在)?(?:不在|在|到了|到达|抵达|回到|来到)\s*([^，。！？；]{1,30})/u;
@@ -21,9 +25,12 @@ const BODY_ANCHORS = [
   { key: 'cold', pattern: /感冒/u },
   { key: 'fever', pattern: /(?:发烧|低烧|高烧|发热)/u },
   { key: 'cough', pattern: /咳嗽/u },
-  { key: 'head_pain', pattern: /(?:偏头痛|头(?:部)?[^，。！？；]{0,4}(?:疼|痛))/u },
-  { key: 'abdominal_pain', pattern: /(?:腹痛|肚子[^，。！？；]{0,4}(?:疼|痛))/u },
-  { key: 'stomach_pain', pattern: /(?:胃[^，。！？；]{0,4}(?:疼|痛))/u },
+  // 间隔字符类同时排除全角与半角标点。早期只排除了全角，
+  // 导致半角逗号让「头,而后又痛心疾首」跨标点匹配成 head_pain。
+  // 「头」前必须是真正的头部指代：肩头/骨头/低头/抬头/摇头/点头/枕头/石头/尽头/码头 等都不算。
+  { key: 'head_pain', pattern: /(?:偏头痛|(?<!(?:肩|骨|低|抬|回|摇|磕|枕|墙|石|木|街|码|源|念|尽|到)|(?<!有|一|半|好|差|这|那|多|起)点)头(?:部)?[^，。！？；、,\.!\?;：:\u2026\s]{0,3}(?:疼|痛))/u },
+  { key: 'abdominal_pain', pattern: /(?:腹痛|(?<![一满大])肚子[^，。！？；、,\.!\?;：:\u2026\s]{0,3}(?:疼|痛))/u },
+  { key: 'stomach_pain', pattern: /(?:胃(?:部)?[^，。！？；、,\.!\?;：:\u2026\s]{0,3}(?:疼|痛))/u },
   { key: 'chest_tightness', pattern: /胸闷/u },
   { key: 'hypoxia', pattern: /缺氧/u },
   { key: 'dizziness', pattern: /头晕/u },
@@ -160,7 +167,18 @@ function assessClause(clause, facts) {
   }
 
   const bodyAnchor = extractBodyAnchor(clause);
-  if (eligible && bodyAnchor && BODY_STATE_CUE.test(clause)) {
+  const bodyResolved = bodyAnchor ? clause.match(BODY_RESOLVED_CUE) : null;
+  if (eligible && bodyAnchor && bodyResolved) {
+    // 状态收束：用「不疼了 / 已经好了」这类短语作为新值覆盖旧的疼痛事实，
+    // 而不是把它当成一次新的疼痛。聚合层每个槽位取最新一条，因此旧值会自然失效。
+    addCandidate(candidates, facts, clause, {
+      factType: 'current_body_state',
+      slotKey: `user.body.${bodyAnchor.key}`,
+      value: bodyResolved[0],
+      confidence: 0.86,
+      reasons: ['explicit_user_subject', 'body_state_resolution', `state_anchor:${bodyAnchor.label}`]
+    });
+  } else if (eligible && bodyAnchor && BODY_STATE_CUE.test(clause)) {
     addCandidate(candidates, facts, clause, {
       factType: 'current_body_state',
       slotKey: `user.body.${bodyAnchor.key}`,

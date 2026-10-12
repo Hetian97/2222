@@ -120,6 +120,16 @@ function resolvePartOfDay(source, target, timeZone) {
   return { label: period.label, startAt, endAt };
 }
 
+// 相对时间表达式前面带明确过去前缀时（去年11月17号 / 上周五），
+// 正则会只匹配「11月17号」「周五」并推到未来，凭空造出一个不存在的未来计划。
+// 这里统一拦掉。
+function hasPastTimePrefix(source, index, window = 8) {
+  const position = Number(index);
+  if (!Number.isFinite(position) || position <= 0) return false;
+  const prefix = String(source || '').slice(Math.max(0, position - window), position);
+  return /(?:去年|前年|上个月|上月|上个?周|上个?星期|昨天|昨日|前天|大前天|往年|当年|当时|那次|以前|曾经)/u.test(prefix);
+}
+
 function resolveCrossDayWindow(text, referenceTime = Date.now(), requestedTimeZone = 'UTC') {
   const source = String(text || '');
   const timeZone = TimeZoneUtils.normalizeTimeZone(requestedTimeZone, 'UTC');
@@ -147,6 +157,8 @@ function resolveCrossDayWindow(text, referenceTime = Date.now(), requestedTimeZo
     target = tomorrow;
     evidence = source.match(/明天|明早|明晚/u)?.[0] || '明天';
   } else if (weekday) {
+    // '上周五' 只会匹配到「周五」并推到未来，必须按过去处理
+    if (/[上前]$/u.test(source.slice(0, weekday.index))) return null;
     target = resolveWeekday(referenceParts, weekday[1] || '', weekday[2]);
     evidence = weekday[0];
   } else if (/下周|下星期/u.test(source)) {
@@ -178,14 +190,17 @@ function resolveCrossDayWindow(text, referenceTime = Date.now(), requestedTimeZo
     target = addLocalDays(referenceParts, count);
     evidence = daysLater[0];
   } else if (fullDate && fullDate[3]) {
+    if (hasPastTimePrefix(source, fullDate.index)) return null;
     target = { year: Number(fullDate[1]), month: Number(fullDate[2]), day: Number(fullDate[3]) };
     evidence = fullDate[0];
   } else if (monthDay) {
+    if (hasPastTimePrefix(source, monthDay.index)) return null;
     let year = referenceParts.year;
     target = { year, month: Number(monthDay[1]), day: Number(monthDay[2]) };
     if (startOfLocalDay(target, timeZone) < tomorrowStart) target.year += 1;
     evidence = monthDay[0];
   } else if (dayOnly) {
+    if (hasPastTimePrefix(source, dayOnly.index)) return null;
     target = resolveDayOfMonth(referenceParts, Number(dayOnly[1]));
     evidence = dayOnly[0].trim();
   }

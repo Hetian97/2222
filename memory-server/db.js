@@ -2546,6 +2546,80 @@ function applyMemoryCurrentFactWrites(searchId, options = {}) {
   })();
 }
 
+// 常驻上下文聚合：把「还没结束的跨天计划」和「每个槽位最新的事实」收成一份
+// 供每轮无条件注入的结构化数据。只读，不改变任何行为；是否注入由调用方决定。
+const ACTIVE_PLAN_EVENT_STATUSES = new Set(['candidate', 'planned', 'active']);
+
+function listActivePlanContext(filters = {}) {
+  const chatId = String(filters.chatId || '').trim();
+  const nowValue = Number(filters.now || Date.now());
+  const eventLimit = Math.min(20, Math.max(1, Number(filters.eventLimit || 8)));
+  const factLimit = Math.min(20, Math.max(1, Number(filters.factLimit || 8)));
+  const minFactConfidence = Math.max(0, Math.min(1, Number(
+    filters.minFactConfidence === undefined ? 0.85 : filters.minFactConfidence
+  )));
+  if (!chatId) {
+    return { generatedAt: Date.now(), chatId: '', eventCount: 0, factCount: 0, events: [], facts: [] };
+  }
+
+  // 事件：listMemoryActiveEvents 已排除 completed/cancelled/expired/archived，
+  // 这里再按 validUntil 过滤掉已经过期但尚未归档的残留。
+  const events = listMemoryActiveEvents({ chatId, limit: 60 })
+    .filter(event => ACTIVE_PLAN_EVENT_STATUSES.has(String(event.status)))
+    .filter(event => !event.validUntil || Number(event.validUntil) >= nowValue)
+    .sort((a, b) =>
+      Number(a.startAt || a.validUntil || a.updatedAt || 0) -
+      Number(b.startAt || b.validUntil || b.updatedAt || 0))
+    .slice(0, eventLimit)
+    .map(event => ({
+      id: String(event.id),
+      title: String(event.title || ''),
+      summary: String(event.summary || ''),
+      status: String(event.status || ''),
+      startAt: Number(event.startAt || 0) || null,
+      endAt: Number(event.endAt || 0) || null,
+      validUntil: Number(event.validUntil || 0) || null
+    }));
+
+  // 事实：current facts 目前只会停在 shadow_candidate（没有 promote 出口），
+  // 因此两者都接受，但同一 slotKey 只保留 effectiveAt 最新的一条，并设置信度门槛。
+  const latestBySlot = new Map();
+  for (const fact of listMemoryCurrentFacts({ chatId, includeInactive: true, limit: 500 })) {
+    if (!['current', 'shadow_candidate'].includes(String(fact.status))) continue;
+    if (Number(fact.confidence || 0) < minFactConfidence) continue;
+    if (fact.validUntil && Number(fact.validUntil) < nowValue) continue;
+    const slotKey = String(fact.slotKey || '');
+    if (!slotKey) continue;
+    const factAt = Number(fact.effectiveAt || fact.updatedAt || 0);
+    const previous = latestBySlot.get(slotKey);
+    const previousAt = previous ? Number(previous.effectiveAt || previous.updatedAt || 0) : -1;
+    if (!previous || factAt >= previousAt) latestBySlot.set(slotKey, fact);
+  }
+  const facts = [...latestBySlot.values()]
+    .sort((a, b) =>
+      Number(b.effectiveAt || b.updatedAt || 0) - Number(a.effectiveAt || a.updatedAt || 0))
+    .slice(0, factLimit)
+    .map(fact => ({
+      id: String(fact.id),
+      slotKey: String(fact.slotKey || ''),
+      factType: String(fact.factType || ''),
+      value: String(fact.value || ''),
+      statement: String(fact.statement || fact.value || ''),
+      status: String(fact.status || ''),
+      confidence: Number(fact.confidence || 0),
+      effectiveAt: Number(fact.effectiveAt || 0) || null
+    }));
+
+  return {
+    generatedAt: Date.now(),
+    chatId,
+    eventCount: events.length,
+    factCount: facts.length,
+    events,
+    facts
+  };
+}
+
 module.exports = {
   db,
   addMemory,
@@ -2587,6 +2661,7 @@ module.exports = {
   archiveMemoryActiveEvent,
   applyMemoryActiveEventWrites,
   listMemoryCurrentFacts,
+  listActivePlanContext,
   upsertMemoryCurrentFact,
   promoteMemoryCurrentFact,
   invalidateMemoryCurrentFact,

@@ -43,6 +43,7 @@ const {
   archiveMemoryActiveEvent,
   applyMemoryActiveEventWrites,
   listMemoryCurrentFacts,
+  listActivePlanContext,
   applyMemoryCurrentFactWrites
 } = require('./db');
 
@@ -258,6 +259,21 @@ function finishCurrentFactWrites(searchTraceId) {
   return applyMemoryCurrentFactWrites(searchTraceId, {
     writesEnabled: currentFactWritesEnabled()
   });
+}
+
+// 常驻事实/计划上下文：由前端按自身设置显式索取（body.includeActivePlanContext === true），
+// 服务端默认允许计算；必要时可用 MEMORY_PLAN_INJECTION_ENABLED=false 一键关闭（无需改前端）。
+function planInjectionEnabled() {
+  return String(process.env.MEMORY_PLAN_INJECTION_ENABLED || 'true').toLowerCase() !== 'false';
+}
+
+function buildActivePlanContext(chatId) {
+  try {
+    return listActivePlanContext({ chatId });
+  } catch (error) {
+    console.warn('[memory-server] active plan context failed:', error.message || String(error));
+    return null;
+  }
 }
 
 function makeId() {
@@ -4295,6 +4311,9 @@ const server = http.createServer(async (req, res) => {
         sourceScope: body.activeEventSource || {},
         writesEnabled: currentFactWritesEnabled()
       });
+      const activePlanContext = planInjectionEnabled() && body.includeActivePlanContext === true
+        ? buildActivePlanContext(body.chatId || '')
+        : null;
       const safeLimit = clampNumber(body.limit || 20, 1, 200, 20);
       const debugQueries = buildMemorySearchQueries(q, body.queryVariants || body.cleanedQueries || body.queries || []);
 
@@ -4702,6 +4721,7 @@ const server = http.createServer(async (req, res) => {
         shadowPolicy: compactShadowPolicySummary(effectiveShadowPolicy),
         activeEventShadow,
         currentFactShadow,
+        activePlanContext,
         memories: results
       };
 
