@@ -5,6 +5,17 @@ const COMPLETION_CUE = /(?:已经结束|结束了|已经完成|完成了|做完�
 const CANCELLATION_CUE = /(?:取消了?|不去了|不再去了?|作废|改期|改时间|延期|推迟)/u;
 const QUESTION_CUE = /(?:吗|么|要不要|是否|什么|怎么|哪天|何时|\?|？)/u;
 const HYPOTHETICAL_CUE = /(?:如果|假如|假设|比如|可能|也许|或许)/u;
+// A 否定反转：「明天又不会去临空」「我哪儿都不去」都不是计划。
+// 否定必须紧贴动作词（中间不能跨标点），否则会误伤「我不行了……明天我们还要去陵园」这种真计划。
+const NEGATED_ACTION_CUE = /(?:不|没|没有|别|无需|不用|不会|不想|都不|哪儿都不|从来不)[^，。！？；、,\.!\?;：:\u2026\s]{0,4}(?:去|得|参加|出发|启程|动身|提交|返回|开始|继续|安排|准备|计划|预约)/u;
+// B 认知/回忆/反事实：「我以为是明天去呢」「这……要去也是明早去就行」
+// 注意：不含「要是」——条件句由 HYPOTHETICAL_CUE 只做降权，
+// 既有测试要求「你要是感冒了，明天谁来做布丁和海棠糕？」仍能抽出计划。
+const RECALL_CUE = /(?:以为|记得|好像|听说|据说|难道|要去也是|就算|即使|哪怕|大不了)/u;
+// D 纯感叹/状态陈述：以语气助词收尾、且没有「去/回/前往 + 地点」的安排结构。
+// 反例：「明天是第四天了，就可以不做'废人'了吧」「……你是……居家战备是吧」
+const TONE_ENDING_CUE = /(?:吧|呢|喽|啊|哦|呀|嘛|咯)[～~\s]*$/u;
+const ARRANGEMENT_CUE = /(?:去|前往|回)[^，。！？；、,\.!\?;：:\u2026\s]{1,6}/u;
 const EXECUTABLE_ACTION_CUE = /(?:做|制作|准备|整理|查看|看完|阅读|复习|检查|提交|发送|交给|参加|出发|启程|动身|返回|回来|搬|购买|买|预约|复诊|开会|考试|训练|处理|完成|开始|继续|去(?:往|到)?)/u;
 const CONCRETE_EVENT_CUE = /(?:会议|考试|预约|行程|航班|车次|截止|复诊|检查|训练|活动|出差|旅行|约会|任务|资料|材料)/u;
 const SOCIAL_FAREWELL_CUE = /(?:(?:晚安|睡吧|先睡|早点睡).{0,32}(?:明天见|回头见|改天见)|(?:明天见|回头见|改天见).{0,32}(?:晚安|睡吧|先睡|早点睡))/u;
@@ -213,12 +224,22 @@ function runActiveEventExtractionShadow(events, options = {}) {
     if (hasActionableContent) reasons.push('actionable_event_content');
     if (hasSocialFarewell) reasons.push('social_farewell_not_active');
 
+    const negatedStatement = NEGATED_ACTION_CUE.test(clause);
+    const recalledOrCounterfactual = RECALL_CUE.test(clause);
+    const toneEndingNotPlan = TONE_ENDING_CUE.test(clause) && !ARRANGEMENT_CUE.test(clause);
+    if (negatedStatement) reasons.push('negated_statement');
+    if (recalledOrCounterfactual) reasons.push('recalled_or_counterfactual');
+    if (toneEndingNotPlan) reasons.push('tone_ending_not_a_plan');
+
     let action = 'none';
     if (hasCancellation) action = 'cancel_candidate';
     else if (hasCompletion) action = 'complete_candidate';
+    // 否定句与认知/反事实句一律不成计划（取消/完成仍然允许，上面已处理）
+    else if (negatedStatement || recalledOrCounterfactual) action = 'none';
     else if (referenced && (hasCommitment || hasOngoing || hasFutureTime || hasCurrentTime || hasExplicitDate)) action = 'update_candidate';
     else if (
       !hasSocialFarewell &&
+      !toneEndingNotPlan &&
       (hasFutureTime || hasExplicitDate) &&
       (hasCommitment || hasActionableContent) &&
       !hasPastOnlyTime

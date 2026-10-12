@@ -16,3 +16,7 @@ __pycache__/
 
 # 临时目录（PDF/图片等中间产物）
 tmp/
+
+# 方案/审计/记录类文档：只留在本地做参考，不进版本库
+memory-fact-plan-*.md
+*-audit.md

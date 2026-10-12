@@ -345,6 +345,61 @@ try {
   // 服务端用「返回值没有 id」来判断不存在，所以这里必须是 null（或至少没有 id）
   assert.strictEqual(invalidateMemoryCurrentFact('not-exist-fact', 'archived'), null);
 
+  // 15. 回归：本轮新增的抽取规则（E 贴近锚点 / A 否定反转 / B 认知回忆 / D 语气助词收尾）
+  // 判定基准全部来自线上真实数据（见 memory-fact-plan-misextraction-audit.md）
+  const auditScope = {
+    type: 'private',
+    sourceChatId: 'chat-1',
+    mountedChatId: 'chat-1',
+    latestSpeakerRole: 'user'
+  };
+  const planCount = query => runActiveEventExtractionShadow([], {
+    query, timeZone: 'Asia/Shanghai', sourceScope: auditScope
+  }).proposalCount;
+
+  // A 否定反转：不是计划
+  assert.strictEqual(planCount('我们在天行，明天又不会去临空'), 0, '否定句不得成为计划');
+  assert.strictEqual(
+    planCount('至少明天，我哪儿都不去，老老实实在家呆着，总行了吧'), 0, '否定句不得成为计划'
+  );
+  // B 认知/回忆/反事实：不是计划
+  assert.strictEqual(planCount('我以为是明天去呢'), 0, '回忆句不得成为计划');
+  assert.strictEqual(planCount('这……要去也是明早去就行来得及啊'), 0, '反事实句不得成为计划');
+  // D 语气助词收尾的感叹/状态陈述：不是计划
+  assert.strictEqual(
+    planCount('明天是第四天了，就可以不做\u2018废人\u2019了吧'), 0, '纯感叹不得成为计划'
+  );
+  assert.strictEqual(planCount('晚安老公……明天早上我们还要一起做早餐呢'), 0, '语气助词收尾不得成为计划');
+  // 真计划必须保留（防止规则误杀）
+  assert.strictEqual(planCount('我不行了……明天我们还要去陵园，再做我真起不来了'), 1, '真计划不能被误杀');
+  assert.strictEqual(planCount('这还差不多……晚安，明天我们一起去看湖边秋景'), 1, '真计划不能被误杀');
+  assert.strictEqual(planCount('明天去湖边小镇的超市，周一去舰队，你敢应我就敢叫'), 1, '真计划不能被误杀');
+  assert.strictEqual(
+    planCount('然后……然后下周就不能再围着答辩打转了，开始写期刊文章'), 1, '真计划不能被误杀'
+  );
+  // 既有行为不得回归：条件句只降权、同日安排不算跨天计划
+  assert.strictEqual(planCount('你要是感冒了，明天谁来做布丁和海棠糕？'), 1, '条件疑问句仍应能成计划');
+  assert.strictEqual(planCount('今晚要吃完饭再去散步。'), 0, '同一天的安排不算跨天计划');
+
+  // 事实层：E 状态词必须贴近锚点 / A 否定不算状态
+  const factFor = query => runCurrentFactShadow([], { query, sourceScope: auditScope });
+  assert.strictEqual(factFor('我从酒店\u2018独自\u2019出发去酒吧').candidateCount, 0, '动作启动词不再是行程状态');
+  assert.strictEqual(factFor('我们找衣服去吃饭,然后赶紧出发').candidateCount, 0, '动作启动词不再是行程状态');
+  assert.strictEqual(
+    factFor('我摇摇头,忍着咳嗽接过水杯,喝了几口水,喉咙里那阵又干又痒的感觉才稍微缓解一些').candidateCount,
+    0,
+    '状态词离锚点太远不得成候选'
+  );
+  assert.strictEqual(factFor('我没有过敏').candidateCount, 0, '否定状态不得记成有这个状态');
+  assert.strictEqual(factFor('我不头疼').candidateCount, 0, '否定状态不得记成有这个状态');
+  assert.strictEqual(factFor('我现在还在出差').candidateCount, 1, '真正的行程状态必须保留');
+  assert.strictEqual(
+    factFor('我的生理期已经结束了，今天感觉好多了').candidateCount,
+    1,
+    '长一些但状态词贴近锚点的必须保留'
+  );
+  assert.strictEqual(factFor('我又不是从零开始写,我只是要捋顺毕业论文的逻辑,为答辩做准备嘛').candidateCount, 1, '任务事实必须保留');
+
   console.log('Active plan context tests passed.');
 } finally {
   db.close();

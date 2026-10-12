@@ -8,7 +8,9 @@ const HYPOTHETICAL_CUE = /(?:如果|假如|假设|比如|可能|也许|或许)/u
 const QUESTION_CUE = /(?:吗|么|是不是|是否|什么|哪里|哪儿|怎么|为何|为什么|\?|？)/u;
 const RESIDENCE_CUE = /(?:住在|住到了|搬到|搬回|定居在|长期住在)/u;
 const TRIP_CUE = /(?:出差|旅行|旅程|行程|返程|启程|出发|到达|抵达|回程)/u;
-const TRIP_STATE_CUE = /(?:正在|还在|仍在|已经|刚刚|刚|到了|到达|抵达|出发|启程|回来|返回|结束)/u;
+// ⚠️ 这里只放「持续状态」词。出发/启程/动身是动作启动词，放进来会把
+// 「我从酒店独自出发去酒吧」这种叙述动作当成当前行程状态（线上真实误抽）。
+const TRIP_STATE_CUE = /(?:正在|还在|仍在|已经|刚刚|刚|到了|到达|抵达|回来|返回|结束)/u;
 const BODY_STATE_CUE = /(?:现在|目前|今天|今晚|还在|仍然|一直|还是|刚刚|刚|已经|开始|结束|过去|好了|恢复|不再|没有|又|有点|有些|很|好|特别|非常|轻微|剧烈|最近)/u;
 // 「已经不疼了 / 已经好了 / 没事了」是状态收束，必须识别成缓解。
 // 历史上「而且我今天肚子已经不疼了」被反过来存成了 abdominal_pain（疼痛），
@@ -113,6 +115,36 @@ function extractBodyAnchor(clause) {
   return null;
 }
 
+// 状态词必须贴近锚点。
+// 反例（线上真实误抽）：「我摇摇头,忍着咳嗽接过水杯,喝了几口水,喉咙里那阵又干又痒的感觉才稍微缓解一些」
+// —— 锚点「咳嗽」与状态词「又」隔了 20 多个字，却被凑成"当前咳嗽状态"。
+function isCueNearAnchor(clause, anchorLabel, cuePattern, maxGap = 6) {
+  const anchorIndex = String(clause).indexOf(anchorLabel);
+  if (anchorIndex < 0) return false;
+  const anchorEnd = anchorIndex + String(anchorLabel).length;
+  const flags = cuePattern.flags.includes('g') ? cuePattern.flags : `${cuePattern.flags}g`;
+  const regex = new RegExp(cuePattern.source, flags);
+  let match = regex.exec(clause);
+  while (match !== null) {
+    const start = match.index;
+    const gap = start >= anchorEnd ? start - anchorEnd : anchorIndex - (start + match[0].length);
+    // 负值代表重叠，同样算「贴近」
+    if (gap <= maxGap) return true;
+    match = regex.exec(clause);
+  }
+  return false;
+}
+
+// 锚点前面紧跟否定时，这句话描述的是「没有这个状态」，不能记成有这个状态。
+// 例：「我没有过敏」曾被记成 allergy。注意「已经不疼了」的否定在锚点内部，
+// 由 BODY_RESOLVED_CUE 走"缓解"路径，不受这里影响。
+function hasNegationBeforeAnchor(clause, anchorLabel, maxGap = 4) {
+  const index = String(clause).indexOf(anchorLabel);
+  if (index <= 0) return false;
+  const prefix = String(clause).slice(0, index);
+  return new RegExp(`(?:不|没|没有|不再|别|无|未)[^，。！？；、,\\.!\\?;：:\\u2026]{0,${maxGap}}$`, 'u').test(prefix);
+}
+
 function extractTaskAnchor(clause) {
   return clause.match(TASK_OBJECT)?.[0] || '';
 }
@@ -156,7 +188,9 @@ function assessClause(clause, facts) {
     });
   }
 
-  if (eligible && TRIP_CUE.test(clause) && TRIP_STATE_CUE.test(clause)) {
+  if (eligible && TRIP_CUE.test(clause) && TRIP_STATE_CUE.test(clause)
+    && isCueNearAnchor(clause, clause.match(TRIP_CUE)?.[0] || '', TRIP_STATE_CUE, 20)
+    && !hasNegationBeforeAnchor(clause, clause.match(TRIP_CUE)?.[0] || '')) {
     addCandidate(candidates, facts, clause, {
       factType: 'current_trip_state',
       slotKey: 'user.trip.current',
@@ -168,7 +202,10 @@ function assessClause(clause, facts) {
 
   const bodyAnchor = extractBodyAnchor(clause);
   const bodyResolved = bodyAnchor ? clause.match(BODY_RESOLVED_CUE) : null;
-  if (eligible && bodyAnchor && bodyResolved) {
+  if (eligible && bodyAnchor && hasNegationBeforeAnchor(clause, bodyAnchor.label)) {
+    // 「我没有过敏」描述的是「没有这个状态」，不能记成有这个状态
+    reasons.push('negated_body_state_excluded');
+  } else if (eligible && bodyAnchor && bodyResolved && isCueNearAnchor(clause, bodyAnchor.label, BODY_RESOLVED_CUE)) {
     // 状态收束：用「不疼了 / 已经好了」这类短语作为新值覆盖旧的疼痛事实，
     // 而不是把它当成一次新的疼痛。聚合层每个槽位取最新一条，因此旧值会自然失效。
     addCandidate(candidates, facts, clause, {
@@ -178,7 +215,8 @@ function assessClause(clause, facts) {
       confidence: 0.86,
       reasons: ['explicit_user_subject', 'body_state_resolution', `state_anchor:${bodyAnchor.label}`]
     });
-  } else if (eligible && bodyAnchor && BODY_STATE_CUE.test(clause)) {
+  } else if (eligible && bodyAnchor && BODY_STATE_CUE.test(clause)
+    && isCueNearAnchor(clause, bodyAnchor.label, BODY_STATE_CUE)) {
     addCandidate(candidates, facts, clause, {
       factType: 'current_body_state',
       slotKey: `user.body.${bodyAnchor.key}`,
