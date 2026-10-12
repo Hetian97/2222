@@ -504,6 +504,65 @@ async function main() {
   assert.equal(factCreateBody.fact.evidence.manual, true);
   assert.equal(factCreateBody.fact.validUntil, null);
 
+  // 撤回：有效期还在未来时原样恢复，不受影响
+  const restoreFuture = manager.buildPlanRestoreChanges(
+    { id: 'r1', status: 'completed', validUntil: panelNow + 86400000 },
+    panelNow
+  );
+  assert.equal(restoreFuture.changes.status, 'planned');
+  assert.equal(restoreFuture.extended, false);
+  assert.equal(restoreFuture.changes.validUntil, undefined, '有效期还没过就不该动它');
+
+  // 撤回：有效期已过（或没有）时必须顺延，否则撤回后立刻又算过期、注入不了
+  const restorePast = manager.buildPlanRestoreChanges(
+    { id: 'r2', status: 'completed', validUntil: panelNow - 1000 },
+    panelNow
+  );
+  assert.equal(restorePast.changes.status, 'planned');
+  assert.equal(restorePast.extended, true);
+  assert.equal(restorePast.changes.validUntil, panelNow + 86400000 * 2);
+
+  const restoreMissing = manager.buildPlanRestoreChanges({ id: 'r3', status: 'archived' }, panelNow);
+  assert.equal(restoreMissing.extended, true, '没有有效期的条目撤回后同样要顺延');
+
+  assert(source.includes('data-action="restore"'), '已完成/已过期的计划必须有「撤回」按钮');
+  assert(source.includes("action === 'restore'"), '撤回必须接上事件处理');
+  assert(source.includes('不要把「我」当成你自己'), '注入段必须声明条目里的「我」指用户');
+
+  // 防误删：删除/清理必须二次确认，且拿不到弹窗组件时退回 confirm（fail closed）
+  assert.equal(typeof manager.confirmPanelAction, 'function');
+  assert(source.includes('确认要删除这条计划吗'), '删除计划必须有确认文案');
+  assert(source.includes('确认要删除这条事实吗'), '删除事实必须有确认文案');
+  assert(source.includes('确认要清理吗'), '「清理已结束」必须有确认文案');
+  assert(source.includes("typeof window.showCustomConfirm === 'function'"), '应优先使用站内弹窗');
+  assert(source.includes('return false;'), '拿不到任何弹窗时必须拒绝执行，而不是放行');
+  assert.ok(
+    (source.match(/this\.confirmPanelAction\(/g) || []).length >= 3,
+    '删除计划、删除事实、清理已结束三处都要接上确认'
+  );
+
+  // 已归档的计划 = 用户已删除，不得再出现在列表里（否则「删除」看起来没生效）
+  const archivedHidden = manager.normalizePlanPanelList([
+    { id: 'a1', title: '被删除的计划', status: 'archived', startAt: panelNow + 1000, validUntil: panelNow + 999000 },
+    { id: 'a2', title: '还活着的计划', status: 'planned', startAt: panelNow + 1000, validUntil: panelNow + 999000 }
+  ], { includeFinished: true, now: panelNow });
+  assert.deepEqual(Array.from(archivedHidden.map(plan => plan.id)), ['a2'], '已归档的计划必须从列表消失');
+
+  // 槽位里所有版本都被删除时整组消失；只要还有有效版本，被删的版本不能当当前值
+  assert.equal(
+    manager.normalizeFactPanelList([
+      { id: 'd1', chatId: 'chat-1', slotKey: 'user.body.cough', value: '咳嗽', status: 'archived', effectiveAt: panelNow }
+    ]).length,
+    0,
+    '全被删除的槽位不得再显示'
+  );
+  const mixedFacts = manager.normalizeFactPanelList([
+    { id: 'd2', chatId: 'chat-1', slotKey: 'user.body.cough', value: '咳嗽', status: 'archived', effectiveAt: panelNow + 5000 },
+    { id: 'd3', chatId: 'chat-1', slotKey: 'user.body.cough', value: '已经好了', status: 'shadow_candidate', effectiveAt: panelNow }
+  ]);
+  assert.equal(mixedFacts.length, 1);
+  assert.equal(mixedFacts[0].current.id, 'd3', '被删除的版本即使时间更新也不能当当前值');
+
   console.log('Vector memory UI tests passed');
 }
 

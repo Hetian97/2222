@@ -332,6 +332,7 @@ class VariableMemoryManager {
       '## 还没结束的约定与计划（系统维护）',
       '> 这些条目由系统按时间维护，与你是否「想起」无关，也不代表它们刚刚发生。',
       '> 已经完成、取消或过期的条目不会出现在这里。请自然地在合适的时候惦记它们，不要生硬复述。',
+      '> 【视角】这些条目全部出自「用户」之口，不是你写的。所以条目里的「我」指用户本人，「你」指你（角色）——不要把「我」当成你自己。',
       ...lines,
       ''
     ].join('\n');
@@ -2166,7 +2167,8 @@ ${output}`;
     const includeFinished = options.includeFinished === true;
     const finishedStatuses = this.getFinishedPlanStatuses();
     return (Array.isArray(events) ? events : [])
-      .filter(event => event && event.id)
+      // archived = 用户已删除，不再展示（否则「删除」看起来没生效）
+      .filter(event => event && event.id && String(event.status || '') !== 'archived')
       .map(event => {
         const status = String(event.status || 'planned');
         const validUntil = Number(event.validUntil || 0) || null;
@@ -2212,12 +2214,16 @@ ${output}`;
       };
       const entry = bySlot.get(slotKey) || { slotKey, current: null, versions: [] };
       entry.versions.push(item);
+      // 只有「有效」的版本才有资格当该槽位的当前值；被删除/作废的只作历史留档
+      const eligible = ['current', 'shadow_candidate'].includes(item.status);
       const at = Number(item.effectiveAt || item.updatedAt || 0);
       const currentAt = entry.current ? Number(entry.current.effectiveAt || entry.current.updatedAt || 0) : -1;
-      if (!entry.current || at >= currentAt) entry.current = item;
+      if (eligible && (!entry.current || at >= currentAt)) entry.current = item;
       bySlot.set(slotKey, entry);
     }
     return [...bySlot.values()]
+      // 该槽位的版本全被删除/作废时整组不再显示
+      .filter(entry => entry.current)
       .map(entry => ({
         ...entry,
         versions: entry.versions
@@ -2275,6 +2281,19 @@ ${output}`;
       return;
     }
     console.warn('[变量记忆] ' + message);
+  }
+
+  // 危险操作前的二次确认。
+  // 拿不到弹窗组件时退回 window.confirm；两者都没有就一律不执行（fail closed），
+  // 绝不因为「弹窗不可用」就静默把删除放过去。
+  async confirmPanelAction(title, message) {
+    if (typeof window.showCustomConfirm === 'function') {
+      return Boolean(await window.showCustomConfirm(title, message));
+    }
+    if (typeof window.confirm === 'function') {
+      return Boolean(window.confirm(`${title}\n\n${message}`));
+    }
+    return false;
   }
 
   async renderPlanFactPanel(chat, container) {
@@ -2354,7 +2373,9 @@ ${output}`;
             </div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">
-            ${plan.finished ? '' : `<button class="vm-toolbar-btn" data-action="edit">编辑</button><button class="vm-toolbar-btn" data-action="complete">完成</button>`}
+            ${(plan.finished || plan.expired)
+              ? '<button class="vm-toolbar-btn" data-action="restore">撤回</button>'
+              : '<button class="vm-toolbar-btn" data-action="edit">编辑</button><button class="vm-toolbar-btn" data-action="complete">完成</button>'}
             <button class="vm-toolbar-btn" data-action="delete" style="color:#ff3b30">删除</button>
           </div>
         </div>
@@ -2403,7 +2424,7 @@ ${output}`;
     body.innerHTML = `
       <div class="vm-preview-warning">
         <strong>计划与事实（独立于向量记忆）</strong>
-        <span>这里只管理计划与事实两张表，任何改动都不会影响「单条记忆」和向量索引。</span>
+        <span>这里只管理计划与事实两张表，任何改动都不会影响「单条记忆」和向量索引。条目里的「我」都指你（用户），「你」指角色。</span>
       </div>
       <div class="vm-toolbar" style="margin-bottom:10px;flex-wrap:wrap;">
         <button class="vm-toolbar-btn ${tab === 'plans' ? 'vm-primary' : ''}" data-tab="plans">计划（${livePlans.length} 生效 / ${historyPlans.length} 历史）</button>
@@ -2511,6 +2532,15 @@ ${output}`;
     row.appendChild(form);
   }
 
+  // 撤回所需的字段改动（纯函数，便于测试）
+  buildPlanRestoreChanges(event, now = Date.now()) {
+    const changes = { status: 'planned' };
+    const currentValidUntil = Number(event?.validUntil || 0);
+    const extended = !currentValidUntil || currentValidUntil < now;
+    if (extended) changes.validUntil = now + 86400000 * 2;
+    return { changes, extended };
+  }
+
   async applyPlanPanelAction(chat, body, data, planId, action, changes = {}) {
     const raw = (data.events || []).find(event => String(event.id) === String(planId));
     if (!raw) return;
@@ -2521,6 +2551,17 @@ ${output}`;
           body: this.buildPlanUpsertBody(raw, changes)
         });
         this.notifyPlanPanel('已保存该计划');
+      } else if (action === 'restore') {
+        // 撤回：把已结束的计划改回「待办」。
+        // 如果它的有效至已经过去（撤回后会被立刻判定过期、无法注入），就顺延到今天 + 2 天。
+        const { changes: restoreChanges, extended } = this.buildPlanRestoreChanges(raw);
+        await this.externalMemoryRequest(chat, '/memory/active-events/upsert', {
+          method: 'POST',
+          body: this.buildPlanUpsertBody(raw, restoreChanges)
+        });
+        this.notifyPlanPanel(extended
+          ? `已撤回，并把有效至顺延到 ${this.formatPlanPanelTime(restoreChanges.validUntil)}`
+          : '已撤回该计划');
       } else if (action === 'complete') {
         await this.externalMemoryRequest(chat, '/memory/active-events/archive', {
           method: 'POST',
@@ -2528,11 +2569,16 @@ ${output}`;
         });
         this.notifyPlanPanel('已标记为完成，不再注入提示词');
       } else if (action === 'delete') {
+        const confirmed = await this.confirmPanelAction(
+          '删除计划',
+          `确认要删除这条计划吗？\n\n${raw.title || '(无标题)'}\n\n删除后它不再出现在列表里、也不再注入提示词。此操作不影响向量记忆。`
+        );
+        if (!confirmed) return;
         await this.externalMemoryRequest(chat, '/memory/active-events/archive', {
           method: 'POST',
           body: this.buildPlanArchiveBody(planId, 'archived')
         });
-        this.notifyPlanPanel('已删除（归档）该计划');
+        this.notifyPlanPanel('已删除该计划');
       } else {
         return;
       }
@@ -2560,6 +2606,11 @@ ${output}`;
         });
         this.notifyPlanPanel('已设为当前事实');
       } else if (action === 'delete') {
+        const confirmed = await this.confirmPanelAction(
+          '删除事实',
+          `确认要删除这条事实吗？\n\n${group?.slotKey || ''}\n${fact.statement || fact.value || ''}\n\n删除后该槽位不再显示、也不会参与注入。此操作不影响向量记忆。`
+        );
+        if (!confirmed) return;
         await this.externalMemoryRequest(chat, '/memory/current-facts/invalidate', {
           method: 'POST',
           body: this.buildFactInvalidateBody(fact.id, 'archived')
@@ -2576,11 +2627,11 @@ ${output}`;
   }
 
   async purgeFinishedPlans(chat, container, candidateCount = 0) {
-    const confirmText = `将永久删除 ${candidateCount} 条已完成 / 已取消 / 已过期 / 已归档的计划。\n\n`
-      + '这些条目与向量记忆完全无关，删除不会影响任何记忆或向量索引。';
-    const confirmed = typeof window.showCustomConfirm === 'function'
-      ? await window.showCustomConfirm('清理已结束的计划', confirmText)
-      : true;
+    const confirmed = await this.confirmPanelAction(
+      '清理已结束的计划',
+      `确认要清理吗？\n\n将永久删除 ${candidateCount} 条已完成 / 已取消 / 已过期 / 已归档的计划，`
+        + '删除后无法恢复。\n\n这些条目与向量记忆完全无关，不会影响任何记忆或向量索引。'
+    );
     if (!confirmed) return;
 
     try {
