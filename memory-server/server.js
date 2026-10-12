@@ -43,11 +43,13 @@ const {
   archiveMemoryActiveEvent,
   deleteMemoryActiveEvent,
   purgeFinishedMemoryActiveEvents,
+  purgeMemoryActiveEvents,
   applyMemoryActiveEventWrites,
   listMemoryCurrentFacts,
   listActivePlanContext,
   upsertMemoryCurrentFact,
   invalidateMemoryCurrentFact,
+  deleteMemoryCurrentFact,
   promoteMemoryCurrentFact,
   applyMemoryCurrentFactWrites
 } = require('./db');
@@ -3900,6 +3902,20 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/memory/active-events/purge' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      if (String(body.confirm || '') !== 'PURGE_ACTIVE_EVENTS') {
+        throw new Error('Explicit confirmation is required to purge active events');
+      }
+      const result = purgeMemoryActiveEvents({ chatId: body.chatId || '', scope: body.scope || 'finished' });
+      sendJson(res, 200, { ok: true, ...result });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message || String(error) });
+    }
+    return;
+  }
+
   if (pathname === '/memory/active-events/purge-finished' && req.method === 'POST') {
     try {
       const body = await readRequestBody(req);
@@ -3937,6 +3953,21 @@ const server = http.createServer(async (req, res) => {
       const fact = invalidateMemoryCurrentFact(body.id, body.status || 'archived');
       if (!fact?.id) throw new Error('Current fact not found');
       sendJson(res, 200, { ok: true, fact });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/current-facts/delete' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      if (String(body.confirm || '') !== 'DELETE_CURRENT_FACT') {
+        throw new Error('Explicit confirmation is required to delete a current fact');
+      }
+      const result = deleteMemoryCurrentFact(body.id);
+      if (!result.deleted) throw new Error('Current fact not found');
+      sendJson(res, 200, { ok: true, ...result });
     } catch (error) {
       sendJson(res, 400, { ok: false, error: error.message || String(error) });
     }

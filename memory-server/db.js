@@ -2461,6 +2461,36 @@ function purgeFinishedMemoryActiveEvents(filters = {}) {
   };
 }
 
+// 按作用域批量清理（管理面板的两个清理按钮）。
+//   scope 'finished' → 已完成/已取消/已过期（**不含已归档**：归档必须保持可撤回）
+//   scope 'archived' → 已归档
+const FINISHED_PURGE_STATUSES = ['completed', 'cancelled', 'expired'];
+const ARCHIVED_PURGE_STATUSES = ['archived'];
+
+function purgeMemoryActiveEvents(filters = {}) {
+  const chatId = String(filters.chatId || '').trim();
+  const scope = String(filters.scope || 'finished') === 'archived' ? 'archived' : 'finished';
+  const statuses = scope === 'archived' ? ARCHIVED_PURGE_STATUSES : FINISHED_PURGE_STATUSES;
+  const placeholders = statuses.map(() => '?').join(', ');
+  const params = [...statuses];
+  let sql = `DELETE FROM memory_active_events WHERE status IN (${placeholders})`;
+  if (chatId) {
+    sql += ' AND chatId = ?';
+    params.push(chatId);
+  }
+  const result = db.prepare(sql).run(...params);
+  return { chatId, scope, statuses: [...statuses], deleted: Number(result.changes || 0) };
+}
+
+// 物理删除单条事实。这张表只有指向自己的外键（supersedes 版本链，ON DELETE SET NULL），
+// 删它不会影响 memories 表或 Chroma 向量。
+function deleteMemoryCurrentFact(id) {
+  const safeId = String(id || '').trim();
+  if (!safeId) throw new Error('id is required');
+  const result = db.prepare('DELETE FROM memory_current_facts WHERE id = ?').run(safeId);
+  return { id: safeId, deleted: result.changes > 0 };
+}
+
 function applyMemoryActiveEventWrites(searchId, options = {}) {
   const safeSearchId = String(searchId || '').trim();
   if (!safeSearchId) throw new Error('searchId is required');
@@ -2690,11 +2720,13 @@ module.exports = {
   archiveMemoryActiveEvent,
   deleteMemoryActiveEvent,
   purgeFinishedMemoryActiveEvents,
+  purgeMemoryActiveEvents,
   applyMemoryActiveEventWrites,
   listMemoryCurrentFacts,
   listActivePlanContext,
   upsertMemoryCurrentFact,
   promoteMemoryCurrentFact,
   invalidateMemoryCurrentFact,
+  deleteMemoryCurrentFact,
   applyMemoryCurrentFactWrites
 };

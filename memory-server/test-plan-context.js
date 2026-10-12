@@ -18,8 +18,10 @@ const {
   listMemoryActiveEvents,
   deleteMemoryActiveEvent,
   purgeFinishedMemoryActiveEvents,
+  purgeMemoryActiveEvents,
   promoteMemoryCurrentFact,
   invalidateMemoryCurrentFact,
+  deleteMemoryCurrentFact,
   listMemoryCurrentFacts,
   listActivePlanContext
 } = require('./db');
@@ -403,6 +405,51 @@ try {
     factFor('我又不是从零开始写,我只是要捋顺已经写完了的毕业论文的逻辑而已,为答辩做准备嘛').candidateCount,
     1,
     '任务事实必须保留'
+  );
+
+  // 16. 部署前补齐的两个接口：按作用域清理 + 事实物理删除
+  upsertMemoryActiveEvent({
+    id: 'purge-archived-1', chatId: 'chat-1', title: '已归档的',
+    status: 'archived', startAt: Date.now(), validUntil: Date.now() + 86400000
+  });
+  upsertMemoryActiveEvent({
+    id: 'purge-done-1', chatId: 'chat-1', title: '已完成的',
+    status: 'completed', startAt: Date.now(), validUntil: Date.now() + 86400000
+  });
+  upsertMemoryActiveEvent({
+    id: 'purge-planned-1', chatId: 'chat-1', title: '生效中的',
+    status: 'planned', startAt: Date.now() + 86400000, validUntil: Date.now() + 86400000 * 3
+  });
+
+  // 「清理过期与已完成」**绝不能碰归档**（归档必须保持可撤回）
+  const finishedPurge = purgeMemoryActiveEvents({ chatId: 'chat-1', scope: 'finished' });
+  assert.deepEqual(finishedPurge.statuses, ['completed', 'cancelled', 'expired']);
+  const afterFinishedPurge = listMemoryActiveEvents({ chatId: 'chat-1', includeArchived: true }).map(e => e.id);
+  assert.ok(!afterFinishedPurge.includes('purge-done-1'), '已完成的应被清理');
+  assert.ok(afterFinishedPurge.includes('purge-archived-1'), '已归档的必须保留');
+  assert.ok(afterFinishedPurge.includes('purge-planned-1'), '生效中的不能被清理');
+
+  // 「清空已归档」只清归档
+  const archivedPurge = purgeMemoryActiveEvents({ chatId: 'chat-1', scope: 'archived' });
+  assert.strictEqual(archivedPurge.deleted, 1);
+  assert.deepEqual(archivedPurge.statuses, ['archived']);
+  const afterArchivedPurge = listMemoryActiveEvents({ chatId: 'chat-1', includeArchived: true }).map(e => e.id);
+  assert.ok(!afterArchivedPurge.includes('purge-archived-1'), '已归档的应被清空');
+  assert.ok(afterArchivedPurge.includes('purge-planned-1'), '生效中的不能被清空');
+
+  // 事实物理删除
+  upsertMemoryCurrentFact({
+    id: 'fact-to-delete', chatId: 'chat-1', slotKey: 'user.body.cough',
+    value: '咳嗽', statement: '我在咳嗽。', status: 'shadow_candidate',
+    confidence: 0.9, effectiveAt: Date.now()
+  });
+  assert.strictEqual(deleteMemoryCurrentFact('fact-to-delete').deleted, true);
+  assert.strictEqual(deleteMemoryCurrentFact('fact-to-delete').deleted, false, '重复删除必须返回 false');
+  assert.throws(() => deleteMemoryCurrentFact(''), /id is required/);
+  assert.strictEqual(
+    listMemoryCurrentFacts({ chatId: 'chat-1', includeInactive: true }).filter(f => f.id === 'fact-to-delete').length,
+    0,
+    '物理删除后不应还能查到'
   );
 
   console.log('Active plan context tests passed.');
