@@ -2432,6 +2432,35 @@ function archiveMemoryActiveEvent(id, status = 'archived') {
   return normalizeActiveEvent(db.prepare('SELECT * FROM memory_active_events WHERE id = ?').get(safeId));
 }
 
+// 物理删除单条计划。这些行与 memories / Chroma 向量没有任何外键关系，
+// 删除它们不会影响任何记忆或向量索引。
+function deleteMemoryActiveEvent(id) {
+  const safeId = String(id || '').trim();
+  if (!safeId) throw new Error('id is required');
+  const result = db.prepare('DELETE FROM memory_active_events WHERE id = ?').run(safeId);
+  return { id: safeId, deleted: result.changes > 0 };
+}
+
+// 清理已结束（完成/取消/过期/归档）的计划，供管理面板的「清理」按钮使用。
+const FINISHED_ACTIVE_EVENT_STATUSES = ['completed', 'cancelled', 'expired', 'archived'];
+
+function purgeFinishedMemoryActiveEvents(filters = {}) {
+  const chatId = String(filters.chatId || '').trim();
+  const placeholders = FINISHED_ACTIVE_EVENT_STATUSES.map(() => '?').join(', ');
+  const params = [...FINISHED_ACTIVE_EVENT_STATUSES];
+  let sql = `DELETE FROM memory_active_events WHERE status IN (${placeholders})`;
+  if (chatId) {
+    sql += ' AND chatId = ?';
+    params.push(chatId);
+  }
+  const result = db.prepare(sql).run(...params);
+  return {
+    chatId,
+    statuses: [...FINISHED_ACTIVE_EVENT_STATUSES],
+    deleted: Number(result.changes || 0)
+  };
+}
+
 function applyMemoryActiveEventWrites(searchId, options = {}) {
   const safeSearchId = String(searchId || '').trim();
   if (!safeSearchId) throw new Error('searchId is required');
@@ -2659,6 +2688,8 @@ module.exports = {
   listMemoryActiveEvents,
   upsertMemoryActiveEvent,
   archiveMemoryActiveEvent,
+  deleteMemoryActiveEvent,
+  purgeFinishedMemoryActiveEvents,
   applyMemoryActiveEventWrites,
   listMemoryCurrentFacts,
   listActivePlanContext,

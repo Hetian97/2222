@@ -358,6 +358,118 @@ async function main() {
   assert(!degradedPrompt.includes('还没结束的约定与计划'), '计划接口失败时不应出现空段落');
   assert(planWarningCount >= 1, '计划接口失败时应留下一条 warning 便于排查');
 
+  // ---- 计划与事实管理面板（第三个标签）----
+  assert.equal(typeof manager.renderPlanFactPanel, 'function');
+  assert.equal(typeof manager.applyPlanPanelAction, 'function');
+  assert.equal(typeof manager.applyFactPanelAction, 'function');
+  assert(source.includes('data-view="plans"'), '切换器里必须出现「计划与事实」标签');
+  assert(source.includes("activeView === 'plans'"), '面板分发必须接上 plans 视图');
+  assert(source.includes('这里只管理计划与事实两张表'), '必须向用户说明不会影响向量记忆');
+
+  const panelNow = 1700000000000;
+  const rawPlans = [
+    { id: 'done', title: '已经完成的', status: 'completed', startAt: panelNow, validUntil: panelNow + 1000 },
+    { id: 'expired', title: '已经过期的', status: 'planned', startAt: panelNow, validUntil: panelNow - 1000 },
+    { id: 'later', title: '后面的计划', status: 'planned', startAt: panelNow + 90000, validUntil: panelNow + 999000 },
+    { id: 'sooner', title: '前面的计划', status: 'active', startAt: panelNow + 1000, validUntil: panelNow + 999000 }
+  ];
+  const allPlans = manager.normalizePlanPanelList(rawPlans, { includeFinished: true, now: panelNow });
+  assert.equal(allPlans.length, 4);
+  assert.deepEqual(Array.from(allPlans.slice(0, 2).map(plan => plan.id)), ['sooner', 'later'], '生效中的计划必须按开始时间升序排在前面');
+  assert.deepEqual(
+    Array.from(new Set(allPlans.slice(2).map(plan => plan.id))).sort(),
+    ['done', 'expired'],
+    '完成/过期的计划必须排到后面'
+  );
+  assert.equal(allPlans.find(plan => plan.id === 'expired').expired, true);
+  assert.equal(allPlans.find(plan => plan.id === 'done').finished, true);
+  const livePlans = manager.normalizePlanPanelList(rawPlans, { now: panelNow });
+  assert.deepEqual(Array.from(livePlans.map(plan => plan.id)), ['sooner', 'later'], '默认只保留生效中的计划');
+  assert.equal(manager.normalizePlanPanelList(null, { now: panelNow }).length, 0);
+
+  const factGroups = manager.normalizeFactPanelList([
+    { id: 'f1', slotKey: 'user.location.current', value: '上海', status: 'superseded', effectiveAt: panelNow },
+    { id: 'f2', slotKey: 'user.location.current', value: '杭州', status: 'shadow_candidate', effectiveAt: panelNow + 1000 },
+    { id: 'f3', slotKey: 'user.body.head_pain', value: '头疼', status: 'shadow_candidate', effectiveAt: panelNow }
+  ]);
+  assert.equal(factGroups.length, 2, '同一 slotKey 必须合并成一组');
+  const locationGroup = factGroups.find(group => group.slotKey === 'user.location.current');
+  assert.equal(locationGroup.current.id, 'f2', '必须取 effectiveAt 最新的一条作为当前值');
+  assert.equal(locationGroup.versions.length, 2);
+  assert.equal(locationGroup.versions[0].id, 'f2');
+  assert.equal(factGroups.find(group => group.slotKey === 'user.body.head_pain').current.id, 'f3');
+
+  const rawEvent = {
+    id: 'e1',
+    chatId: 'chat-1',
+    title: '旧标题',
+    summary: '旧摘要',
+    status: 'planned',
+    startAt: panelNow,
+    endAt: panelNow + 3600000,
+    validUntil: panelNow + 86400000,
+    surfaceMode: 'manual_only',
+    aliases: ['旧标题'],
+    confidence: 0.8,
+    evidence: { writeVersion: 'active-event-write-v1', sourceSearchIds: ['search-1'] },
+    createdAt: panelNow - 5000
+  };
+  const upsertBody = manager.buildPlanUpsertBody(rawEvent, { title: '新标题', startAt: panelNow + 1000 });
+  assert.equal(upsertBody.confirm, 'UPSERT_ACTIVE_EVENT');
+  assert.equal(upsertBody.event.id, 'e1');
+  assert.equal(upsertBody.event.chatId, 'chat-1');
+  assert.equal(upsertBody.event.title, '新标题');
+  assert.equal(upsertBody.event.startAt, panelNow + 1000);
+  assert.equal(upsertBody.event.validUntil, rawEvent.validUntil, '未修改的字段必须原样保留');
+  assert.equal(upsertBody.event.createdAt, rawEvent.createdAt, 'createdAt 不能被重置');
+  assert.deepEqual(Array.from(upsertBody.event.aliases), ['旧标题']);
+  assert.deepEqual(
+    manager.buildPlanArchiveBody('e1', 'completed'),
+    { confirm: 'ARCHIVE_ACTIVE_EVENT', id: 'e1', status: 'completed' }
+  );
+  assert.deepEqual(
+    manager.buildFactInvalidateBody('f2', 'archived'),
+    { confirm: 'INVALIDATE_CURRENT_FACT', id: 'f2', status: 'archived' }
+  );
+  assert.deepEqual(manager.buildFactPromoteBody('f2'), { confirm: 'PROMOTE_CURRENT_FACT', id: 'f2' });
+  assert.equal(
+    upsertBody.event.evidence.sourceSearchIds[0],
+    'search-1',
+    '编辑计划必须原样带回 evidence，否则审计历史会被清空'
+  );
+
+  // 手动添加计划（面板「添加计划」按钮）
+  const createBody = manager.buildPlanUpsertBody(
+    { chatId: 'chat-1', status: 'planned', surfaceMode: 'manual_only', proactiveMention: false, confidence: 0.99 },
+    {
+      title: '明天去医院复诊',
+      summary: '明天去医院复诊',
+      status: 'planned',
+      startAt: panelNow + 86400000,
+      validUntil: panelNow + 86400000 * 3,
+      evidence: { writeVersion: 'manual-panel-v1', manual: true, addedAt: panelNow }
+    }
+  );
+  assert.equal(createBody.confirm, 'UPSERT_ACTIVE_EVENT');
+  assert.equal(createBody.event.id, '', '新建时不能带 id，必须交给服务器生成');
+  assert.equal(createBody.event.chatId, 'chat-1');
+  assert.equal(createBody.event.status, 'planned');
+  assert.equal(createBody.event.validUntil, panelNow + 86400000 * 3);
+  assert.equal(createBody.event.evidence.manual, true);
+  assert.equal(createBody.event.createdAt, undefined, '新建时不能带上旧 createdAt');
+
+  // 手动添加的条目标注必须在列表里体现
+  const manualPlans = manager.normalizePlanPanelList([
+    { id: 'm1', title: '手动加的', status: 'planned', startAt: panelNow + 1000, validUntil: panelNow + 999000, evidence: { manual: true } },
+    { id: 'a1', title: '自动抽的', status: 'planned', startAt: panelNow + 2000, validUntil: panelNow + 999000, evidence: { writeVersion: 'active-event-write-v1' } }
+  ], { now: panelNow });
+  assert.equal(manualPlans.find(plan => plan.id === 'm1').manual, true);
+  assert.equal(manualPlans.find(plan => plan.id === 'a1').manual, false);
+
+  assert(source.includes('data-action="add"'), '计划页必须有「添加计划」按钮');
+  assert(source.includes('openPlanCreateForm'), '必须存在新建计划表单');
+  assert(source.includes('手动添加｜'), '手动添加的计划必须能被标注出来');
+
   console.log('Vector memory UI tests passed');
 }
 

@@ -15,6 +15,12 @@ const {
   applyMemoryCurrentFactWrites,
   upsertMemoryActiveEvent,
   upsertMemoryCurrentFact,
+  listMemoryActiveEvents,
+  deleteMemoryActiveEvent,
+  purgeFinishedMemoryActiveEvents,
+  promoteMemoryCurrentFact,
+  invalidateMemoryCurrentFact,
+  listMemoryCurrentFacts,
   listActivePlanContext
 } = require('./db');
 const { runCurrentFactShadow } = require('./memory-current-fact-shadow');
@@ -267,6 +273,77 @@ try {
   );
   assert.ok(resolveCrossDayWindow('明天去医院复诊', Date.now(), 'Asia/Shanghai'), '明天的计划必须能解析');
   assert.ok(resolveCrossDayWindow('下周五交材料', Date.now(), 'Asia/Shanghai'), '下周五必须能解析');
+
+  // 14. 管理面板用到的写操作：删除单条、清理已结束、事实层 upsert / promote / invalidate
+  upsertMemoryActiveEvent({
+    id: 'panel-plan-live',
+    chatId: 'chat-1',
+    title: '还生效的计划',
+    status: 'planned',
+    startAt: Date.now() + 86400000,
+    validUntil: Date.now() + 86400000 * 3
+  });
+  upsertMemoryActiveEvent({
+    id: 'panel-plan-done',
+    chatId: 'chat-1',
+    title: '已完成的计划',
+    status: 'completed',
+    startAt: Date.now(),
+    validUntil: Date.now() + 86400000
+  });
+  upsertMemoryActiveEvent({
+    id: 'panel-plan-other-chat',
+    chatId: 'chat-2',
+    title: '别的会话的已取消计划',
+    status: 'cancelled',
+    startAt: Date.now(),
+    validUntil: Date.now() + 86400000
+  });
+
+  const purgeScoped = purgeFinishedMemoryActiveEvents({ chatId: 'chat-1' });
+  assert.ok(purgeScoped.deleted >= 1, '至少要清理掉本会话的已结束计划');
+  const chatOneEvents = listMemoryActiveEvents({ chatId: 'chat-1', includeArchived: true });
+  assert.ok(!chatOneEvents.some(event => event.id === 'panel-plan-done'), '已完成的计划必须被清理');
+  assert.ok(chatOneEvents.some(event => event.id === 'panel-plan-live'), '生效中的计划不能被清理');
+  assert.ok(
+    listMemoryActiveEvents({ chatId: 'chat-2', includeArchived: true }).some(event => event.id === 'panel-plan-other-chat'),
+    '清理必须限定在指定会话内'
+  );
+
+  const deleteResult = deleteMemoryActiveEvent('panel-plan-live');
+  assert.strictEqual(deleteResult.deleted, true);
+  assert.strictEqual(deleteMemoryActiveEvent('panel-plan-live').deleted, false, '重复删除必须返回 false');
+  assert.throws(() => deleteMemoryActiveEvent(''), /id is required/);
+
+  const editableFact = upsertMemoryCurrentFact({
+    id: 'panel-fact',
+    chatId: 'chat-1',
+    slotKey: 'user.residence.current',
+    value: '临空',
+    statement: '我最近住在临空。',
+    status: 'shadow_candidate',
+    confidence: 0.9,
+    effectiveAt: Date.now()
+  });
+  assert.strictEqual(editableFact.id, 'panel-fact');
+  const editedFact = upsertMemoryCurrentFact({
+    ...editableFact,
+    value: '天行',
+    statement: '我最近住在天行。',
+    evidence: editableFact.evidence
+  });
+  assert.strictEqual(editedFact.value, '天行');
+  assert.strictEqual(
+    listMemoryCurrentFacts({ chatId: 'chat-1', includeInactive: true }).filter(fact => fact.id === 'panel-fact').length,
+    1,
+    '编辑事实必须是更新而不是新增一条'
+  );
+  const promotedFact = promoteMemoryCurrentFact('panel-fact');
+  assert.strictEqual(promotedFact.status, 'current');
+  const invalidatedFact = invalidateMemoryCurrentFact('panel-fact', 'archived');
+  assert.strictEqual(invalidatedFact.status, 'archived');
+  // 服务端用「返回值没有 id」来判断不存在，所以这里必须是 null（或至少没有 id）
+  assert.strictEqual(invalidateMemoryCurrentFact('not-exist-fact', 'archived'), null);
 
   console.log('Active plan context tests passed.');
 } finally {

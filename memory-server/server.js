@@ -41,9 +41,14 @@ const {
   listMemoryActiveEvents,
   upsertMemoryActiveEvent,
   archiveMemoryActiveEvent,
+  deleteMemoryActiveEvent,
+  purgeFinishedMemoryActiveEvents,
   applyMemoryActiveEventWrites,
   listMemoryCurrentFacts,
   listActivePlanContext,
+  upsertMemoryCurrentFact,
+  invalidateMemoryCurrentFact,
+  promoteMemoryCurrentFact,
   applyMemoryCurrentFactWrites
 } = require('./db');
 
@@ -3874,6 +3879,78 @@ const server = http.createServer(async (req, res) => {
       const event = archiveMemoryActiveEvent(body.id, body.status || 'archived');
       if (!event) throw new Error('Active event not found');
       sendJson(res, 200, { ok: true, event });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/active-events/delete' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      if (String(body.confirm || '') !== 'DELETE_ACTIVE_EVENT') {
+        throw new Error('Explicit confirmation is required to delete an active event');
+      }
+      const result = deleteMemoryActiveEvent(body.id);
+      if (!result.deleted) throw new Error('Active event not found');
+      sendJson(res, 200, { ok: true, ...result });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/active-events/purge-finished' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      if (String(body.confirm || '') !== 'PURGE_FINISHED_ACTIVE_EVENTS') {
+        throw new Error('Explicit confirmation is required to purge finished active events');
+      }
+      const result = purgeFinishedMemoryActiveEvents({ chatId: body.chatId || '' });
+      sendJson(res, 200, { ok: true, ...result });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/current-facts/upsert' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      if (String(body.confirm || '') !== 'UPSERT_CURRENT_FACT') {
+        throw new Error('Explicit confirmation is required to save a current fact');
+      }
+      const fact = upsertMemoryCurrentFact(body.fact || body);
+      sendJson(res, 200, { ok: true, fact });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/current-facts/invalidate' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      if (String(body.confirm || '') !== 'INVALIDATE_CURRENT_FACT') {
+        throw new Error('Explicit confirmation is required to invalidate a current fact');
+      }
+      const fact = invalidateMemoryCurrentFact(body.id, body.status || 'archived');
+      if (!fact?.id) throw new Error('Current fact not found');
+      sendJson(res, 200, { ok: true, fact });
+    } catch (error) {
+      sendJson(res, 400, { ok: false, error: error.message || String(error) });
+    }
+    return;
+  }
+
+  if (pathname === '/memory/current-facts/promote' && req.method === 'POST') {
+    try {
+      const body = await readRequestBody(req);
+      if (String(body.confirm || '') !== 'PROMOTE_CURRENT_FACT') {
+        throw new Error('Explicit confirmation is required to promote a current fact');
+      }
+      const fact = promoteMemoryCurrentFact(body.id);
+      sendJson(res, 200, { ok: true, fact });
     } catch (error) {
       sendJson(res, 400, { ok: false, error: error.message || String(error) });
     }

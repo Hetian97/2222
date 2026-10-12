@@ -346,3 +346,32 @@ bash /root/memory-server/start-memory-server.sh
 ```
 
 **路径风险很低**：`db.js` 用的是 `__dirname`（脚本所在目录）而不是当前工作目录，所以只要 `ExecStart` 指向 `/root/memory-server/server.js`，数据库路径就一定是 `/root/memory-server/memory.db`，不会凭空新建空库。仍然建议切换后立刻核对上面的行数。
+
+---
+
+## 12. 管理面板（已实现，2026-10-12）
+
+「变量记忆」面板现在有第三个标签：**单条记忆 / 记忆簇预览 / 计划与事实**。
+新增的这个只读写 `memory_active_events` 与 `memory_current_facts`，**与 memories 表和 Chroma 向量没有任何关系**
+（表结构层面已确认无外键，Chroma 只索引 memories），所以这里的增删改都不会影响向量记忆。
+
+**现在就能用（不需要动 VPS）**
+- 列出**生效中的计划**（未过期、未完成），另有折叠的「已完成 / 已过期」历史区
+- 计划：编辑（标题 / 开始时间 / 有效至）、标记完成、删除（归档）
+  —— 走的是既有接口 `POST /memory/active-events/upsert`、`POST /memory/active-events/archive`
+- 列出**事实**：同一 `slotKey` 只显示最新一条，历史版本折叠
+
+**需要下次 VPS 更新后才生效（服务端代码已写好，前端会自动识别 404 并明确提示）**
+
+| 新接口 | 用途 |
+|---|---|
+| `POST /memory/active-events/delete` | 物理删除单条计划 |
+| `POST /memory/active-events/purge-finished` | 「清理已结束」按钮：批量删除完成/取消/过期/归档 |
+| `POST /memory/current-facts/upsert` | 编辑事实 |
+| `POST /memory/current-facts/invalidate` | 删除事实 |
+| `POST /memory/current-facts/promote` | 设为当前 |
+
+前端在旧服务端上点击这些操作时，会提示「需要 memory-server 更新后才支持」，**不会静默失败**。
+
+> 注意：面板是前端功能，要在手机上看到必须先让前端更新（合并进 `stable` 或切换 Pages 发布分支）。
+> 按用户的决定，这些改动攒到一次合并。

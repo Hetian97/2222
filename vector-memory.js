@@ -1844,11 +1844,12 @@ ${output}`;
     switcher.innerHTML = `
       <button type="button" class="vm-view-switch ${activeView === 'memories' ? 'active' : ''}" data-view="memories">单条记忆</button>
       <button type="button" class="vm-view-switch ${activeView === 'clusters' ? 'active' : ''}" data-view="clusters">记忆簇预览</button>
+      <button type="button" class="vm-view-switch ${activeView === 'plans' ? 'active' : ''}" data-view="plans">计划与事实</button>
     `;
     switcher.querySelectorAll('.vm-view-switch').forEach(button => {
       button.addEventListener('click', () => {
         const vm = this.getVariableMemory(chat);
-        const nextView = button.dataset.view === 'clusters' ? 'clusters' : 'memories';
+        const nextView = ['clusters', 'plans'].includes(button.dataset.view) ? button.dataset.view : 'memories';
         if ((vm._panelView || 'memories') === nextView) return;
         vm._panelView = nextView;
         this.rerenderMemoryPanel(chat, container);
@@ -2112,6 +2113,562 @@ ${output}`;
     }
   }
 
+  // ==================== 计划与事实面板 ====================
+  // 这一块只操作 memory-server 的 memory_active_events / memory_current_facts 两张表，
+  // 与「向量记忆」（memories 表 + Chroma 向量索引）完全无关：任何查看/编辑/删除
+  // 都不会碰单条记忆和向量，也不会影响「单条记忆」「记忆簇预览」两个既有视图。
+
+  formatPlanPanelTime(value) {
+    const timestamp = Number(value);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
+    const timeZone = window.TimeZoneUtils?.getCurrentTimeZone?.() || 'UTC';
+    const formatted = window.TimeZoneUtils?.format?.(timestamp, timeZone);
+    if (formatted) return formatted;
+    const date = new Date(timestamp);
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
+  }
+
+  toPlanPanelInputValue(value) {
+    const timestamp = Number(value);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
+    const timeZone = window.TimeZoneUtils?.getCurrentTimeZone?.() || 'UTC';
+    return window.TimeZoneUtils?.toDateTimeLocal?.(timestamp, timeZone) || '';
+  }
+
+  parsePlanPanelInputValue(value) {
+    const text = String(value || '').trim();
+    if (!text) return null;
+    const timeZone = window.TimeZoneUtils?.getCurrentTimeZone?.() || 'UTC';
+    const parsed = window.TimeZoneUtils?.fromDateTimeLocal?.(text, timeZone);
+    return Number.isFinite(parsed) ? Number(parsed) : null;
+  }
+
+  getPlanStatusLabel(status, expired = false) {
+    if (expired && !['completed', 'cancelled', 'archived'].includes(String(status))) return '已过期';
+    return {
+      candidate: '待确认',
+      planned: '待办',
+      active: '进行中',
+      completed: '已完成',
+      cancelled: '已取消',
+      expired: '已过期',
+      archived: '已归档'
+    }[String(status)] || String(status || '');
+  }
+
+  getFinishedPlanStatuses() {
+    return ['completed', 'cancelled', 'expired', 'archived'];
+  }
+
+  // 计划列表的过滤/排序/归一化（纯函数，便于测试）
+  normalizePlanPanelList(events, options = {}) {
+    const now = Number(options.now || Date.now());
+    const includeFinished = options.includeFinished === true;
+    const finishedStatuses = this.getFinishedPlanStatuses();
+    return (Array.isArray(events) ? events : [])
+      .filter(event => event && event.id)
+      .map(event => {
+        const status = String(event.status || 'planned');
+        const validUntil = Number(event.validUntil || 0) || null;
+        return {
+          id: String(event.id),
+          title: String(event.title || event.summary || '').trim(),
+          status,
+          startAt: Number(event.startAt || 0) || null,
+          validUntil,
+          confidence: Number(event.confidence || 0),
+          manual: event?.evidence?.manual === true,
+          finished: finishedStatuses.includes(status),
+          expired: Boolean(validUntil) && Number(validUntil) < now
+        };
+      })
+      .filter(plan => includeFinished || (!plan.finished && !plan.expired))
+      .sort((a, b) => {
+        const aDone = (a.finished || a.expired) ? 1 : 0;
+        const bDone = (b.finished || b.expired) ? 1 : 0;
+        if (aDone !== bDone) return aDone - bDone;
+        return Number(a.startAt || 0) - Number(b.startAt || 0);
+      });
+  }
+
+  // 事实列表：同一 slotKey 只展示最新一条，历史版本收进 versions（纯函数，便于测试）
+  normalizeFactPanelList(facts) {
+    const bySlot = new Map();
+    for (const fact of (Array.isArray(facts) ? facts : [])) {
+      if (!fact || !fact.id) continue;
+      const slotKey = String(fact.slotKey || '(未分类)');
+      const item = {
+        id: String(fact.id),
+        value: String(fact.value || ''),
+        statement: String(fact.statement || fact.value || ''),
+        status: String(fact.status || ''),
+        factType: String(fact.factType || ''),
+        confidence: Number(fact.confidence || 0),
+        effectiveAt: Number(fact.effectiveAt || 0) || null,
+        updatedAt: Number(fact.updatedAt || 0) || null
+      };
+      const entry = bySlot.get(slotKey) || { slotKey, current: null, versions: [] };
+      entry.versions.push(item);
+      const at = Number(item.effectiveAt || item.updatedAt || 0);
+      const currentAt = entry.current ? Number(entry.current.effectiveAt || entry.current.updatedAt || 0) : -1;
+      if (!entry.current || at >= currentAt) entry.current = item;
+      bySlot.set(slotKey, entry);
+    }
+    return [...bySlot.values()]
+      .map(entry => ({
+        ...entry,
+        versions: entry.versions
+          .slice()
+          .sort((a, b) => Number(b.effectiveAt || b.updatedAt || 0) - Number(a.effectiveAt || a.updatedAt || 0))
+      }))
+      .sort((a, b) => String(a.slotKey).localeCompare(String(b.slotKey)));
+  }
+
+  // 写接口的请求体（纯函数，便于测试）
+  buildPlanUpsertBody(event, changes = {}) {
+    const pick = (field, fallback) => (changes[field] !== undefined ? changes[field] : fallback);
+    const title = String(pick('title', event?.title || '')).trim().slice(0, 200);
+    return {
+      confirm: 'UPSERT_ACTIVE_EVENT',
+      event: {
+        id: String(event?.id || ''),
+        chatId: String(event?.chatId || ''),
+        title,
+        summary: String(pick('summary', event?.summary || event?.title || title)).slice(0, 500),
+        status: String(pick('status', event?.status || 'planned')),
+        startAt: Number(pick('startAt', event?.startAt || 0)) || null,
+        endAt: Number(pick('endAt', event?.endAt || 0)) || null,
+        validUntil: Number(pick('validUntil', event?.validUntil || 0)) || null,
+        surfaceMode: String(event?.surfaceMode || 'manual_only'),
+        proactiveMention: event?.proactiveMention === true,
+        aliases: Array.isArray(event?.aliases) ? event.aliases : [],
+        confidence: Number(event?.confidence || 0),
+        // 必须原样带回 evidence：否则每次编辑都会把该条计划的写入/审计历史清空
+        evidence: pick('evidence', event?.evidence || {}),
+        createdAt: Number(event?.createdAt || 0) || undefined
+      }
+    };
+  }
+
+  buildPlanArchiveBody(id, status = 'archived') {
+    return { confirm: 'ARCHIVE_ACTIVE_EVENT', id: String(id || ''), status: String(status || 'archived') };
+  }
+
+  buildFactInvalidateBody(id, status = 'archived') {
+    return { confirm: 'INVALIDATE_CURRENT_FACT', id: String(id || ''), status: String(status || 'archived') };
+  }
+
+  buildFactPromoteBody(id) {
+    return { confirm: 'PROMOTE_CURRENT_FACT', id: String(id || '') };
+  }
+
+  notifyPlanPanel(message, isError = false) {
+    if (!isError && typeof window.showToast === 'function') {
+      window.showToast(message, 'success');
+      return;
+    }
+    if (typeof window.showCustomAlert === 'function') {
+      window.showCustomAlert(isError ? '操作失败' : '提示', message);
+      return;
+    }
+    console.warn('[变量记忆] ' + message);
+  }
+
+  async renderPlanFactPanel(chat, container) {
+    if (!container) return;
+    container.querySelectorAll('[data-plan-fact-body]').forEach(node => node.remove());
+
+    const body = document.createElement('div');
+    body.className = 'vm-organization-view';
+    body.dataset.planFactBody = '1';
+    body.innerHTML = '<div class="vm-organization-loading">正在读取计划与事实…</div>';
+    container.appendChild(body);
+
+    if (!this.isExternalMemoryEnabled(chat)) {
+      body.innerHTML = `
+        <div class="vm-organization-empty">
+          <div class="vm-organization-empty-title">计划与事实只存在于服务器</div>
+          <div>请先在上方设置中启用外部 memory-server。</div>
+        </div>
+      `;
+      return;
+    }
+
+    const chatId = this.getOrganizationChatId(chat);
+    if (!chatId) {
+      body.innerHTML = `
+        <div class="vm-organization-empty">
+          <div class="vm-organization-empty-title">无法确定当前会话</div>
+          <div>请先打开一个聊天再查看计划与事实。</div>
+        </div>
+      `;
+      return;
+    }
+
+    try {
+      const query = `chatId=${encodeURIComponent(chatId)}`;
+      const [eventsResult, factsResult] = await Promise.all([
+        this.externalMemoryRequest(chat, `/memory/active-events?${query}&includeArchived=true&limit=100`, { method: 'GET' }),
+        this.externalMemoryRequest(chat, `/memory/current-facts?${query}&includeInactive=true&limit=200`, { method: 'GET' })
+      ]);
+      if ((this.getVariableMemory(chat)._panelView || 'memories') !== 'plans') return;
+      this.renderPlanFactShell(chat, body, {
+        chatId,
+        now: Date.now(),
+        events: Array.isArray(eventsResult?.events) ? eventsResult.events : [],
+        facts: Array.isArray(factsResult?.facts) ? factsResult.facts : []
+      });
+    } catch (error) {
+      body.innerHTML = `
+        <div class="vm-organization-empty">
+          <div class="vm-organization-empty-title">暂时无法读取计划与事实</div>
+          <div>${this._escapeHtml(error.message || String(error))}</div>
+          <button type="button" class="vm-toolbar-btn" data-action="reload">重新加载</button>
+        </div>
+      `;
+      body.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
+        this.renderPlanFactPanel(chat, container);
+      });
+    }
+  }
+
+  renderPlanFactShell(chat, body, data) {
+    const vm = this.getVariableMemory(chat);
+    const tab = vm._planFactTab === 'facts' ? 'facts' : 'plans';
+    const escape = value => this._escapeHtml(value);
+    const plans = this.normalizePlanPanelList(data.events, { includeFinished: true, now: data.now });
+    const livePlans = plans.filter(plan => !plan.finished && !plan.expired);
+    const historyPlans = plans.filter(plan => plan.finished || plan.expired);
+    const factGroups = this.normalizeFactPanelList(data.facts);
+
+    const planRow = plan => `
+      <div data-plan-id="${escape(plan.id)}" style="padding:10px 12px;border-radius:12px;background:rgba(0,0,0,0.035);margin-bottom:8px;">
+        <div style="display:flex;gap:8px;align-items:flex-start;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:14px;line-height:1.5;word-break:break-word;">${escape(plan.title || '(无标题)')}</div>
+            <div style="font-size:12px;color:#888;margin-top:4px;line-height:1.5;">
+              ${plan.manual ? '手动添加｜' : ''}${escape(this.getPlanStatusLabel(plan.status, plan.expired))}${plan.startAt ? '｜开始 ' + escape(this.formatPlanPanelTime(plan.startAt)) : ''}${plan.validUntil ? '｜有效至 ' + escape(this.formatPlanPanelTime(plan.validUntil)) : ''}｜置信度 ${plan.confidence.toFixed(2)}
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">
+            ${plan.finished ? '' : `<button class="vm-toolbar-btn" data-action="edit">编辑</button><button class="vm-toolbar-btn" data-action="complete">完成</button>`}
+            <button class="vm-toolbar-btn" data-action="delete" style="color:#ff3b30">删除</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const factCard = group => `
+      <div data-fact-slot="${escape(group.slotKey)}" style="padding:10px 12px;border-radius:12px;background:rgba(0,0,0,0.035);margin-bottom:8px;">
+        <div style="display:flex;gap:8px;align-items:flex-start;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:12px;color:#888;word-break:break-all;">${escape(group.slotKey)}</div>
+            <div style="font-size:14px;line-height:1.5;margin-top:4px;word-break:break-word;">${escape(group.current?.statement || group.current?.value || '(空)')}</div>
+            <div style="font-size:12px;color:#888;margin-top:4px;line-height:1.5;">
+              ${escape(group.current?.status || '')}｜置信度 ${Number(group.current?.confidence || 0).toFixed(2)}${group.versions.length > 1 ? '｜历史版本 ' + (group.versions.length - 1) : ''}
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">
+            ${group.current?.status === 'current' ? '' : `<button class="vm-toolbar-btn" data-fact-action="promote">设为当前</button>`}
+            <button class="vm-toolbar-btn" data-fact-action="delete" style="color:#ff3b30">删除</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const plansHtml = tab !== 'plans' ? '' : `
+      <div data-plan-create-host></div>
+      <div style="font-size:13px;color:#666;margin:10px 0 6px;">生效中的计划（会每轮注入提示词）</div>
+      ${livePlans.length ? livePlans.map(planRow).join('') : '<div style="font-size:13px;color:#999;">当前没有生效中的计划。</div>'}
+      ${historyPlans.length ? `
+        <details style="margin-top:12px;">
+          <summary style="cursor:pointer;font-size:13px;color:#666;">已完成 / 已过期（${historyPlans.length}）</summary>
+          <div style="margin-top:8px;">${historyPlans.slice(0, 50).map(planRow).join('')}</div>
+        </details>
+      ` : ''}
+    `;
+
+    const factsHtml = tab !== 'facts' ? '' : `
+      ${factGroups.length ? factGroups.map(factCard).join('') : '<div style="font-size:13px;color:#999;">当前没有任何事实条目。</div>'}
+      <div style="font-size:12px;color:#999;margin-top:8px;line-height:1.5;">
+        同一槽位只显示最新一条，历史版本不会注入提示词。事实层的「设为当前」「删除」需要 memory-server 更新后才会生效；计划层的编辑/删除现在就可以用。
+      </div>
+    `;
+
+    body.innerHTML = `
+      <div class="vm-preview-warning">
+        <strong>计划与事实（独立于向量记忆）</strong>
+        <span>这里只管理计划与事实两张表，任何改动都不会影响「单条记忆」和向量索引。</span>
+      </div>
+      <div class="vm-toolbar" style="margin-bottom:10px;flex-wrap:wrap;">
+        <button class="vm-toolbar-btn ${tab === 'plans' ? 'vm-primary' : ''}" data-tab="plans">计划（${livePlans.length} 生效 / ${historyPlans.length} 历史）</button>
+        <button class="vm-toolbar-btn ${tab === 'facts' ? 'vm-primary' : ''}" data-tab="facts">事实（${factGroups.length} 个槽位）</button>
+        ${tab === 'plans' ? '<button class="vm-toolbar-btn" data-action="add">添加计划</button>' : ''}
+        <div style="flex:1"></div>
+        <button class="vm-toolbar-btn" data-action="purge">清理已结束</button>
+        <button class="vm-toolbar-btn" data-action="reload">刷新</button>
+      </div>
+      ${plansHtml}
+      ${factsHtml}
+    `;
+
+    body.querySelectorAll('[data-tab]').forEach(button => {
+      button.addEventListener('click', () => {
+        this.getVariableMemory(chat)._planFactTab = button.dataset.tab === 'facts' ? 'facts' : 'plans';
+        this.renderPlanFactShell(chat, body, data);
+      });
+    });
+    body.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
+      this.renderPlanFactPanel(chat, body.parentNode);
+    });
+    body.querySelector('[data-action="purge"]')?.addEventListener('click', () => {
+      this.purgeFinishedPlans(chat, body.parentNode, historyPlans.length);
+    });
+    body.querySelector('[data-action="add"]')?.addEventListener('click', () => {
+      this.openPlanCreateForm(chat, body, data);
+    });
+
+    body.querySelectorAll('[data-plan-id]').forEach(row => {
+      const planId = row.dataset.planId;
+      row.querySelectorAll('[data-action]').forEach(button => {
+        button.addEventListener('click', () => {
+          const action = button.dataset.action;
+          if (action === 'edit') {
+            this.openPlanEditForm(chat, body, data, planId, row);
+            return;
+          }
+          this.applyPlanPanelAction(chat, body, data, planId, action);
+        });
+      });
+    });
+
+    body.querySelectorAll('[data-fact-slot]').forEach(card => {
+      const group = factGroups.find(item => String(item.slotKey) === String(card.dataset.factSlot));
+      card.querySelectorAll('[data-fact-action]').forEach(button => {
+        button.addEventListener('click', () => {
+          this.applyFactPanelAction(chat, body, group, button.dataset.factAction);
+        });
+      });
+    });
+  }
+
+  openPlanEditForm(chat, body, data, planId, row) {
+    if (row.querySelector('[data-plan-edit]')) return;
+    const plan = (data.events || []).find(event => String(event.id) === String(planId));
+    if (!plan) return;
+
+    const form = document.createElement('div');
+    form.dataset.planEdit = '1';
+    form.style.cssText = 'margin-top:8px;display:flex;flex-direction:column;gap:6px;';
+    form.innerHTML = `
+      <input class="vm-input-full" data-field="title" value="${this._escapeHtml(plan.title || '')}" placeholder="标题">
+      <input class="vm-input-full" data-field="startAt" value="${this._escapeHtml(this.toPlanPanelInputValue(plan.startAt))}" placeholder="开始时间，例如 2026-10-15 09:00">
+      <input class="vm-input-full" data-field="validUntil" value="${this._escapeHtml(this.toPlanPanelInputValue(plan.validUntil))}" placeholder="有效至，例如 2026-10-17 23:59">
+      <div style="display:flex;gap:8px;">
+        <button class="vm-toolbar-btn vm-primary" data-action="save">保存</button>
+        <button class="vm-toolbar-btn" data-action="cancel">取消</button>
+      </div>
+    `;
+    form.querySelector('[data-action="cancel"]').addEventListener('click', () => form.remove());
+    form.querySelector('[data-action="save"]').addEventListener('click', () => {
+      const readField = field => form.querySelector(`[data-field="${field}"]`)?.value || '';
+      const title = readField('title').trim();
+      if (!title) {
+        this.notifyPlanPanel('标题不能为空', true);
+        return;
+      }
+      const startRaw = readField('startAt').trim();
+      const untilRaw = readField('validUntil').trim();
+      const startAt = startRaw ? this.parsePlanPanelInputValue(startRaw) : null;
+      const validUntil = untilRaw ? this.parsePlanPanelInputValue(untilRaw) : null;
+      if (startRaw && startAt === null) {
+        this.notifyPlanPanel('开始时间无法识别，请用 2026-10-15 09:00 这种写法', true);
+        return;
+      }
+      if (untilRaw && validUntil === null) {
+        this.notifyPlanPanel('有效至无法识别，请用 2026-10-17 23:59 这种写法', true);
+        return;
+      }
+      const changes = { title, summary: title };
+      if (startRaw) changes.startAt = startAt;
+      if (untilRaw) changes.validUntil = validUntil;
+      this.applyPlanPanelAction(chat, body, data, planId, 'save', changes);
+    });
+    row.appendChild(form);
+  }
+
+  async applyPlanPanelAction(chat, body, data, planId, action, changes = {}) {
+    const raw = (data.events || []).find(event => String(event.id) === String(planId));
+    if (!raw) return;
+    try {
+      if (action === 'save') {
+        await this.externalMemoryRequest(chat, '/memory/active-events/upsert', {
+          method: 'POST',
+          body: this.buildPlanUpsertBody(raw, changes)
+        });
+        this.notifyPlanPanel('已保存该计划');
+      } else if (action === 'complete') {
+        await this.externalMemoryRequest(chat, '/memory/active-events/archive', {
+          method: 'POST',
+          body: this.buildPlanArchiveBody(planId, 'completed')
+        });
+        this.notifyPlanPanel('已标记为完成，不再注入提示词');
+      } else if (action === 'delete') {
+        await this.externalMemoryRequest(chat, '/memory/active-events/archive', {
+          method: 'POST',
+          body: this.buildPlanArchiveBody(planId, 'archived')
+        });
+        this.notifyPlanPanel('已删除（归档）该计划');
+      } else {
+        return;
+      }
+      this.renderPlanFactPanel(chat, body.parentNode);
+    } catch (error) {
+      this.notifyPlanPanel(`操作失败：${error.message || error}`, true);
+    }
+  }
+
+  async applyFactPanelAction(chat, body, group, action) {
+    const fact = group?.current;
+    if (!fact?.id) return;
+    const missingEndpointHint = '这个操作需要 memory-server 更新后才有对应接口，当前服务端版本还不支持；改动没有生效。';
+    try {
+      if (action === 'promote') {
+        await this.externalMemoryRequest(chat, '/memory/current-facts/promote', {
+          method: 'POST',
+          body: this.buildFactPromoteBody(fact.id)
+        });
+        this.notifyPlanPanel('已设为当前事实');
+      } else if (action === 'delete') {
+        await this.externalMemoryRequest(chat, '/memory/current-facts/invalidate', {
+          method: 'POST',
+          body: this.buildFactInvalidateBody(fact.id, 'archived')
+        });
+        this.notifyPlanPanel('已删除该事实');
+      } else {
+        return;
+      }
+      this.renderPlanFactPanel(chat, body.parentNode);
+    } catch (error) {
+      const message = String(error?.message || error);
+      this.notifyPlanPanel(/40[45]/.test(message) ? missingEndpointHint : `操作失败：${message}`, true);
+    }
+  }
+
+  async purgeFinishedPlans(chat, container, candidateCount = 0) {
+    const confirmText = `将永久删除 ${candidateCount} 条已完成 / 已取消 / 已过期 / 已归档的计划。\n\n`
+      + '这些条目与向量记忆完全无关，删除不会影响任何记忆或向量索引。';
+    const confirmed = typeof window.showCustomConfirm === 'function'
+      ? await window.showCustomConfirm('清理已结束的计划', confirmText)
+      : true;
+    if (!confirmed) return;
+
+    try {
+      const chatId = this.getOrganizationChatId(chat);
+      const result = await this.externalMemoryRequest(chat, '/memory/active-events/purge-finished', {
+        method: 'POST',
+        body: { confirm: 'PURGE_FINISHED_ACTIVE_EVENTS', chatId }
+      });
+      this.notifyPlanPanel(`已清理 ${Number(result?.deleted || 0)} 条已结束的计划`);
+      await this.renderPlanFactPanel(chat, container);
+    } catch (error) {
+      const message = String(error?.message || error);
+      this.notifyPlanPanel(
+        /40[45]/.test(message)
+          ? '清理需要 memory-server 更新后才有对应接口，当前服务端版本还不支持。'
+          : `清理失败：${message}`,
+        true
+      );
+    }
+  }
+
+  openPlanCreateForm(chat, body, data) {
+    const host = body.querySelector('[data-plan-create-host]');
+    if (!host) return;
+    const existingForm = host.querySelector('[data-plan-create]');
+    if (existingForm) {
+      existingForm.remove();
+      return;
+    }
+
+    const escape = value => this._escapeHtml(value);
+    const form = document.createElement('div');
+    form.dataset.planCreate = '1';
+    form.style.cssText = 'padding:10px 12px;border-radius:12px;background:rgba(0,0,0,0.035);margin-bottom:10px;display:flex;flex-direction:column;gap:6px;';
+    form.innerHTML = `
+      <div style="font-size:13px;color:#666;">手动添加一条计划（不依赖抽取器，直接写入服务器）</div>
+      <input class="vm-input-full" data-field="title" placeholder="标题，例如 明天去医院复诊">
+      <input class="vm-input-full" data-field="startAt" value="${escape(this.toPlanPanelInputValue(Date.now() + 86400000))}" placeholder="开始时间，例如 2026-10-15 09:00">
+      <input class="vm-input-full" data-field="validUntil" placeholder="有效至（留空 = 开始时间 + 2 天）">
+      <div style="display:flex;gap:8px;">
+        <button class="vm-toolbar-btn vm-primary" data-action="save">保存</button>
+        <button class="vm-toolbar-btn" data-action="cancel">取消</button>
+      </div>
+    `;
+    form.querySelector('[data-action="cancel"]').addEventListener('click', () => form.remove());
+    form.querySelector('[data-action="save"]').addEventListener('click', () => {
+      const readField = field => form.querySelector(`[data-field="${field}"]`)?.value || '';
+      const title = readField('title').trim();
+      const startRaw = readField('startAt').trim();
+      const untilRaw = readField('validUntil').trim();
+      if (!title) {
+        this.notifyPlanPanel('标题不能为空', true);
+        return;
+      }
+      const startAt = this.parsePlanPanelInputValue(startRaw);
+      if (startAt === null) {
+        this.notifyPlanPanel('请填写开始时间，格式如 2026-10-15 09:00', true);
+        return;
+      }
+      let validUntil = untilRaw ? this.parsePlanPanelInputValue(untilRaw) : null;
+      if (untilRaw && validUntil === null) {
+        this.notifyPlanPanel('有效至格式无法识别，请用 2026-10-17 23:59 这种写法', true);
+        return;
+      }
+      // 留空时默认「开始时间 + 2 天」，与抽取器自动写入的有效期规则保持一致，
+      // 避免手动添加的计划永不过期、一直待在提示词里。
+      if (validUntil === null) validUntil = startAt + 86400000 * 2;
+      if (validUntil < startAt) {
+        this.notifyPlanPanel('「有效至」不能早于「开始时间」', true);
+        return;
+      }
+      this.createPlan(chat, body, { title, startAt, validUntil });
+    });
+    host.appendChild(form);
+  }
+
+  async createPlan(chat, body, input) {
+    const chatId = this.getOrganizationChatId(chat);
+    try {
+      await this.externalMemoryRequest(chat, '/memory/active-events/upsert', {
+        method: 'POST',
+        body: this.buildPlanUpsertBody({
+          chatId,
+          status: 'planned',
+          surfaceMode: 'manual_only',
+          proactiveMention: false,
+          confidence: 0.99
+        }, {
+          title: input.title,
+          summary: input.title,
+          status: 'planned',
+          startAt: input.startAt,
+          validUntil: input.validUntil,
+          evidence: {
+            writeVersion: 'manual-panel-v1',
+            manual: true,
+            addedAt: Date.now(),
+            sourceScope: { type: 'private', sourceChatId: chatId }
+          }
+        })
+      });
+      this.notifyPlanPanel('已添加计划，下一轮对话就会注入');
+      await this.renderPlanFactPanel(chat, body.parentNode);
+    } catch (error) {
+      this.notifyPlanPanel(`添加失败：${error.message || error}`, true);
+    }
+  }
+
   formatOrganizationTime(value) {
     const timestamp = Number(value);
     if (!Number.isFinite(timestamp) || timestamp <= 0) return '';
@@ -2129,6 +2686,10 @@ ${output}`;
     this.renderMemoryPanelSwitcher(chat, container, activeView);
     if (activeView === 'clusters') {
       this.renderOrganizationPreviewUI(chat, container);
+      return;
+    }
+    if (activeView === 'plans') {
+      this.renderPlanFactPanel(chat, container);
       return;
     }
 
