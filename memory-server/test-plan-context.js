@@ -398,7 +398,12 @@ try {
     1,
     '长一些但状态词贴近锚点的必须保留'
   );
-  assert.strictEqual(factFor('我又不是从零开始写,我只是要捋顺毕业论文的逻辑,为答辩做准备嘛').candidateCount, 1, '任务事实必须保留');
+  // 注意：这里的句子必须与线上原文逐字一致——改写会悄悄丢掉规则依赖的信号词
+  assert.strictEqual(
+    factFor('我又不是从零开始写,我只是要捋顺已经写完了的毕业论文的逻辑而已,为答辩做准备嘛').candidateCount,
+    1,
+    '任务事实必须保留'
+  );
 
   console.log('Active plan context tests passed.');
 } finally {
