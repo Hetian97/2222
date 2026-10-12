@@ -7,5 +7,12 @@ memory-server/memory.backup.json
 memory-server/backups/
 memory-server/node_modules/
 memory-server/server.json-version.backup.js
-start-2222-tailscale-local.batmemory-server/raw-test.txt
+start-2222-tailscale-local.bat
 memory-server/raw-test.txt
+
+# Python (health-mcp-server)
+__pycache__/
+*.pyc
+
+# 临时目录（PDF/图片等中间产物）
+tmp/
