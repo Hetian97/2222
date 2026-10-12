@@ -61,7 +61,9 @@ class VariableMemoryManager {
           lastExtractedMsgIndex: -1, // 基于消息索引，解决每轮都提取的Bug
           externalMemoryEnabled: localStorage.getItem('vm_external_memory_enabled') === 'true',
           externalMemoryEndpoint: localStorage.getItem('vm_external_memory_endpoint') || 'http://127.0.0.1:8765',
-          externalMemoryBearerToken: localStorage.getItem('vm_external_memory_bearer_token') || ''
+          externalMemoryBearerToken: localStorage.getItem('vm_external_memory_bearer_token') || '',
+          // 常驻「待办/计划」上下文：默认开启，可在变量记忆设置页关掉
+          planContextEnabled: true
         },
         _customCategories: {},
         stats: { totalFragments: 0, totalRecalls: 0, lastUpdated: 0 },
@@ -261,6 +263,78 @@ class VariableMemoryManager {
       vm.settings?.externalMemoryEndpoint ||
       'http://127.0.0.1:8765'
     ).replace(/\/$/, '');
+  }
+
+  isPlanContextEnabled(chat) {
+    const vm = this.getVariableMemory(chat);
+    // 默认开启：只有显式关掉（false）才不注入，避免旧数据缺字段时静默失效
+    return vm.settings?.planContextEnabled !== false;
+  }
+
+  // 常驻「待办/计划」上下文。
+  // 直接读 memory-server 现成的只读接口 /memory/active-events，因此不需要服务端任何改动。
+  // 这一层的意义：计划不该依赖「向量相似度恰好把它召回来」——那正是「昨天说明天要去医院，
+  // 今天就忘了」的根因。这里每轮无条件带上还没结束的约定。
+  async fetchActivePlanContext(chat, options = {}) {
+    if (!this.isExternalMemoryEnabled(chat) || !this.isPlanContextEnabled(chat)) return null;
+    const chatId = String(chat?.id || chat?.chatId || '').trim();
+    if (!chatId) return null;
+
+    const now = Date.now();
+    const limit = Math.max(1, Math.min(20, Number(options.limit || 8)));
+
+    try {
+      const result = await this.externalMemoryRequest(
+        chat,
+        `/memory/active-events?chatId=${encodeURIComponent(chatId)}&limit=50`
+      );
+      const events = Array.isArray(result?.events) ? result.events : [];
+      const live = events
+        .filter(event => event && ['candidate', 'planned', 'active'].includes(String(event.status)))
+        // 已过期但还没归档的残留不能进提示词
+        .filter(event => !event.validUntil || Number(event.validUntil) >= now)
+        // 还在等 char 答复的征询句不算计划（该机制后续才上线，这里先留好闸门）
+        .filter(event => event.awaitingConfirmation !== true && Number(event.awaitingConfirmation || 0) !== 1)
+        .sort((a, b) => Number(a.startAt || a.validUntil || 0) - Number(b.startAt || b.validUntil || 0))
+        .slice(0, limit)
+        .map(event => ({
+          id: String(event.id || ''),
+          title: String(event.title || event.summary || '').replace(/\s+/g, ' ').trim().slice(0, 160),
+          status: String(event.status || 'planned'),
+          startAt: Number(event.startAt || 0) || null
+        }))
+        .filter(event => event.title);
+
+      return live.length ? { generatedAt: Date.now(), events: live } : null;
+    } catch (error) {
+      // 这是增强项：任何失败都只能影响这一段落，绝不能影响正常召回
+      console.warn('[变量记忆] 待办/计划上下文获取失败（不影响召回）:', error.message);
+      return null;
+    }
+  }
+
+  formatActivePlanContextForPrompt(context) {
+    if (!context || !Array.isArray(context.events) || !context.events.length) return '';
+
+    const timeZone = window.TimeZoneUtils?.getCurrentTimeZone?.() || 'UTC';
+    const statusLabels = { active: '进行中', planned: '待办', candidate: '待办' };
+
+    const lines = context.events.map(event => {
+      const label = statusLabels[event.status] || '待办';
+      const when = event.startAt
+        ? (window.TimeZoneUtils?.format?.(event.startAt, timeZone) || '')
+        : '';
+      const head = when ? `｜${when}` : '';
+      return `- [${label}${head}] ${event.title}`;
+    });
+
+    return [
+      '## 还没结束的约定与计划（系统维护）',
+      '> 这些条目由系统按时间维护，与你是否「想起」无关，也不代表它们刚刚发生。',
+      '> 已经完成、取消或过期的条目不会出现在这里。请自然地在合适的时候惦记它们，不要生硬复述。',
+      ...lines,
+      ''
+    ].join('\n');
   }
 
   getExternalMemoryRequestHeaders(chat, extraHeaders = {}) {
@@ -1418,6 +1492,8 @@ class VariableMemoryManager {
     // 动态记忆检索：外置 memory-server 优先，失败再回退前端缓存检索
     if (recentMessages) {
       let results = null;
+      // 计划上下文与记忆召回并行请求，避免多一次串行往返
+      const planContextPromise = this.fetchActivePlanContext(chat);
 
       if (this.isExternalMemoryEnabled(chat)) {
         results = await this.retrieveRelevantFromExternalServer(chat, recentMessages, null, queryVariants, retrievalMeta);
@@ -1466,6 +1542,10 @@ class VariableMemoryManager {
           nonCoreResults.map(result => result.fragment?.id)
         );
       }
+
+      // 常驻计划段：与「回闪记忆」相互独立——回闪是「想起来了」，这里是「一直都知道」
+      const planSection = this.formatActivePlanContextForPrompt(await planContextPromise);
+      if (planSection) output += planSection;
     }
 
     if (!output.trim()) output = '(暂无记忆)\n';
@@ -2422,6 +2502,18 @@ ${output}`;
             >
           </div>
 
+          <div class="vm-setting-row">
+            <span>注入「待办/计划」上下文</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="vm-plan-context-enabled" ${s.planContextEnabled !== false ? 'checked' : ''}>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div style="font-size:11px;color:#999;margin-top:6px;line-height:1.5;">
+            每轮把「还没结束的约定/计划」常驻进提示词（只读 memory-server 的 /memory/active-events，无需服务端改动）。
+          </div>
+
           <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
             <button
               id="vm-test-external-memory-btn"
@@ -2493,6 +2585,9 @@ ${output}`;
     vm.settings.externalMemoryBearerToken = externalBearerToken;
     localStorage.setItem('vm_external_memory_endpoint', externalEndpoint);
     localStorage.setItem('vm_external_memory_bearer_token', externalBearerToken);
+
+    const planContextEl = document.getElementById('vm-plan-context-enabled');
+    if (planContextEl) vm.settings.planContextEnabled = planContextEl.checked;
     
       vm.settings.useCustomExtractionPrompt = document.getElementById('vm-custom-prompt')?.checked || false;
       vm.settings.customExtractionPrompt = document.getElementById('vm-custom-prompt-text')?.value || '';

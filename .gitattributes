@@ -1,0 +1,9 @@
+# Shell 脚本一律以 LF 保存。
+#
+# 背景：这台 Windows 机器上 git 会把检出的文件转成 CRLF，而带 CRLF 的 .sh
+# 在 Linux 上会直接报 "syntax error near unexpected token `$'\r'"。
+# 这两个脚本是要 scp 到 VPS 上用 bash 执行的，必须保证是 LF。
+#
+# 这里只约束 *.sh，不写 `* text=auto`，避免让整个仓库重新规范化产生巨大 diff。
+.gitattributes text eol=lf
+*.sh text eol=lf

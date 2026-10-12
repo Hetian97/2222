@@ -293,6 +293,71 @@ async function main() {
   assert.equal(chat.variableMemory.fragments[1].recallCount, 8);
   assert.equal(lifecycleCalls.at(-1).body.outcome, 'failed');
 
+  // ---- 计划层常驻注入（A3）----
+  // 这里刻意让 /memory/search 返回空数组：计划段必须与「有没有召回到记忆」无关，
+  // 否则「今天什么都没想起来」的时候恰恰会把待办丢掉。
+  const planNow = Date.now();
+  manager.externalMemoryRequest = async (_chat, requestPath) => {
+    if (String(requestPath).startsWith('/memory/active-events')) {
+      assert(requestPath.includes('chatId=chat-1'), '必须按当前会话查询计划');
+      return {
+        ok: true,
+        events: [
+          { id: 'live-1', title: '明天去医院复诊', status: 'planned', startAt: planNow + 86400000, validUntil: planNow + 86400000 * 3 },
+          { id: 'expired-1', title: '上个月已经过期的会议', status: 'planned', startAt: planNow - 86400000 * 40, validUntil: planNow - 86400000 * 30 },
+          { id: 'done-1', title: '已经完成的事情', status: 'completed', startAt: planNow, validUntil: planNow + 86400000 },
+          { id: 'pending-1', title: '还没答应的征询', status: 'candidate', awaitingConfirmation: 1, startAt: planNow + 86400000, validUntil: planNow + 86400000 * 2 },
+          { id: 'live-2', title: '下周交材料', status: 'planned', startAt: planNow + 86400000 * 5, validUntil: planNow + 86400000 * 8 }
+        ]
+      };
+    }
+    if (requestPath === '/memory/search') return { ok: true, memories: [], searchTraceId: 'trace-plan' };
+    if (requestPath === '/memory/search/commit') return { ok: true, log: { status: 'prompt_committed' }, recallUpdates: [] };
+    return { ok: true, recallUpdates: [] };
+  };
+
+  const planPrompt = await manager.serializeForPrompt(chat, '随便聊两句');
+  assert(planPrompt.includes('还没结束的约定与计划'), '零召回时计划段仍必须注入');
+  assert(planPrompt.includes('明天去医院复诊'), '未过期的计划必须注入');
+  assert(planPrompt.includes('下周交材料'), '未过期的计划必须注入');
+  assert(!planPrompt.includes('上个月已经过期的会议'), '过期计划不得注入');
+  assert(!planPrompt.includes('已经完成的事情'), '已完成不得注入');
+  assert(!planPrompt.includes('还没答应的征询'), '等待 char 确认的征询不得当成计划');
+  assert(planPrompt.indexOf('明天去医院复诊') < planPrompt.indexOf('下周交材料'), '计划应按开始时间升序');
+  assert(planPrompt.includes('与你是否「想起」无关'), '必须说明计划段与召回无关');
+
+  // 关掉开关后：既不请求也不注入
+  chat.variableMemory.settings.planContextEnabled = false;
+  let planRequestedWhileDisabled = false;
+  manager.externalMemoryRequest = async (_chat, requestPath) => {
+    if (String(requestPath).startsWith('/memory/active-events')) planRequestedWhileDisabled = true;
+    if (requestPath === '/memory/search') return { ok: true, memories: [], searchTraceId: 'trace-plan-off' };
+    if (requestPath === '/memory/search/commit') return { ok: true, log: { status: 'prompt_committed' }, recallUpdates: [] };
+    return { ok: true, recallUpdates: [] };
+  };
+  const planOffPrompt = await manager.serializeForPrompt(chat, '随便聊两句');
+  assert.equal(planRequestedWhileDisabled, false, '关掉开关后不应再请求计划接口');
+  assert(!planOffPrompt.includes('还没结束的约定与计划'), '关掉开关后不应注入计划段');
+  chat.variableMemory.settings.planContextEnabled = true;
+
+  // 计划接口挂掉时，召回必须照常工作，且不能留下半截段落
+  const originalWarn = sandbox.console.warn;
+  let planWarningCount = 0;
+  sandbox.console.warn = (...args) => {
+    if (String(args[0] || '').includes('待办/计划上下文获取失败')) planWarningCount++;
+  };
+  manager.externalMemoryRequest = async (_chat, requestPath) => {
+    if (String(requestPath).startsWith('/memory/active-events')) throw new Error('plan endpoint down');
+    if (requestPath === '/memory/search') return { ok: true, memories: [{ id: 'dynamic', content: '记忆', _searchScore: 0.8 }], searchTraceId: 'trace-plan-fail' };
+    if (requestPath === '/memory/search/commit') return { ok: true, log: { status: 'prompt_committed' }, recallUpdates: [] };
+    return { ok: true, recallUpdates: [] };
+  };
+  const degradedPrompt = await manager.serializeForPrompt(chat, '随便聊两句');
+  sandbox.console.warn = originalWarn;
+  assert(degradedPrompt.includes('回闪记忆'), '计划接口失败时召回必须照常');
+  assert(!degradedPrompt.includes('还没结束的约定与计划'), '计划接口失败时不应出现空段落');
+  assert(planWarningCount >= 1, '计划接口失败时应留下一条 warning 便于排查');
+
   console.log('Vector memory UI tests passed');
 }
 

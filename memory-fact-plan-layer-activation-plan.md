@@ -227,3 +227,122 @@ memories._activePlanContext = result.activePlanContext || null;
 2. A2 + A3 一起上：VPS 更新 memory-server 代码；前端合并进 `stable` 并 **bump [sw.js](sw.js#L5) 的 `CACHE_VERSION`** → 手机刷新 → 按第 5 节三步手测。
 3. 观察一周：计划是否只在「该出现的时候」出现、完成/取消是否被正确捕获。
 4. 视情况决定 B1（强烈建议）与 C1/C2。
+
+---
+
+## 8. 决策记录（2026-10-12 已拍板）
+
+| 议题 | 决定 |
+|---|---|
+| 过期策略 | **选 A：归档 + 一键清理**。过期只标 `expired`（保留可回溯），管理面板提供「清理过期项」按钮做物理删除 |
+| v1 注入范围 | **只注入计划**（active events）。事实层暂不注入，等正则 + TTL 稳定后再开 |
+| 身体状态 | 仍然**写入**事实层（`current_body_state`，13 个锚点），但 v1 **不注入** |
+| 删表安全性 | 已核实：`memory_active_events` 无任何外键，`memory_current_facts` 只自引用，Chroma 只索引 `memories` → **删计划/事实不可能影响 5180 条记忆与向量索引** |
+| VPS 部署方式 | 文件上传（`/root/memory-server` **不是** git 仓库），不是 git pull |
+| systemd | 暂缓，见第 11 节；先把主链路验证完再动 |
+
+---
+
+## 9. 征询句的两轮确认（设计定稿）
+
+**问题**：`这周五是中秋节，我们最近要不要去看看奶奶` / `明天不是都要开始体能训练了吗` —— 是不是有效计划**取决于 char 的回答**。
+现在抽取器只看 user 的文本（这是对的：char 每轮 100-400 字，用它抽新条目会把噪音放大一个数量级）。疑问/假设只扣 0.12 分而不排除，结果是把反问句也建成了 `planned`。
+
+**方案：char 的回答只参与「确认/否决」，绝不参与「新建」。**
+
+1. user 说征询句（要不要/好吗/行不行/是不是/哪天…）**且带跨天时间词** → 建 `candidate` + `awaitingConfirmation = 1` + `confirmDeadline = 现在 + 24h`（不直接建 `planned`）。
+2. 下一轮检索时，前端把 **char 上一条回复**塞进 `activeEventSource.latestAssistantText`。
+3. **只从中文字符串引号内取文本**（`“…”`、`「…」`、`『…』`、`"…"`）：环境描写、动作神态一律忽略。这条对计划层尤其重要——**计划只会出现在对话里**。
+   - 引号内**没有**信号时：默认**不放行**（保守）。宁可不记，也不要记错。
+   - 待观察项：角色扮演里「他笑着点了点头」这种**引号外的接受**很常见。若实测漏得多，再考虑加一条受限兜底（仅接受 点头/答应/好 这类强信号，且周围无否定/反问）。
+4. 信号表（只在 char 回复**开头 60 字**内扫描，进一步降噪）：
+   - 接受：好 / 行 / 嗯 / 可以 / 没问题 / 那就 / 走吧 / 听你的 / 答应你 / 当然 / 说定了 / 一言为定
+   - 拒绝：不 / 算了 / 改天 / 再说 / 太远 / 不行 / 没空 / 不要 / 别
+5. user 自己的确认同样算数（user 下一轮说「那就去吧」→ 也判定为接受）。
+6. 落地：接受 → `planned`；拒绝 → `cancelled`；超过 `confirmDeadline` 无信号 → `expired`。
+
+**需要新增**：`memory_active_events` 两列（`awaitingConfirmation`、`confirmDeadline`，走现成的 `ensureColumn`）+ 前端多传一个字段 + **一次 VPS 重启**。
+**已知代价**：有一轮延迟（user 问完当轮不算数，等 char 答完、user 下一条消息触发检索时才定案）。这符合直觉——还没答应的事本来就不该当成计划。
+
+> 复用价值：`extractQuotedDialogue()` 这个 helper 以后若要放开「char 主动提出的安排」，可直接用来降噪。
+
+---
+
+## 10. 居所清单（解决「char 记不住现在住哪个家」）
+
+**现状**：代码里**没有**针对「多个居所」的任何专门机制，只有两个窄条件：
+
+| 槽位 | 触发 | 覆盖不到的情况 |
+|---|---|---|
+| `user.residence.current` | (住在/住到了/搬到/搬回/定居在/长期住在) **且** 有当前时间词 | 「我现在在老宅」「这周住临空那边」——**没有"住"字就抓不到** |
+| `user.location.current` | `我(现在/已经/刚)(在/到了/回到)X` | 能抓到「我在老宅」，但只当**位置**，不当**居所** |
+
+「我有三个居所 + 一个临时落脚点」属于**用户的世界知识**，正则再怎么写也猜不到「云端湖 / 天行 / 临空」是家。所以：
+
+**方案**：管理面板里加一份「居所 / 常驻地点」清单（用户自己填名字与别名），抽取器命中清单中的名字时直接建/更新 `user.residence.current`（置信度 0.9），注入时优先展示。
+
+**任务进行到哪**：目前确实有在记，但很稀疏——7 条事实里只有 1 条 `user.task.论文`；体能训练、答辩等则以**计划事件**形式存在。而且**没有进度维度**：整句话被存成 `value`，没有「论文改到第几章」这种结构化表达。要更可靠，可参照居所清单的思路，让用户维护「长期任务清单」。
+
+---
+
+## 11. 运维加固：把 memory-server 交给 systemd（可选，含回滚）
+
+**先分清两种故障模式**（原文表述容易混淆）：
+
+| 故障 | 症状 | 后果 |
+|---|---|---|
+| ① 进程没起来 | 手机端**整个记忆功能不可用**（召回为空/报错） | 明显，容易发现 |
+| ② 进程起来了但漏了 `*_WRITES_ENABLED` | **召回一切正常**，事实/计划层静默停写 | 隐蔽，几周都不会发现 |
+
+现状：`8606 → npm start → sh -c node server.js → node server.js`，**不在 systemd 里**，4 个环境变量也不在 `.bashrc`/`.profile`/`/etc/profile`/`/etc/environment` 里（启动时临时给的）。
+
+⚠️ **数据本身不会丢**：5180 条记忆在磁盘上的 `memory.db` 文件里，进程重启不影响数据。所谓「不会自己回来」指的是**进程**，不是数据。
+
+**systemd 是什么**：Linux 的服务管理器。把一个 `.service` 文件放进 `/etc/systemd/system/`，它就能开机自启、崩溃自动拉起、`systemctl status` 看状态、环境变量写在 unit 里永不遗漏。VPS 上另外三个服务（`aisay-wake`、`ephone-health-mcp`、`notion-mcp`）就是这么跑的。
+
+参考 unit（**切换前先 `which node` 确认 ExecStart 路径**）：
+
+```ini
+[Unit]
+Description=EPhone memory-server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/memory-server
+Environment=MEMORY_ORGANIZATION_INCREMENTAL_ENABLED=true
+Environment=MEMORY_RECALL_GATE_ENABLED=false
+Environment=MEMORY_ACTIVE_EVENT_WRITES_ENABLED=true
+Environment=MEMORY_CURRENT_FACT_WRITES_ENABLED=true
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**切换步骤（必须先备份）**：
+
+```bash
+cd /root/memory-server
+sqlite3 memory.db ".backup '/root/memory-before-systemd.db'"      # WAL 库的正确备份方式
+sqlite3 memory.db "select count(*) from memories;"                # 记下这个数字
+which node                                                       # 填进 ExecStart
+# 写好 unit 后：
+systemctl daemon-reload
+pkill -f 'node server\.js'                                       # 释放 8765 端口，几秒中断
+systemctl enable --now ephone-memory
+systemctl status ephone-memory --no-pager
+sqlite3 memory.db "select count(*) from memories;"                # 必须与上面一致
+tr '\0' '\n' < /proc/$(pgrep -f 'node server\.js')/environ | grep -E '^MEMORY_'
+```
+
+**回滚**：
+
+```bash
+systemctl disable --now ephone-memory
+bash /root/memory-server/start-memory-server.sh
+```
+
+**路径风险很低**：`db.js` 用的是 `__dirname`（脚本所在目录）而不是当前工作目录，所以只要 `ExecStart` 指向 `/root/memory-server/server.js`，数据库路径就一定是 `/root/memory-server/memory.db`，不会凭空新建空库。仍然建议切换后立刻核对上面的行数。
