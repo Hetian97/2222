@@ -2330,7 +2330,7 @@ ${output}`;
     if (!raw) return;
     this.askInlineConfirm(
       row,
-      `确认要删除这条计划吗？\n\n${raw.title || '(无标题)'}\n\n删除后不再注入提示词；误删可以在「已删除」分区里撤回。`,
+      `确认要彻底删除这条计划吗？\n\n${raw.title || '(无标题)'}\n\n删除后无法恢复、也无法撤回。想保留的话请改用「归档」。`,
       () => this.applyPlanPanelAction(chat, body, data, planId, 'delete')
     );
   }
@@ -2340,7 +2340,7 @@ ${output}`;
     if (!fact) return;
     this.askInlineConfirm(
       card,
-      `确认要删除这条事实吗？\n\n${group.slotKey}\n${fact.statement || fact.value || ''}\n\n删除后该槽位不再显示、也不会参与注入。`,
+      `确认要彻底删除这条事实吗？\n\n${group.slotKey}\n${fact.statement || fact.value || ''}\n\n删除后无法恢复。`,
       () => this.applyFactPanelAction(chat, body, group, 'delete')
     );
   }
@@ -2413,7 +2413,9 @@ ${output}`;
     const deletedPlans = plans.filter(plan => plan.deleted);
     const factGroups = this.normalizeFactPanelList(data.facts);
 
-    const planRow = plan => `
+    const planRow = plan => {
+      const isLive = !plan.deleted && !plan.finished && !plan.expired;
+      return `
       <div data-plan-id="${escape(plan.id)}" style="padding:10px 12px;border-radius:12px;background:rgba(0,0,0,0.035);margin-bottom:8px;">
         <div style="display:flex;gap:8px;align-items:flex-start;">
           <div style="flex:1;min-width:0;">
@@ -2423,14 +2425,17 @@ ${output}`;
             </div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">
-            ${(plan.deleted || plan.finished || plan.expired)
-              ? '<button class="vm-toolbar-btn" data-action="restore">撤回</button>'
-              : '<button class="vm-toolbar-btn" data-action="edit">编辑</button><button class="vm-toolbar-btn" data-action="complete">完成</button>'}
-            ${plan.deleted ? '' : '<button class="vm-toolbar-btn" data-action="delete" style="color:#ff3b30">删除</button>'}
+            ${isLive
+              ? '<button class="vm-toolbar-btn" data-action="edit">编辑</button>'
+                + '<button class="vm-toolbar-btn" data-action="complete">完成</button>'
+                + '<button class="vm-toolbar-btn" data-action="archive">归档</button>'
+              : '<button class="vm-toolbar-btn" data-action="restore">撤回</button>'}
+            <button class="vm-toolbar-btn" data-action="delete" style="color:#ff3b30">删除</button>
           </div>
         </div>
       </div>
     `;
+    };
 
     const factCard = group => `
       <div data-fact-slot="${escape(group.slotKey)}" style="padding:10px 12px;border-radius:12px;background:rgba(0,0,0,0.035);margin-bottom:8px;">
@@ -2463,7 +2468,7 @@ ${output}`;
       ` : ''}
       ${deletedPlans.length ? `
         <details style="margin-top:12px;">
-          <summary style="cursor:pointer;font-size:13px;color:#666;">已删除（${deletedPlans.length}）— 误删可以在这里撤回</summary>
+          <summary style="cursor:pointer;font-size:13px;color:#666;">已归档（${deletedPlans.length}）— 归档只是收起来，可以撤回</summary>
           <div style="margin-top:8px;">${deletedPlans.slice(0, 50).map(planRow).join('')}</div>
         </details>
       ` : ''}
@@ -2488,7 +2493,10 @@ ${output}`;
         ${tab === 'plans' ? '<button class="vm-toolbar-btn" data-action="add">添加计划</button>' : ''}
         ${tab === 'facts' ? '<button class="vm-toolbar-btn" data-action="add-fact">添加事实</button>' : ''}
         <div style="flex:1"></div>
-        <button class="vm-toolbar-btn" data-action="purge">清理已结束</button>
+        ${tab === 'plans'
+          ? '<button class="vm-toolbar-btn" data-action="purge-finished">清理过期与已完成</button>'
+            + '<button class="vm-toolbar-btn" data-action="purge-archived">清空已归档</button>'
+          : ''}
         <button class="vm-toolbar-btn" data-action="reload">刷新</button>
       </div>
       <div data-panel-confirm-host></div>
@@ -2505,8 +2513,11 @@ ${output}`;
     body.querySelector('[data-action="reload"]')?.addEventListener('click', () => {
       this.renderPlanFactPanel(chat, body.parentNode);
     });
-    body.querySelector('[data-action="purge"]')?.addEventListener('click', () => {
-      this.purgeFinishedPlans(chat, body.parentNode, historyPlans.length);
+    body.querySelector('[data-action="purge-finished"]')?.addEventListener('click', () => {
+      this.askPurgePlans(chat, body, 'finished', historyPlans.length);
+    });
+    body.querySelector('[data-action="purge-archived"]')?.addEventListener('click', () => {
+      this.askPurgePlans(chat, body, 'archived', deletedPlans.length);
     });
     body.querySelector('[data-action="add"]')?.addEventListener('click', () => {
       this.openPlanCreateForm(chat, body, data);
@@ -2633,12 +2644,19 @@ ${output}`;
           body: this.buildPlanArchiveBody(planId, 'completed')
         });
         this.notifyPlanPanel('已标记为完成，不再注入提示词');
-      } else if (action === 'delete') {
+      } else if (action === 'archive') {
         await this.externalMemoryRequest(chat, '/memory/active-events/archive', {
           method: 'POST',
           body: this.buildPlanArchiveBody(planId, 'archived')
         });
-        this.notifyPlanPanel('已删除该计划（可在「已删除」分区里撤回）');
+        this.notifyPlanPanel('已归档该计划（可在「已归档」里撤回）');
+      } else if (action === 'delete') {
+        // 物理删除：那一行真的从数据库消失。（对应接口随下次 memory-server 更新上线）
+        await this.externalMemoryRequest(chat, '/memory/active-events/delete', {
+          method: 'POST',
+          body: { confirm: 'DELETE_ACTIVE_EVENT', id: String(planId) }
+        });
+        this.notifyPlanPanel('已彻底删除该计划');
       } else {
         return;
       }
@@ -2666,11 +2684,12 @@ ${output}`;
         });
         this.notifyPlanPanel('已设为当前事实');
       } else if (action === 'delete') {
-        await this.externalMemoryRequest(chat, '/memory/current-facts/invalidate', {
+        // 物理删除事实（对应接口随下次 memory-server 更新上线）
+        await this.externalMemoryRequest(chat, '/memory/current-facts/delete', {
           method: 'POST',
-          body: this.buildFactInvalidateBody(fact.id, 'archived')
+          body: { confirm: 'DELETE_CURRENT_FACT', id: fact.id }
         });
-        this.notifyPlanPanel('已删除该事实');
+        this.notifyPlanPanel('已彻底删除该事实');
       } else {
         return;
       }
@@ -2681,26 +2700,30 @@ ${output}`;
     }
   }
 
-  purgeFinishedPlans(chat, body, candidateCount = 0) {
+  askPurgePlans(chat, body, scope, candidateCount = 0) {
     const host = body?.querySelector
       ? (body.querySelector('[data-panel-confirm-host]') || body)
       : body;
+    const isArchived = scope === 'archived';
     this.askInlineConfirm(
       host,
-      `确认要清理吗？\n\n将永久删除 ${candidateCount} 条已完成 / 已取消 / 已过期 / 已归档的计划，`
-        + '删除后无法恢复。\n\n这些条目与向量记忆完全无关，不会影响任何记忆或向量索引。',
-      () => this.runPurgeFinishedPlans(chat, body)
+      isArchived
+        ? `确认要清空已归档吗？\n\n将永久删除 ${candidateCount} 条已归档的计划，`
+          + '删除后无法恢复、也无法再撤回。\n\n这些条目与向量记忆完全无关。'
+        : `确认要清理吗？\n\n将永久删除 ${candidateCount} 条已完成 / 已取消 / 已过期的计划`
+          + '（**不含已归档**，归档的会保留可撤回）。\n\n这些条目与向量记忆完全无关。',
+      () => this.runPurgePlans(chat, body, scope)
     );
   }
 
-  async runPurgeFinishedPlans(chat, body) {
+  async runPurgePlans(chat, body, scope) {
     try {
       const chatId = this.getOrganizationChatId(chat);
-      const result = await this.externalMemoryRequest(chat, '/memory/active-events/purge-finished', {
+      const result = await this.externalMemoryRequest(chat, '/memory/active-events/purge', {
         method: 'POST',
-        body: { confirm: 'PURGE_FINISHED_ACTIVE_EVENTS', chatId }
+        body: { confirm: 'PURGE_ACTIVE_EVENTS', chatId, scope }
       });
-      this.notifyPlanPanel(`已清理 ${Number(result?.deleted || 0)} 条已结束的计划`);
+      this.notifyPlanPanel(`已清理 ${Number(result?.deleted || 0)} 条计划`);
       await this.renderPlanFactPanel(chat, body?.parentNode || body);
     } catch (error) {
       const message = String(error?.message || error);

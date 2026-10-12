@@ -533,26 +533,40 @@ async function main() {
   assert.equal(typeof manager.askInlineConfirm, 'function');
   assert.equal(typeof manager.askDeletePlan, 'function');
   assert.equal(typeof manager.askDeleteFact, 'function');
-  assert(source.includes('确认要删除这条计划吗'), '删除计划必须有确认文案');
-  assert(source.includes('确认要删除这条事实吗'), '删除事实必须有确认文案');
-  assert(source.includes('确认要清理吗'), '「清理已结束」必须有确认文案');
+  assert(source.includes('确认要彻底删除这条计划吗'), '删除计划必须说明不可恢复');
+  assert(source.includes('确认要彻底删除这条事实吗'), '删除事实必须说明不可恢复');
+  assert(source.includes('确认要清理吗'), '「清理过期与已完成」必须有确认文案');
+  assert(source.includes('确认要清空已归档吗'), '「清空已归档」必须有确认文案');
   assert(source.includes('data-inline-confirm'), '确认必须内联展开在面板里');
   assert.ok(!source.includes('window.showCustomConfirm('), '不得再调用有 id 冲突的全局弹窗');
   assert.ok(
     (source.match(/this\.askInlineConfirm\(/g) || []).length >= 3,
-    '删除计划、删除事实、清理已结束三处都要接上内联确认'
+    '删除计划、删除事实、两个清理动作都要接上内联确认'
   );
   assert(source.includes('getPanelBuildTag'), '面板必须显示实际加载的脚本版本');
 
-  // 已删除（归档）的计划必须仍能看到并撤回，不能凭空消失
+  // 归档与删除必须是两个不同动作，且删除走物理删除接口
+  assert(source.includes('data-action="archive"'), '生效中的计划必须有「归档」按钮');
+  assert(source.includes("'/memory/active-events/delete'"), '计划删除必须走物理删除接口');
+  assert(source.includes("'/memory/current-facts/delete'"), '事实删除必须走物理删除接口');
+  assert(source.includes("action === 'archive'"), '归档必须接上事件处理');
+  assert(source.includes('想保留的话请改用「归档」'), '删除确认里要指引用户改用归档');
+  assert(source.includes('清理过期与已完成'), '清理按钮必须改名');
+  assert(source.includes('清空已归档'), '必须新增清空已归档');
+  assert(source.includes("this.askPurgePlans(chat, body, 'finished'"), '清理过期与已完成 要用 finished 作用域');
+  assert(source.includes("this.askPurgePlans(chat, body, 'archived'"), '清空已归档 要用 archived 作用域');
+  assert(source.includes('**不含已归档**'), '清理过期与已完成的文案必须说明不含归档');
+  assert.ok(!source.includes('/memory/active-events/purge-finished'), '不得再调用旧的 purge-finished 接口');
+  assert.ok(!source.includes('purgeFinishedPlans'), '旧的清理方法必须删干净');
+
+  // 已归档的计划必须仍能看到并撤回，不能凭空消失
   const archiveView = manager.normalizePlanPanelList([
-    { id: 'a1', title: '被删除的计划', status: 'archived', startAt: panelNow + 1000, validUntil: panelNow + 999000 },
+    { id: 'a1', title: '被归档的计划', status: 'archived', startAt: panelNow + 1000, validUntil: panelNow + 999000 },
     { id: 'a2', title: '还活着的计划', status: 'planned', startAt: panelNow + 1000, validUntil: panelNow + 999000 }
   ], { includeFinished: true, now: panelNow });
-  assert.equal(archiveView.find(plan => plan.id === 'a1').deleted, true, '已归档 = 已删除，必须打标记');
+  assert.equal(archiveView.find(plan => plan.id === 'a1').deleted, true, 'archived 必须标记出来');
   assert.equal(archiveView.find(plan => plan.id === 'a2').deleted, false);
-  assert(source.includes('已删除（'), '必须有「已删除」分区，误删才能撤回');
-  assert(source.includes('误删可以在'), '删除确认里要提示可以撤回');
+  assert(source.includes('已归档（'), '必须有「已归档」分区，归档的才能撤回');
 
   // 槽位里所有版本都被删除时整组消失；只要还有有效版本，被删的版本不能当当前值
   assert.equal(

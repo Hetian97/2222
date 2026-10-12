@@ -357,21 +357,29 @@ bash /root/memory-server/start-memory-server.sh
 
 **现在就能用（不需要动 VPS）**
 - 列出**生效中的计划**（未过期、未完成），另有折叠的「已完成 / 已过期」历史区
-- 计划：编辑（标题 / 开始时间 / 有效至）、标记完成、**撤回**、删除（归档）
-  —— 走的是既有接口 `POST /memory/active-events/upsert`、`POST /memory/active-events/archive`
-  - **撤回**：把已完成/已取消/已过期/已归档改回 `planned`。若有效期已过，会顺延到今天 + 2 天，
-    否则撤回后会立刻又被判为过期、注入不了（这个陷阱有单元测试守着）。
+- 计划：三个分区 + 语义清晰的动作
+  - **生效中的计划**（默认展开）：`[编辑] [完成] [归档] [删除]`
+  - **已完成 / 已过期**（折叠）：`[撤回] [删除]`
+  - **已归档**（折叠）：`[撤回] [删除]`
+  - **归档** = 软隐藏（`archived`），可撤回；**删除** = 物理删除那一行，不可恢复
+  - 工具栏：`清理过期与已完成`（`scope:'finished'`，**不含归档**）、`清空已归档`（`scope:'archived'`）
+  - 撤回：改回 `planned`；有效期已过会顺延到今天 + 2 天
 - 列出**事实**：同一 `slotKey` 只显示最新一条，历史版本折叠
 
 **需要下次 VPS 更新后才生效（服务端代码已写好，前端会自动识别 404 并明确提示）**
 
 | 新接口 | 用途 |
 |---|---|
-| `POST /memory/active-events/delete` | 物理删除单条计划 |
-| `POST /memory/active-events/purge-finished` | 「清理已结束」按钮：批量删除完成/取消/过期/归档 |
+| `POST /memory/active-events/delete` | 物理删除单条计划（前端「删除」） |
+| `POST /memory/active-events/purge` | 按作用域批量删除：`scope:'finished'` = 已完成/已取消/已过期；`scope:'archived'` = 已归档 |
+| `POST /memory/current-facts/delete` | 物理删除单条事实（**待实现**） |
 | `POST /memory/current-facts/upsert` | 编辑事实 |
-| `POST /memory/current-facts/invalidate` | 删除事实 |
+| `POST /memory/current-facts/invalidate` | 作废事实（保留，将来若要软删除可用） |
 | `POST /memory/current-facts/promote` | 设为当前 |
+
+> ⚠️ **契约变更**：旧设计的 `purge-finished`（一次清四类状态）已被 `purge` + `scope` 取代
+> —— 因为「归档」必须可撤回，不能被"清理过期与已完成"顺手删掉。
+> 服务端代码（尚未部署到 VPS）需要同步改成这个契约。
 
 前端在旧服务端上点击这些操作时，会提示「需要 memory-server 更新后才支持」，**不会静默失败**。
 
