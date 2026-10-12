@@ -469,6 +469,40 @@ async function main() {
   assert(source.includes('data-action="add"'), '计划页必须有「添加计划」按钮');
   assert(source.includes('openPlanCreateForm'), '必须存在新建计划表单');
   assert(source.includes('手动添加｜'), '手动添加的计划必须能被标注出来');
+  assert(source.includes('data-action="add-fact"'), '事实页必须有「添加事实」按钮');
+  assert(source.includes('openFactCreateForm'), '必须存在新建事实表单');
+  assert(source.includes('openFactEditForm'), '必须存在编辑事实表单');
+  assert(source.includes('记录于 '), '事实必须显示记录时间');
+
+  // 事实归组后必须带 chatId，否则保存时服务端会以 chatId is required 拒绝
+  const groupedFacts = manager.normalizeFactPanelList([
+    { id: 'g1', chatId: 'chat-1', subjectKey: 'user', slotKey: 'user.residence.current', value: '临空', statement: '我最近住在临空。', status: 'shadow_candidate', confidence: 0.9, effectiveAt: panelNow }
+  ]);
+  assert.equal(groupedFacts[0].current.chatId, 'chat-1');
+
+  const factEditBody = manager.buildFactUpsertBody(groupedFacts[0].current, { statement: '我最近住在天行。', value: '我最近住在天行。' });
+  assert.equal(factEditBody.confirm, 'UPSERT_CURRENT_FACT');
+  assert.equal(factEditBody.fact.id, 'g1');
+  assert.equal(factEditBody.fact.chatId, 'chat-1');
+  assert.equal(factEditBody.fact.slotKey, 'user.residence.current');
+  assert.equal(factEditBody.fact.statement, '我最近住在天行。');
+  assert.equal(factEditBody.fact.status, 'shadow_candidate', '编辑时必须保留原状态');
+  assert.equal(factEditBody.fact.factType, 'current_residence', 'factType 需要按槽位推断出来');
+
+  const factCreateBody = manager.buildFactUpsertBody({ chatId: 'chat-1' }, {
+    slotKey: 'user.residence.current',
+    statement: '我最近住在云端湖。',
+    value: '我最近住在云端湖。',
+    status: 'shadow_candidate',
+    confidence: 0.99,
+    effectiveAt: panelNow,
+    evidence: { manual: true }
+  });
+  assert.equal(factCreateBody.fact.id, '', '新建事实不能带 id');
+  assert.equal(factCreateBody.fact.chatId, 'chat-1');
+  assert.equal(factCreateBody.fact.factType, 'current_residence');
+  assert.equal(factCreateBody.fact.evidence.manual, true);
+  assert.equal(factCreateBody.fact.validUntil, null);
 
   console.log('Vector memory UI tests passed');
 }

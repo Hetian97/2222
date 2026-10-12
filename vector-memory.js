@@ -2199,6 +2199,9 @@ ${output}`;
       const slotKey = String(fact.slotKey || '(未分类)');
       const item = {
         id: String(fact.id),
+        chatId: String(fact.chatId || ''),
+        subjectKey: String(fact.subjectKey || 'user'),
+        slotKey,
         value: String(fact.value || ''),
         statement: String(fact.statement || fact.value || ''),
         status: String(fact.status || ''),
@@ -2365,10 +2368,11 @@ ${output}`;
             <div style="font-size:12px;color:#888;word-break:break-all;">${escape(group.slotKey)}</div>
             <div style="font-size:14px;line-height:1.5;margin-top:4px;word-break:break-word;">${escape(group.current?.statement || group.current?.value || '(空)')}</div>
             <div style="font-size:12px;color:#888;margin-top:4px;line-height:1.5;">
-              ${escape(group.current?.status || '')}｜置信度 ${Number(group.current?.confidence || 0).toFixed(2)}${group.versions.length > 1 ? '｜历史版本 ' + (group.versions.length - 1) : ''}
+              ${group.current?.effectiveAt ? '记录于 ' + escape(this.formatPlanPanelTime(group.current.effectiveAt)) + '｜' : ''}${escape(group.current?.status || '')}｜置信度 ${Number(group.current?.confidence || 0).toFixed(2)}${group.versions.length > 1 ? '｜历史版本 ' + (group.versions.length - 1) : ''}
             </div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">
+            <button class="vm-toolbar-btn" data-fact-action="edit">编辑</button>
             ${group.current?.status === 'current' ? '' : `<button class="vm-toolbar-btn" data-fact-action="promote">设为当前</button>`}
             <button class="vm-toolbar-btn" data-fact-action="delete" style="color:#ff3b30">删除</button>
           </div>
@@ -2389,9 +2393,10 @@ ${output}`;
     `;
 
     const factsHtml = tab !== 'facts' ? '' : `
+      <div data-fact-create-host></div>
       ${factGroups.length ? factGroups.map(factCard).join('') : '<div style="font-size:13px;color:#999;">当前没有任何事实条目。</div>'}
       <div style="font-size:12px;color:#999;margin-top:8px;line-height:1.5;">
-        同一槽位只显示最新一条，历史版本不会注入提示词。事实层的「设为当前」「删除」需要 memory-server 更新后才会生效；计划层的编辑/删除现在就可以用。
+        同一槽位只显示最新一条，历史版本不会注入提示词。事实层的「编辑 / 添加 / 设为当前 / 删除」需要 memory-server 更新后才会生效；计划层的全部操作现在就可以用。
       </div>
     `;
 
@@ -2404,6 +2409,7 @@ ${output}`;
         <button class="vm-toolbar-btn ${tab === 'plans' ? 'vm-primary' : ''}" data-tab="plans">计划（${livePlans.length} 生效 / ${historyPlans.length} 历史）</button>
         <button class="vm-toolbar-btn ${tab === 'facts' ? 'vm-primary' : ''}" data-tab="facts">事实（${factGroups.length} 个槽位）</button>
         ${tab === 'plans' ? '<button class="vm-toolbar-btn" data-action="add">添加计划</button>' : ''}
+        ${tab === 'facts' ? '<button class="vm-toolbar-btn" data-action="add-fact">添加事实</button>' : ''}
         <div style="flex:1"></div>
         <button class="vm-toolbar-btn" data-action="purge">清理已结束</button>
         <button class="vm-toolbar-btn" data-action="reload">刷新</button>
@@ -2427,6 +2433,9 @@ ${output}`;
     body.querySelector('[data-action="add"]')?.addEventListener('click', () => {
       this.openPlanCreateForm(chat, body, data);
     });
+    body.querySelector('[data-action="add-fact"]')?.addEventListener('click', () => {
+      this.openFactCreateForm(chat, body, data);
+    });
 
     body.querySelectorAll('[data-plan-id]').forEach(row => {
       const planId = row.dataset.planId;
@@ -2446,7 +2455,12 @@ ${output}`;
       const group = factGroups.find(item => String(item.slotKey) === String(card.dataset.factSlot));
       card.querySelectorAll('[data-fact-action]').forEach(button => {
         button.addEventListener('click', () => {
-          this.applyFactPanelAction(chat, body, group, button.dataset.factAction);
+          const action = button.dataset.factAction;
+          if (action === 'edit') {
+            this.openFactEditForm(chat, body, group, card);
+            return;
+          }
+          this.applyFactPanelAction(chat, body, group, action);
         });
       });
     });
@@ -2528,12 +2542,18 @@ ${output}`;
     }
   }
 
-  async applyFactPanelAction(chat, body, group, action) {
+  async applyFactPanelAction(chat, body, group, action, changes = {}) {
     const fact = group?.current;
     if (!fact?.id) return;
     const missingEndpointHint = '这个操作需要 memory-server 更新后才有对应接口，当前服务端版本还不支持；改动没有生效。';
     try {
-      if (action === 'promote') {
+      if (action === 'save') {
+        await this.externalMemoryRequest(chat, '/memory/current-facts/upsert', {
+          method: 'POST',
+          body: this.buildFactUpsertBody(fact, changes)
+        });
+        this.notifyPlanPanel('已保存该事实');
+      } else if (action === 'promote') {
         await this.externalMemoryRequest(chat, '/memory/current-facts/promote', {
           method: 'POST',
           body: this.buildFactPromoteBody(fact.id)
@@ -2666,6 +2686,142 @@ ${output}`;
       await this.renderPlanFactPanel(chat, body.parentNode);
     } catch (error) {
       this.notifyPlanPanel(`添加失败：${error.message || error}`, true);
+    }
+  }
+
+  buildFactUpsertBody(fact, changes = {}) {
+    const pick = (field, fallback) => (changes[field] !== undefined ? changes[field] : fallback);
+    const slotKey = String(pick('slotKey', fact?.slotKey || '')).trim().slice(0, 160);
+    const statement = String(pick('statement', fact?.statement || fact?.value || '')).trim().slice(0, 500);
+    const value = String(pick('value', fact?.value || statement)).trim().slice(0, 500);
+    const inferFactType = slot => {
+      if (slot.startsWith('user.residence.')) return 'current_residence';
+      if (slot.startsWith('user.location.')) return 'current_location';
+      if (slot.startsWith('user.trip.')) return 'current_trip_state';
+      if (slot.startsWith('user.task.')) return 'current_task_state';
+      if (slot.startsWith('user.body.')) return 'current_body_state';
+      return 'type_uncertain';
+    };
+    return {
+      confirm: 'UPSERT_CURRENT_FACT',
+      fact: {
+        id: String(fact?.id || ''),
+        chatId: String(pick('chatId', fact?.chatId || '')),
+        subjectKey: String(fact?.subjectKey || 'user'),
+        factType: String(pick('factType', fact?.factType || inferFactType(slotKey))),
+        slotKey,
+        value,
+        statement,
+        // 默认写 shadow_candidate：current 上有唯一索引（每个槽位只允许一条 current），
+        // 直接写 current 会和已有记录冲突。要变成权威值请用「设为当前」。
+        status: String(pick('status', fact?.status || 'shadow_candidate')),
+        confidence: Number(pick('confidence', fact?.confidence || 0.99)),
+        effectiveAt: Number(pick('effectiveAt', fact?.effectiveAt || Date.now())),
+        validUntil: Number(pick('validUntil', fact?.validUntil || 0)) || null,
+        evidence: pick('evidence', fact?.evidence || {})
+      }
+    };
+  }
+
+  openFactEditForm(chat, body, group, card) {
+    const opened = card.querySelector('[data-fact-edit]');
+    if (opened) {
+      opened.remove();
+      return;
+    }
+    const fact = group?.current;
+    if (!fact) return;
+
+    const form = document.createElement('div');
+    form.dataset.factEdit = '1';
+    form.style.cssText = 'margin-top:8px;display:flex;flex-direction:column;gap:6px;';
+    form.innerHTML = `
+      <input class="vm-input-full" data-field="slotKey" value="${this._escapeHtml(group.slotKey)}" placeholder="槽位">
+      <textarea class="vm-input-full" data-field="statement" style="min-height:64px;" placeholder="事实内容">${this._escapeHtml(fact.statement || fact.value || '')}</textarea>
+      <div style="display:flex;gap:8px;">
+        <button class="vm-toolbar-btn vm-primary" data-action="save">保存</button>
+        <button class="vm-toolbar-btn" data-action="cancel">取消</button>
+      </div>
+    `;
+    form.querySelector('[data-action="cancel"]').addEventListener('click', () => form.remove());
+    form.querySelector('[data-action="save"]').addEventListener('click', () => {
+      const slotKey = form.querySelector('[data-field="slotKey"]')?.value.trim() || '';
+      const statement = form.querySelector('[data-field="statement"]')?.value.trim() || '';
+      if (!slotKey || !statement) {
+        this.notifyPlanPanel('槽位和事实内容都不能为空', true);
+        return;
+      }
+      this.applyFactPanelAction(chat, body, group, 'save', { slotKey, statement, value: statement });
+    });
+    card.appendChild(form);
+  }
+
+  openFactCreateForm(chat, body, data) {
+    const host = body.querySelector('[data-fact-create-host]');
+    if (!host) return;
+    const existing = host.querySelector('[data-fact-create]');
+    if (existing) {
+      existing.remove();
+      return;
+    }
+
+    const form = document.createElement('div');
+    form.dataset.factCreate = '1';
+    form.style.cssText = 'padding:10px 12px;border-radius:12px;background:rgba(0,0,0,0.035);margin-bottom:10px;display:flex;flex-direction:column;gap:6px;';
+    form.innerHTML = `
+      <div style="font-size:13px;color:#666;">手动添加一条事实（先写成待确认，需要成为权威值再点「设为当前」）</div>
+      <input class="vm-input-full" data-field="slotKey" list="vm-fact-slot-options" value="user.residence.current" placeholder="槽位，例如 user.residence.current">
+      <datalist id="vm-fact-slot-options">
+        <option value="user.residence.current">居住地</option>
+        <option value="user.location.current">当前所在地</option>
+        <option value="user.trip.current">行程状态</option>
+        <option value="user.task.论文">任务：论文</option>
+        <option value="user.body.head_pain">身体：头疼</option>
+      </datalist>
+      <textarea class="vm-input-full" data-field="statement" style="min-height:64px;" placeholder="事实内容，例如 我最近住在临空。"></textarea>
+      <div style="display:flex;gap:8px;">
+        <button class="vm-toolbar-btn vm-primary" data-action="save">保存</button>
+        <button class="vm-toolbar-btn" data-action="cancel">取消</button>
+      </div>
+    `;
+    form.querySelector('[data-action="cancel"]').addEventListener('click', () => form.remove());
+    form.querySelector('[data-action="save"]').addEventListener('click', () => {
+      const slotKey = form.querySelector('[data-field="slotKey"]')?.value.trim() || '';
+      const statement = form.querySelector('[data-field="statement"]')?.value.trim() || '';
+      if (!slotKey || !statement) {
+        this.notifyPlanPanel('槽位和事实内容都不能为空', true);
+        return;
+      }
+      this.createFact(chat, body, { slotKey, statement });
+    });
+    host.appendChild(form);
+  }
+
+  async createFact(chat, body, input) {
+    const chatId = this.getOrganizationChatId(chat);
+    try {
+      await this.externalMemoryRequest(chat, '/memory/current-facts/upsert', {
+        method: 'POST',
+        body: this.buildFactUpsertBody({ chatId }, {
+          slotKey: input.slotKey,
+          statement: input.statement,
+          value: input.statement,
+          status: 'shadow_candidate',
+          confidence: 0.99,
+          effectiveAt: Date.now(),
+          evidence: { writeVersion: 'manual-panel-v1', manual: true, addedAt: Date.now() }
+        })
+      });
+      this.notifyPlanPanel('已添加事实');
+      await this.renderPlanFactPanel(chat, body.parentNode);
+    } catch (error) {
+      const message = String(error?.message || error);
+      this.notifyPlanPanel(
+        /40[45]/.test(message)
+          ? '添加事实需要 memory-server 更新后才有对应接口，当前服务端版本还不支持。'
+          : `添加失败：${message}`,
+        true
+      );
     }
   }
 

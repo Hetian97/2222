@@ -375,3 +375,14 @@ bash /root/memory-server/start-memory-server.sh
 
 > 注意：面板是前端功能，要在手机上看到必须先让前端更新（合并进 `stable` 或切换 Pages 发布分支）。
 > 按用户的决定，这些改动攒到一次合并。
+
+### ⚠️ 前端 JS 的缓存铁律（2026-10-12 踩过的坑）
+
+Service Worker 对 JS/CSS 用的是**「缓存优先 + 后台更新」**（[sw.js:148](sw.js#L148)），HTML 才是网络优先。
+所以**只要改了前端 JS，必须同时做两件事**，否则手机上第一次打开一定是旧脚本：
+
+1. `sw.js` 的 `CACHE_VERSION` 加一（让新 SW 安装时清掉旧缓存）
+2. `index.html` 里该文件的 `?v=` 参数加一（**URL 变了才会缓存未命中，第一次打开就是新版**）
+
+历史上 `vector-memory.js?v=0.0.56` 长期没更新，导致「代码明明推上去了、手机上界面没变」。
+另外 `force-update.js` 的 `FILES_TO_UPDATE` 里**缺少 `vector-memory.js`**，那个「强制更新」功能也刷不到它。
