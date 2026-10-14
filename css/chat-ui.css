@@ -907,3 +907,15 @@
                opacity: 0.8;
                text-align: left;
            }
+
+
+/* ===== 思维链 APP：手动兼容设置面板（浅色/深色对齐） ===== */
+#thought-chain-extraction-settings { background: var(--bg-primary, #fff); }
+#thought-chain-extraction-settings label { color: var(--text-primary); }
+#thought-chain-extraction-settings input[type="text"],
+#thought-chain-extraction-settings select { background: var(--bg-primary, #fff); color: var(--text-primary); border-color: var(--border-color, #ddd); }
+.dark-mode #thought-chain-extraction-settings,
+.dark-mode #thought-chain-extraction-settings input[type="text"],
+.dark-mode #thought-chain-extraction-settings select { background: var(--bg-primary, #1c1c1e); }
+#thought-chain-tools-output { background: rgba(0, 0, 0, 0.03); color: var(--text-primary); border-color: var(--border-color, #ddd); }
+.dark-mode #thought-chain-tools-output { background: rgba(255, 255, 255, 0.05); }
