@@ -2119,6 +2119,130 @@ ${output}`;
   // 与「向量记忆」（memories 表 + Chroma 向量索引）完全无关：任何查看/编辑/删除
   // 都不会碰单条记忆和向量，也不会影响「单条记忆」「记忆簇预览」两个既有视图。
 
+  // ==================== 事实槽位选择器 ====================
+  // 抽取器实际会产生的槽位就这 5 类，全部列出来供选择（手机上下拉框比 datalist 可靠）。
+
+  getFactSlotTypeOptions() {
+    return [
+      { value: 'user.residence.current', label: '居住地（你住在哪）' },
+      { value: 'user.location.current', label: '当前所在地（你现在在哪）' },
+      { value: 'user.trip.current', label: '行程状态（出差 / 旅行中）' },
+      { value: 'user.task.', label: '任务进行状态（需填任务名）' },
+      { value: 'user.body.', label: '身体状态（需选部位）' },
+      { value: '__custom__', label: '自定义槽位（手动输入完整 key）' }
+    ];
+  }
+
+  getFactBodyPartOptions() {
+    return [
+      { value: 'menstrual_cycle', label: '生理期' },
+      { value: 'allergy', label: '过敏' },
+      { value: 'asthma', label: '哮喘' },
+      { value: 'cold', label: '感冒' },
+      { value: 'fever', label: '发烧' },
+      { value: 'cough', label: '咳嗽' },
+      { value: 'head_pain', label: '头疼' },
+      { value: 'abdominal_pain', label: '肚子疼' },
+      { value: 'stomach_pain', label: '胃疼' },
+      { value: 'chest_tightness', label: '胸闷' },
+      { value: 'hypoxia', label: '缺氧' },
+      { value: 'dizziness', label: '头晕' },
+      { value: 'nausea', label: '恶心' },
+      { value: 'general_discomfort', label: '身体不舒服' }
+    ];
+  }
+
+  // 「类型 + 子键」→ 完整槽位（纯函数，便于测试）
+  resolveFactSlotKey(input = {}) {
+    const type = String(input.type || '').trim();
+    if (type === '__custom__') return String(input.customKey || '').trim();
+    if (type === 'user.task.') {
+      const name = String(input.taskName || '').trim();
+      return name ? `user.task.${name}` : '';
+    }
+    if (type === 'user.body.') {
+      const part = String(input.bodyKey || '').trim();
+      return part ? `user.body.${part}` : '';
+    }
+    return type;
+  }
+
+  // 把已有槽位反解成「类型 + 子键」，用于编辑时预填
+  splitFactSlotKey(slotKey) {
+    const key = String(slotKey || '').trim();
+    if (key.startsWith('user.task.')) {
+      return { type: 'user.task.', taskName: key.slice('user.task.'.length) };
+    }
+    if (key.startsWith('user.body.')) {
+      return { type: 'user.body.', bodyKey: key.slice('user.body.'.length) };
+    }
+    const known = this.getFactSlotTypeOptions().some(option => option.value === key);
+    if (known) return { type: key };
+    return { type: '__custom__', customKey: key };
+  }
+
+  buildFactSlotPickerHtml(slotKey = 'user.residence.current') {
+    const escape = value => this._escapeHtml(value);
+    const parsed = this.splitFactSlotKey(slotKey);
+    const typeOptions = this.getFactSlotTypeOptions()
+      .map(option => `<option value="${escape(option.value)}" ${parsed.type === option.value ? 'selected' : ''}>${escape(option.label)}</option>`)
+      .join('');
+    const bodyOptions = this.getFactBodyPartOptions()
+      .map(option => `<option value="${escape(option.value)}" ${parsed.bodyKey === option.value ? 'selected' : ''}>${escape(option.label)}</option>`)
+      .join('');
+    return `
+      <select class="vm-input-full" data-field="slotType">${typeOptions}</select>
+      <input class="vm-input-full" data-field="taskName" placeholder="任务名，例如 论文"
+             value="${escape(parsed.taskName || '')}" style="display:none">
+      <select class="vm-input-full" data-field="bodyKey" style="display:none">${bodyOptions}</select>
+      <input class="vm-input-full" data-field="customKey" placeholder="完整槽位，例如 user.residence.current"
+             value="${escape(parsed.customKey || '')}" style="display:none">
+      <div data-role="slot-preview" style="font-size:12px;color:#888;"></div>
+    `;
+  }
+
+  bindFactSlotPicker(form) {
+    if (!form) return;
+    const typeEl = form.querySelector('[data-field="slotType"]');
+    const taskEl = form.querySelector('[data-field="taskName"]');
+    const bodyEl = form.querySelector('[data-field="bodyKey"]');
+    const customEl = form.querySelector('[data-field="customKey"]');
+    const previewEl = form.querySelector('[data-role="slot-preview"]');
+    if (!typeEl) return;
+
+    const refresh = () => {
+      const type = String(typeEl.value || '');
+      if (taskEl) taskEl.style.display = type === 'user.task.' ? '' : 'none';
+      if (bodyEl) bodyEl.style.display = type === 'user.body.' ? '' : 'none';
+      if (customEl) customEl.style.display = type === '__custom__' ? '' : 'none';
+      const resolved = this.resolveFactSlotKey({
+        type,
+        taskName: taskEl?.value,
+        bodyKey: bodyEl?.value,
+        customKey: customEl?.value
+      });
+      if (previewEl) {
+        previewEl.textContent = resolved ? `最终槽位：${resolved}` : '最终槽位：（还没填完整）';
+      }
+    };
+
+    [typeEl, taskEl, bodyEl, customEl].forEach(element => {
+      element?.addEventListener('change', refresh);
+      element?.addEventListener('input', refresh);
+    });
+    refresh();
+  }
+
+  readFactSlotKeyFromForm(form) {
+    if (!form) return '';
+    return this.resolveFactSlotKey({
+      type: form.querySelector('[data-field="slotType"]')?.value,
+      taskName: form.querySelector('[data-field="taskName"]')?.value,
+      bodyKey: form.querySelector('[data-field="bodyKey"]')?.value,
+      customKey: form.querySelector('[data-field="customKey"]')?.value
+    });
+  }
+
   // 读取页面实际加载的 vector-memory.js 的 ?v= 参数。
   // 用来一眼确认「新代码到底有没有生效」——如果面板上显示的还是旧版本号，
   // 就说明手机/浏览器在用缓存里的旧脚本，而不是代码没改对。
@@ -2870,16 +2994,17 @@ ${output}`;
     form.dataset.factEdit = '1';
     form.style.cssText = 'margin-top:8px;display:flex;flex-direction:column;gap:6px;';
     form.innerHTML = `
-      <input class="vm-input-full" data-field="slotKey" value="${this._escapeHtml(group.slotKey)}" placeholder="槽位">
+      ${this.buildFactSlotPickerHtml(group.slotKey)}
       <textarea class="vm-input-full" data-field="statement" style="min-height:64px;" placeholder="事实内容">${this._escapeHtml(fact.statement || fact.value || '')}</textarea>
       <div style="display:flex;gap:8px;">
         <button class="vm-toolbar-btn vm-primary" data-action="save">保存</button>
         <button class="vm-toolbar-btn" data-action="cancel">取消</button>
       </div>
     `;
+    this.bindFactSlotPicker(form);
     form.querySelector('[data-action="cancel"]').addEventListener('click', () => form.remove());
     form.querySelector('[data-action="save"]').addEventListener('click', () => {
-      const slotKey = form.querySelector('[data-field="slotKey"]')?.value.trim() || '';
+      const slotKey = this.readFactSlotKeyFromForm(form);
       const statement = form.querySelector('[data-field="statement"]')?.value.trim() || '';
       if (!slotKey || !statement) {
         this.notifyPlanPanel('槽位和事实内容都不能为空', true);
@@ -2904,23 +3029,17 @@ ${output}`;
     form.style.cssText = 'padding:10px 12px;border-radius:12px;background:rgba(0,0,0,0.035);margin-bottom:10px;display:flex;flex-direction:column;gap:6px;';
     form.innerHTML = `
       <div style="font-size:13px;color:#666;">手动添加一条事实（先写成待确认，需要成为权威值再点「设为当前」）</div>
-      <input class="vm-input-full" data-field="slotKey" list="vm-fact-slot-options" value="user.residence.current" placeholder="槽位，例如 user.residence.current">
-      <datalist id="vm-fact-slot-options">
-        <option value="user.residence.current">居住地</option>
-        <option value="user.location.current">当前所在地</option>
-        <option value="user.trip.current">行程状态</option>
-        <option value="user.task.论文">任务：论文</option>
-        <option value="user.body.head_pain">身体：头疼</option>
-      </datalist>
+      ${this.buildFactSlotPickerHtml('user.residence.current')}
       <textarea class="vm-input-full" data-field="statement" style="min-height:64px;" placeholder="事实内容，例如 我最近住在临空。"></textarea>
       <div style="display:flex;gap:8px;">
         <button class="vm-toolbar-btn vm-primary" data-action="save">保存</button>
         <button class="vm-toolbar-btn" data-action="cancel">取消</button>
       </div>
     `;
+    this.bindFactSlotPicker(form);
     form.querySelector('[data-action="cancel"]').addEventListener('click', () => form.remove());
     form.querySelector('[data-action="save"]').addEventListener('click', () => {
-      const slotKey = form.querySelector('[data-field="slotKey"]')?.value.trim() || '';
+      const slotKey = this.readFactSlotKeyFromForm(form);
       const statement = form.querySelector('[data-field="statement"]')?.value.trim() || '';
       if (!slotKey || !statement) {
         this.notifyPlanPanel('槽位和事实内容都不能为空', true);

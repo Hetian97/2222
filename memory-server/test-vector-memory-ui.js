@@ -583,6 +583,30 @@ async function main() {
   assert.equal(mixedFacts.length, 1);
   assert.equal(mixedFacts[0].current.id, 'd3', '被删除的版本即使时间更新也不能当当前值');
 
+  // 事实槽位下拉框（手机上下拉框比 datalist 可靠）
+  assert.equal(typeof manager.resolveFactSlotKey, 'function');
+  assert.equal(manager.resolveFactSlotKey({ type: 'user.residence.current' }), 'user.residence.current');
+  assert.equal(manager.resolveFactSlotKey({ type: 'user.task.', taskName: '论文' }), 'user.task.论文');
+  assert.equal(manager.resolveFactSlotKey({ type: 'user.body.', bodyKey: 'head_pain' }), 'user.body.head_pain');
+  assert.equal(manager.resolveFactSlotKey({ type: '__custom__', customKey: 'user.x.y' }), 'user.x.y');
+  assert.equal(manager.resolveFactSlotKey({ type: 'user.task.', taskName: '' }), '', '任务没填名字时不能给出半截槽位');
+  assert.equal(manager.resolveFactSlotKey({ type: 'user.body.', bodyKey: '' }), '', '身体没选部位时不能给出半截槽位');
+
+  assert.deepEqual(manager.splitFactSlotKey('user.task.论文'), { type: 'user.task.', taskName: '论文' });
+  assert.deepEqual(manager.splitFactSlotKey('user.body.cough'), { type: 'user.body.', bodyKey: 'cough' });
+  assert.deepEqual(manager.splitFactSlotKey('user.residence.current'), { type: 'user.residence.current' });
+  assert.deepEqual(manager.splitFactSlotKey('user.weird.thing'), { type: '__custom__', customKey: 'user.weird.thing' });
+
+  // 下拉框必须覆盖抽取器会产生的全部 5 类槽位
+  const slotTypeValues = manager.getFactSlotTypeOptions().map(option => option.value);
+  ['user.residence.current', 'user.location.current', 'user.trip.current', 'user.task.', 'user.body.']
+    .forEach(value => assert.ok(slotTypeValues.includes(value), `下拉框必须包含 ${value}`));
+  assert.equal(manager.getFactBodyPartOptions().length, 14, '身体部位应列出全部 14 个锚点');
+
+  assert(source.includes('buildFactSlotPickerHtml'), '必须有槽位下拉框');
+  assert(source.includes('data-field="slotType"'), '类型必须是真正的 select');
+  assert.ok(!source.includes('vm-fact-slot-options'), '旧的 datalist 必须删掉（手机上不弹）');
+
   console.log('Vector memory UI tests passed');
 }
 
