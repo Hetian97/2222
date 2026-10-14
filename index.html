@@ -48,7 +48,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js" defer></script>
   <script src="update-notification.js?v=0.0.36" defer></script>
-  <script src="thought-chain-manager.js?v=0.0.36" defer></script>
+  <script src="thought-chain-manager.js?v=0.0.37" defer></script>
   <script src="online-chat-manager.js?v=0.0.36" defer></script>
   <script src="online-chat-integration.js?v=0.0.36" defer></script>
   <script src="sticker-vision.js?v=0.0.36" defer></script>
@@ -4450,6 +4450,19 @@
                 </label>
             </div>
             <div class="settings-item">
+                <div>
+                    <label>思维链预填充兼容模式</label>
+                    <div class="settings-desc">自动 / 强制预填充 / 不预填充。Gemini flash 等不支持预填充的模型请选“不预填充”，否则会报 400（Requests ending with a model turn are not supported）；Gemini pro 支持预填充，可保持“自动”。</div>
+                </div>
+                <div class="settings-right">
+                    <select id="thought-chain-prefill-mode-select" class="settings-select">
+                        <option value="auto">自动</option>
+                        <option value="on">强制预填充</option>
+                        <option value="off">不预填充</option>
+                    </select>
+                </div>
+            </div>
+            <div class="settings-item">
                 <label>顶部状态栏</label>
                 <label class="toggle-switch">
                     <input type="checkbox" id="status-bar-toggle-switch">
@@ -4805,23 +4818,36 @@
             <label>条目名称</label>
             <input type="text" id="tc-name-input" placeholder="例如：潜台词感知">
           </div>
-          <div class="form-group" style="display: flex; gap: 15px;">
-            <div style="flex: 1;">
-              <label>注入位置</label>
+          <div class="form-group" style="display: flex; gap: 10px;">
+            <div style="flex: 1; min-width: 0;">
+              <label>位置</label>
               <select id="tc-position-select" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ddd;">
-                <option value="head">头部 (System)</option>
-                <option value="middle">中间 (System)</option>
-                <option value="bottom">底部 (AI Role - 触发器)</option>
+                <option value="head">头部</option>
+                <option value="middle">中间</option>
+                <option value="bottom">底部</option>
               </select>
             </div>
-            <div style="flex: 1;">
-              <label>发送身份</label>
+            <div style="flex: 1; min-width: 0;">
+              <label>身份</label>
               <select id="tc-role-select" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ddd;">
-                <option value="system">系统 (System)</option>
-                <option value="assistant">AI自己 (Assistant)</option>
-                <option value="user">用户 (User)</option>
+                <option value="system">系统</option>
+                <option value="assistant">AI自己</option>
+                <option value="user">用户</option>
               </select>
             </div>
+            <div style="flex: 1; min-width: 0;">
+              <label>预填充</label>
+              <select id="tc-prefill-select" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ddd;">
+                <option value="auto">自动</option>
+                <option value="on">强制</option>
+                <option value="off">关闭</option>
+              </select>
+            </div>
+          </div>
+          <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-top: -6px;">
+            位置：头部/中间注入 system，底部作为触发器注入。<br>
+            预填充「自动」= Gemini flash 这类不支持预填充的模型自动改为不预填充；「强制」= 一定发送 assistant 预填充（Gemini pro 可保持自动或强制）；「关闭」= 本轮不发送这条 assistant 开头文本，改由 system 约束让模型自己输出同样的开头，思考内容照常提取并显示思维链。<br>
+            报 400：Requests ending with a model turn are not supported 时，把底部条目设为「关闭」或全局选「不预填充」。
           </div>
           <div class="form-group" style="flex-grow: 1; display: flex; flex-direction: column;">
             <label>内容文本 <span style="font-size: 12px; color: #999; font-weight: normal;">(支持 <code><变量名></code>)</span></label>

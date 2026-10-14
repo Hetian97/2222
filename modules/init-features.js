@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // init-features.js
 // 功能模块：init() 函数后半段
 // 从 init-and-state.js 约 10164~17200 行拆分
@@ -346,6 +346,15 @@ window.initFeatures = function(state, db) {
       state.globalSettings.showSeconds = document.getElementById('global-show-seconds-switch').checked;
       state.globalSettings.dropdownPopupMode = document.getElementById('dropdown-popup-mode-switch').checked;
       state.globalSettings.showThoughtChainInChat = document.getElementById('global-show-thought-chain-switch').checked;
+      const thoughtChainPrefillSelectB = document.getElementById('thought-chain-prefill-mode-select');
+      if (thoughtChainPrefillSelectB) {
+        if (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.setPrefillCompatMode) {
+          ThoughtChainManager.setPrefillCompatMode(thoughtChainPrefillSelectB.value);
+        } else {
+          state.globalSettings.thoughtChainPrefillMode = thoughtChainPrefillSelectB.value || 'auto';
+          state.globalSettings.thoughtChainPrefillEnabled = thoughtChainPrefillSelectB.value !== 'off';
+        }
+      }
       state.globalSettings.lockScreenEnabled = document.getElementById('lock-screen-toggle').checked;
       state.globalSettings.lockScreenBypassEnabled = document.getElementById('lock-screen-bypass-toggle').checked;
       state.globalSettings.lockScreenPassword = document.getElementById('lock-screen-password-input').value.trim();

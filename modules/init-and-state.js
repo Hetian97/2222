@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // init-and-state.js
 // 主入口文件（精简后）
 // 内容：DOMContentLoaded 入口、billState/state 定义、
@@ -177,6 +177,7 @@ document.addEventListener('DOMContentLoaded', () => {
       safeRenderMode: false,
       dropdownPopupMode: false,
       showThoughtChainInChat: true, // 是否在聊天界面显示AI深度思考
+      thoughtChainPrefillMode: 'auto', // 思维链底部预填充兼容模式：auto(自动) / on(强制预填充) / off(不预填充)
       systemNotification: {
         enabled: false,
         appName: 'EPhone',

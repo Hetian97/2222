@@ -5147,15 +5147,29 @@ ${getActiveThoughtsPrompt()}
       }
 
       // 注入 思维链 底部触发器
+      // 预填充兼容：Gemini flash 这类不支持以 model/assistant 轮结尾的上游会直接 400
+      //（Requests ending with a model turn are not supported），此时跳过底部预填，
+      // 改用 system 约束让模型自己输出同样的开头，思考提取与界面显示逻辑完全不变。
+      let bottomPrefillInjected = [];
       if (thoughtChainChunks.bottom && thoughtChainChunks.bottom.length > 0) {
-        messagesPayload.push(...thoughtChainChunks.bottom.map(c => ({
-          role: c.role,
-          content: c.content
-        })));
+        const bottomMessages = (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.getBottomPayloadMessages)
+          ? ThoughtChainManager.getBottomPayloadMessages(thoughtChainMode)
+          : thoughtChainChunks.bottom.map(c => ({
+              role: c.role,
+              content: c.content
+            }));
+        if (bottomMessages.length > 0) {
+          messagesPayload.push(...bottomMessages);
+          bottomPrefillInjected = bottomMessages;
+        }
       }
 
+      let prefillFallbackPrompt = (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.buildPrefillFallbackSystemPrompt)
+        ? (ThoughtChainManager.buildPrefillFallbackSystemPrompt(thoughtChainMode) || '')
+        : '';
+
       let isGemini = proxyUrl === GEMINI_API_URL;
-      let geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messagesPayload)
+      let geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt + (prefillFallbackPrompt ? '\n\n' + prefillFallbackPrompt : ''), messagesPayload)
 
       // 创建新的 AbortController
       currentApiController = new AbortController();
@@ -5173,10 +5187,10 @@ ${getActiveThoughtsPrompt()}
         chatId: chatId,
         chatName: chat.name,
         model: model,
-        systemPrompt: systemPrompt,
+        systemPrompt: systemPrompt + (prefillFallbackPrompt ? '\n\n' + prefillFallbackPrompt : ''),
         messages: isGemini ? messagesPayload : [{
           role: 'system',
-          content: systemPrompt
+          content: systemPrompt + (prefillFallbackPrompt ? '\n\n' + prefillFallbackPrompt : '')
         }, ...messagesPayload],
         temperature: state.globalSettings.apiTemperature || 0.8,
         ...(state.globalSettings.apiTopPEnabled && state.globalSettings.apiTopP !== undefined ? { top_p: state.globalSettings.apiTopP } : {}),
@@ -5228,12 +5242,36 @@ ${getActiveThoughtsPrompt()}
         return;
       }
 
-      try {
-        let reqBody = {
+      // 识别“上游不支持以 model/assistant 轮结尾（预填充）”类错误
+      function isPrefillUnsupportedResponse(status, errText) {
+        if (status !== 400) return false;
+        const text = String(errText || '').toLowerCase();
+        if (!text) return false;
+        return (
+          text.includes('model turn') ||
+          text.includes('ending with a model') ||
+          text.includes('prefill') ||
+          text.includes('pre-fill') ||
+          text.includes('预填充')
+        );
+      }
+
+      async function buildMainApiResponse() {
+        const outboundSystemPrompt = systemPrompt + (prefillFallbackPrompt ? '\n\n' + prefillFallbackPrompt : '');
+
+        if (isGemini) {
+          geminiConfig = toGeminiRequestData(model, apiKey, outboundSystemPrompt, messagesPayload);
+          return fetch(geminiConfig.url, {
+            ...geminiConfig.data,
+            signal: currentApiController.signal
+          });
+        }
+
+        const reqBody = {
             model: model,
             messages: [{
                 role: 'system',
-                content: systemPrompt
+                content: outboundSystemPrompt
             }, ...messagesPayload],
             temperature: state.globalSettings.apiTemperature || 0.8,
             stream: useStream,
@@ -5242,12 +5280,7 @@ ${getActiveThoughtsPrompt()}
             ...(state.globalSettings.apiPresencePenaltyEnabled && state.globalSettings.apiPresencePenalty !== undefined ? { presence_penalty: state.globalSettings.apiPresencePenalty } : {}),
             ...(state.globalSettings.apiFrequencyPenaltyEnabled && state.globalSettings.apiFrequencyPenalty !== undefined ? { frequency_penalty: state.globalSettings.apiFrequencyPenalty } : {})
         };
-        response = isGemini ?
-          await fetch(geminiConfig.url, {
-            ...geminiConfig.data,
-            signal: currentApiController.signal
-          }) :
-          await fetch(`${proxyUrl}/v1/chat/completions`, {
+        return fetch(`${proxyUrl}/v1/chat/completions`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -5255,12 +5288,48 @@ ${getActiveThoughtsPrompt()}
             },
             body: JSON.stringify(reqBody),
             signal: currentApiController.signal
-          });
+        });
+      }
+
+      try {
+        response = await buildMainApiResponse();
       } catch (networkError) {
         if (networkError.name === 'AbortError') {
           throw networkError;
         }
         throw new Error(`网络请求失败: ${networkError.message}`);
+      }
+
+      // 兜底：上游确实不支持预填充时（先声明后报错、或开关没来得及切换），
+      // 自动撤掉底部 assistant 预填并原样重试一次，思考提取与显示逻辑不变。
+      if (
+        !response.ok &&
+        bottomPrefillInjected.length > 0 &&
+        prefillFallbackPrompt &&
+        typeof ThoughtChainManager !== 'undefined' &&
+        typeof ThoughtChainManager.setPrefillCompatMode === 'function'
+      ) {
+        let prefillErrorRaw = '';
+        try { prefillErrorRaw = await response.clone().text(); } catch (cloneError) { prefillErrorRaw = ''; }
+        if (isPrefillUnsupportedResponse(response.status, prefillErrorRaw)) {
+          console.warn('[思维链预填充] 上游不支持以 model turn 结尾，已自动去除底部预填充并重试一次。');
+          try {
+            if (typeof showToast === 'function') {
+              showToast('检测到当前模型不支持预填充，本轮已自动改用“无预填充+提取思考”。如需固定，请到 设置→显示与交互→思维链预填充兼容模式 选择“不预填充”。', 'warning', 6000);
+            }
+          } catch (toastError) { /* 忽略提示失败 */ }
+          for (const injected of bottomPrefillInjected) {
+            const index = messagesPayload.lastIndexOf(injected);
+            if (index !== -1) messagesPayload.splice(index, 1);
+          }
+          bottomPrefillInjected = [];
+          try {
+            response = await buildMainApiResponse();
+          } catch (retryError) {
+            if (retryError.name === 'AbortError') throw retryError;
+            throw new Error(`网络请求失败: ${retryError.message}`);
+          }
+        }
       }
 
       if (!response.ok) {

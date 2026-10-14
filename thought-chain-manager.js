@@ -1,6 +1,11 @@
 const ThoughtChainManager = {
     items: [],
     enabled: true,
+    // 底部触发器的“预填充兼容模式”：
+    //   auto = 自动（Gemini 的 flash 系列等已知不支持结尾 model 轮的模型自动改走无预填）
+    //   on   = 强制开启（底部 assistant 条目按原样预填充，Gemini Pro 等支持预填时使用）
+    //   off  = 强制关闭（完全不发送底部 assistant 预填，所有模型都走“无预填 + 提取思考”）
+    prefillCompatMode: 'auto',
     selectedIds: [],
     draggedItemId: null,
     activeMode: 'chat',
@@ -74,12 +79,46 @@ const ThoughtChainManager = {
         this.ensurePresetStore();
         this.loadData('chat');
         this.bindEvents();
+        this.bindPrefillCompatModeUI();
         this.renderList();
         
         // 由于 Dexie 初始化可能是异步的，等待一点时间后加载下拉框
         setTimeout(() => {
             this.loadPresetsDropdown();
+            this.syncPrefillCompatModeSelect();
         }, 500);
+    },
+
+    // 全局“预填充兼容模式”下拉框（外观设置 → 显示与交互）
+    syncPrefillCompatModeSelect() {
+        const selectEl = document.getElementById('thought-chain-prefill-mode-select');
+        if (!selectEl) return;
+        selectEl.value = this.getPrefillCompatMode();
+    },
+
+    bindPrefillCompatModeUI() {
+        const selectEl = document.getElementById('thought-chain-prefill-mode-select');
+        if (!selectEl || selectEl.dataset.tcPrefillBound === '1') {
+            this.syncPrefillCompatModeSelect();
+            return;
+        }
+        selectEl.dataset.tcPrefillBound = '1';
+        this.syncPrefillCompatModeSelect();
+
+        selectEl.addEventListener('change', (e) => {
+            const mode = this.setPrefillCompatMode(e.target.value);
+            if (typeof db !== 'undefined' && db.globalSettings && state && state.globalSettings) {
+                db.globalSettings.put(state.globalSettings).catch(() => {});
+            }
+            const labelMap = {
+                auto: '自动：gemini flash 等自动不预填充，其余保持预填充',
+                on: '强制预填充：所有模型都发送底部 assistant 预填充',
+                off: '不预填充：所有模型都不发送底部 assistant 预填充'
+            };
+            if (typeof showToast === 'function') {
+                showToast(`思维链预填充兼容模式：${labelMap[mode] || mode}`);
+            }
+        });
     },
 
     ensurePresetStore() {
@@ -303,8 +342,111 @@ const ThoughtChainManager = {
 
     saveData(mode = this.activeMode) {
         const config = this.getModeConfig(mode);
+        this.normalizeItems();
         localStorage.setItem(config.enabledKey, this.enabled);
         localStorage.setItem(config.itemsKey, JSON.stringify(this.items));
+    },
+
+    // 兼容旧数据：老条目没有 prefillMode 字段，统一补成 auto
+    normalizeItems(items = this.items) {
+        if (!Array.isArray(items)) return items;
+        items.forEach(item => {
+            if (!item) return;
+            if (item.prefillMode !== 'on' && item.prefillMode !== 'off') {
+                item.prefillMode = 'auto';
+            }
+        });
+        return items;
+    },
+
+    getPrefillCompatMode() {
+        const stored = (typeof state !== 'undefined' && state.globalSettings)
+            ? state.globalSettings.thoughtChainPrefillMode
+            : null;
+        return (stored === 'on' || stored === 'off') ? stored : this.prefillCompatMode;
+    },
+
+    setPrefillCompatMode(mode) {
+        const next = (mode === 'on' || mode === 'off') ? mode : 'auto';
+        this.prefillCompatMode = next;
+        if (typeof state !== 'undefined' && state.globalSettings) {
+            state.globalSettings.thoughtChainPrefillMode = next;
+            // 兼容旧布尔字段（旧版本/其他模块若读取它会得到一致结果）
+            state.globalSettings.thoughtChainPrefillEnabled = next !== 'off';
+        }
+        return next;
+    },
+
+    // 当前 API 是否可能是“不支持以 model/assistant 轮结尾”的上游（Gemini flash 系列）
+    isPrefillUnsupportedUpstream() {
+        const apiConfig = (typeof state !== 'undefined' && state.apiConfig) ? state.apiConfig : null;
+        const model = String((apiConfig && apiConfig.model) || '').toLowerCase();
+        const proxyUrl = String((apiConfig && apiConfig.proxyUrl) || '').toLowerCase();
+        const isGeminiLike = proxyUrl.includes('generativelanguage') || model.includes('gemini');
+
+        if (!isGeminiLike) return false;
+        // gemini pro 支持预填充；flash / flash-lite 等不支持
+        if (model.includes('flash')) return true;
+        if (!model) return true; // 拿不到模型名时保守处理
+        return false;
+    },
+
+    // 是否允许发送底部 assistant 预填充（单一判断入口，自动/强制开/强制关都在这里收口）
+    shouldUsePrefill() {
+        const mode = this.getPrefillCompatMode();
+        if (mode === 'off') return false;
+        if (mode === 'on') return true;
+        return !this.isPrefillUnsupportedUpstream();
+    },
+
+    // 是否发送某个具体的底部条目（per-item 可覆盖自动判断）
+    shouldSendBottomItem(item) {
+        if (!item) return false;
+        const itemMode = item.prefillMode || 'auto';
+        if (itemMode === 'on') return true;
+        if (itemMode === 'off') return false;
+        return this.shouldUsePrefill();
+    },
+
+    // 依赖 assistant 预填充的底部条目（被跳过时需要把“先输出思考”的约束补进 system）
+    getSkippedBottomItems(mode = 'chat') {
+        const chunks = this.getPayloadChunks(mode);
+        return (chunks.bottom || []).filter(item => item && item.content && !this.shouldSendBottomItem(item));
+    },
+
+    // 统一的底部注入入口：返回真正要 push 进 messagesPayload 的底部消息
+    getBottomPayloadMessages(mode = 'chat') {
+        const chunks = this.getPayloadChunks(mode);
+        return (chunks.bottom || [])
+            .filter(item => item && item.content && this.shouldSendBottomItem(item))
+            .map(item => ({
+                role: item.role || 'assistant',
+                content: item.content
+            }));
+    },
+
+    // 被跳过底部预填时，往 system prompt 补的替代约束
+    buildPrefillFallbackSystemPrompt(mode = 'chat') {
+        const skipped = this.getSkippedBottomItems(mode);
+        if (!skipped.length) return '';
+
+        const triggerTexts = skipped
+            .filter(item => (item.role || 'assistant') === 'assistant')
+            .map(item => String(item.content || '').trim())
+            .filter(Boolean);
+        if (!triggerTexts.length) return '';
+
+        const thinkingTrigger = triggerTexts.find(text => /^<thinking>/i.test(text));
+        if (!thinkingTrigger) return '';
+
+        return [
+            '# 【思维链输出格式（本轮未使用预填充，必须严格遵守）】',
+            '- 当前 API 不支持 assistant 预填充，本轮没有替你预填任何开头文本。',
+            `- 你的回复【必须】直接以 ${thinkingTrigger} 开头，先完成思考，再以 </thinking> 结束思考。`,
+            '- </thinking> 之后必须继续输出正常的 JSON 数组回复，禁止只输出思考内容。',
+            '- 禁止把 </thinking> 之后的内容再次包进新的 <thinking> 标签里。',
+            '- 如果思考被打断或写不完，也必须先补上 </thinking> 再继续正文，否则整轮回复无法被识别。'
+        ].join('\n');
     },
 
     switchMode(mode) {
@@ -894,6 +1036,8 @@ const ThoughtChainManager = {
         document.getElementById('tc-name-input').value = '';
         document.getElementById('tc-position-select').value = 'middle';
         document.getElementById('tc-role-select').value = 'system';
+        const prefillSelect = document.getElementById('tc-prefill-select');
+        if (prefillSelect) prefillSelect.value = 'auto';
         document.getElementById('tc-content-input').value = '';
         document.getElementById('tc-enabled-switch').checked = true;
         
@@ -907,6 +1051,7 @@ const ThoughtChainManager = {
                 document.getElementById('tc-name-input').value = item.name;
                 document.getElementById('tc-position-select').value = item.position;
                 document.getElementById('tc-role-select').value = item.role;
+                if (prefillSelect) prefillSelect.value = item.prefillMode || 'auto';
                 document.getElementById('tc-content-input').value = item.content;
                 document.getElementById('tc-enabled-switch').checked = item.enabled;
             }
@@ -929,6 +1074,8 @@ const ThoughtChainManager = {
         const name = document.getElementById('tc-name-input').value.trim();
         const position = document.getElementById('tc-position-select').value;
         const role = document.getElementById('tc-role-select').value;
+        const prefillSelect = document.getElementById('tc-prefill-select');
+        const prefillMode = prefillSelect ? (prefillSelect.value || 'auto') : 'auto';
         const content = document.getElementById('tc-content-input').value.trim();
         const enabled = document.getElementById('tc-enabled-switch').checked;
 
@@ -943,6 +1090,7 @@ const ThoughtChainManager = {
                 item.name = name;
                 item.position = position;
                 item.role = role;
+                item.prefillMode = prefillMode;
                 item.content = content;
                 item.enabled = enabled;
             }
@@ -952,6 +1100,7 @@ const ThoughtChainManager = {
                 name,
                 position,
                 role,
+                prefillMode,
                 content,
                 enabled
             };

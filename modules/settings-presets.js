@@ -1850,6 +1850,17 @@
     document.getElementById('api-style-beautify-switch').checked = state.globalSettings.apiStyleBeautify || false;
     document.getElementById('dropdown-popup-mode-switch').checked = state.globalSettings.dropdownPopupMode || false;
     document.getElementById('global-show-thought-chain-switch').checked = state.globalSettings.showThoughtChainInChat !== false;
+    // 思维链底部预填充兼容模式回显（自动 / 强制预填充 / 不预填充）
+    {
+      const prefillModeValue = (state.globalSettings.thoughtChainPrefillMode === 'on' || state.globalSettings.thoughtChainPrefillMode === 'off')
+        ? state.globalSettings.thoughtChainPrefillMode
+        : (state.globalSettings.thoughtChainPrefillEnabled === false ? 'off' : 'auto');
+      const prefillSelectEl = document.getElementById('thought-chain-prefill-mode-select');
+      if (prefillSelectEl) prefillSelectEl.value = prefillModeValue;
+      if (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.setPrefillCompatMode) {
+        ThoughtChainManager.setPrefillCompatMode(prefillModeValue);
+      }
+    }
     document.getElementById('lock-screen-toggle').checked = state.globalSettings.lockScreenEnabled || false; // 锁屏回显
     document.getElementById('lock-screen-bypass-toggle').checked = state.globalSettings.lockScreenBypassEnabled || false; // 锁屏跳过回显
     document.getElementById('lock-screen-password-input').value = state.globalSettings.lockScreenPassword || ''; // 密码回显
