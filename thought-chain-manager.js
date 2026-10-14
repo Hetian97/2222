@@ -166,9 +166,18 @@ const ThoughtChainManager = {
             }));
     },
 
+    // 当前模式是否启用（非当前模式读存储值）
+    isModeEnabled(mode = this.activeMode) {
+        const resolvedMode = this.modes[mode] ? mode : 'chat';
+        if (resolvedMode === this.activeMode) return this.enabled !== false;
+        return !!this.getStoredModeState(resolvedMode).enabled;
+    },
+
     // 关闭预填充时，往 system prompt 补的替代约束（保持“能提取到思考”）
     buildPrefillFallbackSystemPrompt(mode = this.activeMode) {
         const behavior = this.getBehavior(mode);
+        // 该模式没开思维链：不要注入任何约束
+        if (!this.isModeEnabled(mode)) return '';
         // 通话模式自管注入，不需要这条兜底约束
         if (behavior.manageOwnInjection) return '';
         if (this.shouldUsePrefill(mode)) return '';
@@ -185,14 +194,38 @@ const ThoughtChainManager = {
         const endMarker = behavior.endMarker || '</thinking>';
         const opener = triggerTexts.find(text => text.indexOf(startMarker) === 0) || startMarker;
 
-        return [
+        const thinkingModules = (chunks.head || []).concat(chunks.middle || [])
+            .map(item => String(item && item.content || '').trim())
+            .filter(Boolean)
+            .join('\n');
+
+        const lines = [
             '# 【思维链输出格式（本轮未使用预填充，必须严格遵守）】',
             '- 本轮已关闭 assistant 预填充，没有替你预填任何开头文本。',
-            `- 你的回复【必须】直接以 ${opener} 开头，先完成思考，再以 ${endMarker} 结束思考。`,
-            `- ${endMarker} 之后必须继续输出正常的 JSON 数组回复，禁止只输出思考内容。`,
-            `- 禁止把 ${endMarker} 之后的内容再次包进新的 ${startMarker} 标签里。`,
-            `- 如果思考被打断或写不完，也必须先补上 ${endMarker} 再继续正文，否则整轮回复无法被识别。`
-        ].join('\n');
+            '- 基础要求：你的回复【必须】仍然是完整的 JSON 数组，数组元素仍然是本轮的行动指令，格式不变。',
+            '- 强制要求：数组的【第一个对象】必须是思维链块，且必须写成：',
+            '{"type":"thought_chain_block","content":"你本轮的内部判断"}',
+            '- thought_chain_block 是前端用来显示“深度思考”的块，不是角色说出口的话，不得写进任何 text / voice_message / offline_text 的正式内容里。',
+            '  （线下模式请把它作为数组的第一个元素单独放，不要在 offline_text 内部再输出这个对象）',
+            '- 数组里【必须】至少再有一条正式内容，禁止只返回 thought_chain_block。',
+            '- 禁止省略 thought_chain_block，禁止输出“思维链无法显示”“系统不展示思维链”之类的解释当台词。',
+            `- 如果你更习惯用标记，也可以先输出 ${opener} ... ${endMarker} 再接 JSON 数组，两者任选其一，但必须能让人看出你的思考内容。`,
+            '- 示例：',
+            '[',
+            '  {"type":"thought_chain_block","content":"他这句话在试探我，我先顺着话题，别急着解释。"},',
+            '  {"type":"text","content":"嗯，我在听。"}',
+            ']'
+        ];
+
+        if (thinkingModules) {
+            lines.push(
+                '',
+                '- thought_chain_block 的 content 必须按下面的思考要点逐项展开（这是你本轮的内部判断依据）：',
+                thinkingModules
+            );
+        }
+
+        return lines.join('\n');
     },
 
     // 未显式传模式时，按当前活跃聊天推断：线下模式 → offline，其余 → chat
@@ -254,9 +287,18 @@ const ThoughtChainManager = {
             if (config.removeFromBody) matches.forEach(match => { body = body.replace(match.full, ''); });
             let reasoning = matches.map(match => match.content).filter(Boolean).join('\n\n');
 
-            // 兼容无标记思考：模型完全没输出开始/结束标记时（Gemini flash 关闭预填充后很常见），
-            // 把 JSON 正文之前的那段内容当作思考内容，否则思维链会整块消失。
+            // 方式二（最可靠）：模型按 system 约束在 JSON 数组首位返回 thought_chain_block
             let usedFallback = false;
+            if (!reasoning) {
+                const blockExtraction = this.extractThoughtChainBlocks(body);
+                if (blockExtraction.reasoning) {
+                    reasoning = blockExtraction.reasoning;
+                    body = blockExtraction.body;
+                    usedFallback = true;
+                }
+            }
+
+            // 方式三：模型完全没打任何标记，把 JSON 正文之前的那段文字当思考内容
             if (!reasoning && config.fallbackBeforeJson !== false) {
                 const fallback = this.extractLeadingNonJson(body);
                 if (fallback.reasoning) {
@@ -280,6 +322,51 @@ const ThoughtChainManager = {
         }
     },
 
+    // 从 JSON 数组/对象里摘出 thought_chain_block，并把它们从正文中移除
+    extractThoughtChainBlocks(text) {
+        const source = typeof text === 'string' ? text : String(text ?? '');
+        const firstBracket = source.indexOf('[');
+        const firstBrace = source.indexOf('{');
+        let startIndex = -1;
+        if (firstBracket !== -1 && firstBrace !== -1) startIndex = Math.min(firstBracket, firstBrace);
+        else startIndex = firstBracket !== -1 ? firstBracket : firstBrace;
+        if (startIndex === -1) return { reasoning: '', body: source };
+
+        const endIndex = Math.max(source.lastIndexOf(']'), source.lastIndexOf('}'));
+        if (endIndex <= startIndex) return { reasoning: '', body: source };
+
+        const jsonText = source.slice(startIndex, endIndex + 1);
+        let parsed = null;
+        try {
+            parsed = JSON.parse(jsonText);
+        } catch (e) {
+            // 末尾可能还有截断内容，退一步按“最后一个完整对象”再试一次
+            const lastBrace = jsonText.lastIndexOf('}');
+            if (lastBrace !== -1) {
+                try { parsed = JSON.parse(jsonText.slice(0, lastBrace + 1) + ']'); } catch (e2) { parsed = null; }
+            }
+            if (!parsed) return { reasoning: '', body: source };
+        }
+
+        const list = Array.isArray(parsed) ? parsed : [parsed];
+        const thoughts = [];
+        const kept = list.filter(item => {
+            if (item && typeof item === 'object' && item.type === 'thought_chain_block') {
+                const content = String(item.content || item.text || '').trim();
+                if (content) thoughts.push(content);
+                return false;
+            }
+            return true;
+        });
+        if (!thoughts.length) return { reasoning: '', body: source };
+
+        const serialized = JSON.stringify(kept, null, 2);
+        return {
+            reasoning: thoughts.join('\n\n'),
+            body: source.slice(0, startIndex).trim() + (source.slice(0, startIndex).trim() ? '\n' : '') + serialized
+        };
+    },
+
     // 取正文 JSON（数组或对象）之前的前置文本作为思考内容
     extractLeadingNonJson(text) {
         const source = typeof text === 'string' ? text : String(text ?? '');
@@ -300,15 +387,19 @@ const ThoughtChainManager = {
         const mode = this.resolveExtractionMode(null);
         if (reasoning) {
             if (usedFallback) {
-                console.log(`[思维链] 未找到「${config.startMarker || ''} / ${config.endMarker || ''}」标记，已按“兼容无标记思考”取 JSON 之前的文本作为思考内容。`);
+                console.log('[思维链] 已按“thought_chain_block / 无标记思考”兜底提取到思考内容。');
             }
             return;
         }
         if (this._extractionWarned && this._extractionWarned[mode]) return;
         this._extractionWarned = this._extractionWarned || {};
         this._extractionWarned[mode] = true;
+        const ruleText = config.extractionMode === 'regex'
+            ? `正则「${config.extractionRegex || '(空)'}」`
+            : `标记「${config.startMarker} / ${config.endMarker}」`;
         console.warn(
-            `[思维链] 提取思考内容失败：原始返回里既没有「${config.startMarker || ''}」也没有「${config.endMarker || ''}」。` +
+            `[思维链] 未提取到思考内容：原始返回既没有命中 ${ruleText}，` +
+            'JSON 里也没有 thought_chain_block，JSON 之前也没有前置文字。' +
             `原始返回开头 240 字：${String(raw).slice(0, 240)}`
         );
     },
@@ -317,7 +408,8 @@ const ThoughtChainManager = {
     injectIntoMessages(messages, mode = this.activeMode) {
         const history = Array.isArray(messages) ? messages.slice() : [];
         let result = history.slice();
-        if (!this.enabled) return result;
+        // 该模式没开思维链就什么都不注入（非当前模式要读存储值，不能只看 this.enabled）
+        if (!this.isModeEnabled(mode)) return result;
         const behavior = this.getBehavior(mode);
         if (behavior.manageOwnInjection) return result;
 
