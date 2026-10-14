@@ -88,6 +88,70 @@ const LATEST_BACKUP_FILE = process.env.MEMORY_BACKUP_DIR
   : path.join(__dirname, 'memory.backup.db');
 const API_TOKEN_FILE = path.join(__dirname, '.memory-api-token');
 
+// 备份保留策略：
+//   MEMORY_BACKUP_KEEP 控制 backups/ 里保留多少份「时间戳」备份（默认 2），
+//   另有 LATEST_BACKUP_FILE（memory.backup.db）每次都被覆盖成最新的一份。
+//   keep=2 → 盘上 3 份（上一代 + 最新 + latest），可回滚到上一次备份；
+//   keep=1 → 盘上 2 份（都是最新快照，互为冗余，且没有上一代）。
+const BACKUP_KEEP_COUNT = (() => {
+  const raw = Number(process.env.MEMORY_BACKUP_KEEP);
+  return Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 2;
+})();
+
+// 组织预览的预备份开关：预览只重建覆盖层（memory_clusters / memory_cluster_members /
+// memory_organization），不改 memories 与向量，所以整库副本不是必需。
+// 需要时可用请求体 {"backup": false} 单次跳过；这里控制默认值。
+const PREVIEW_BACKUP_ENABLED =
+  String(process.env.MEMORY_ORGANIZATION_PREVIEW_BACKUP_ENABLED || 'true').toLowerCase() !== 'false';
+
+// 写入路径的备份节流与合并：
+//   MEMORY_WRITE_BACKUP_MIN_INTERVAL_MINUTES：写入类接口（/memory/add、/memory/delete、MCP 写入）
+//     自动整库备份的最小间隔，默认 10（分钟）。设 0 = 恢复旧行为（每次写入都备份）；
+//     设 off = 从不自动备份（只保留手动 /memory/backup 与 /memory/clear 的强制备份）。
+//   MEMORY_WRITE_BACKUP_IDLE_SECONDS：一批写入安静下来后补一次备份的等待秒数，默认 60；
+//     设 0 = 关闭「空闲补备份」。这样每个总结批次结束时都会有一份含新记忆的快照。
+//   MEMORY_BACKUP_LATEST_HARDLINK：默认 true，memory.backup.db 用硬链接指向最新时间戳备份
+//     （每次备份只写 1 份而不是 2 份）；跨设备等硬链接失败时自动回退为复制。
+const WRITE_BACKUP_INTERVAL_MINUTES = (() => {
+  const raw = String(process.env.MEMORY_WRITE_BACKUP_MIN_INTERVAL_MINUTES ?? '10').trim().toLowerCase();
+  if (['off', 'false', 'never', 'no'].includes(raw)) return -1;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : 10;
+})();
+const WRITE_BACKUP_INTERVAL_MS = WRITE_BACKUP_INTERVAL_MINUTES * 60 * 1000;
+const WRITE_BACKUP_IDLE_MS = (() => {
+  const value = Number(process.env.MEMORY_WRITE_BACKUP_IDLE_SECONDS ?? '60');
+  return Number.isFinite(value) && value >= 0 ? value * 1000 : 60000;
+})();
+const BACKUP_LATEST_HARDLINK =
+  String(process.env.MEMORY_BACKUP_LATEST_HARDLINK || 'true').toLowerCase() !== 'false';
+let lastSuccessfulBackupAt = 0;
+let writeBackupSkippedCount = 0;
+let trailingBackupTimer = null;
+let pendingWriteBackupReason = null;
+
+// 已知无害的第三方告警过滤：
+//   chromadb 客户端在未安装可选的 @chroma-core/default-embed 时，每次解析集合都会
+//   console.warn 一句 "Cannot instantiate a collection with the DefaultEmbeddingFunction. ..."。
+//   本服务所有向量都是自带（upsert 传 embeddings、查询传 queryEmbeddings），默认 EF 从未被调用，
+//   因此这句只是日志噪音。这里只屏蔽这一句，其它告警（包括 chroma 连接失败等）照常输出。
+const CHROMA_DEFAULT_EF_NOISE = 'Cannot instantiate a collection with the DefaultEmbeddingFunction';
+const nativeConsoleWarn = console.warn.bind(console);
+let suppressedChromaEfWarnings = 0;
+console.warn = (...args) => {
+  const text = args
+    .map(value => (typeof value === 'string' ? value : (value && value.message) ? value.message : String(value)))
+    .join(' ');
+  if (text.includes(CHROMA_DEFAULT_EF_NOISE)) {
+    suppressedChromaEfWarnings += 1;
+    if (suppressedChromaEfWarnings === 1) {
+      nativeConsoleWarn('[memory-server] 已忽略 chromadb 的 DefaultEmbeddingFunction 告警：向量全部自带、默认 EF 未被调用，后续同类告警不再打印');
+    }
+    return;
+  }
+  nativeConsoleWarn(...args);
+};
+
 function getConfiguredApiToken() {
   const environmentToken = String(process.env.MEMORY_API_TOKEN || '').trim();
   if (environmentToken) return environmentToken;
@@ -2000,13 +2064,37 @@ async function backupSqliteDb() {
       .replace(/[:.]/g, '-');
 
     const backupFile = path.join(BACKUP_DIR, `memory-${timestamp}.db`);
+    const partialFile = `${backupFile}.partial`;
     const latestBackupFile = LATEST_BACKUP_FILE;
 
-    await db.backup(backupFile);
-    await db.backup(latestBackupFile);
+    // 先写 .partial 再原子改名：备份过程中被杀只会留下 .partial，不会污染轮转里的有效备份
+    try {
+      for (const stale of fs.readdirSync(BACKUP_DIR).filter(name => name.endsWith('.partial'))) {
+        try { fs.unlinkSync(path.join(BACKUP_DIR, stale)); } catch (cleanupError) { /* ignore */ }
+      }
+    } catch (readError) { /* ignore */ }
 
-    // 只保留最近 3 个历史备份，防止 backups 文件夹无限变大
-    const keepCount = 3;
+    await db.backup(partialFile);
+    fs.renameSync(partialFile, backupFile);
+
+    // memory.backup.db 用硬链接指向最新的时间戳备份：只写 1 份数据而不是 2 份；
+    // 跨设备（EXDEV）或文件系统不支持硬链接时自动回退为复制一份。
+    let latestMode = 'copy';
+    if (BACKUP_LATEST_HARDLINK) {
+      try {
+        try { fs.unlinkSync(latestBackupFile); } catch (unlinkError) { if (unlinkError.code !== 'ENOENT') throw unlinkError; }
+        fs.linkSync(backupFile, latestBackupFile);
+        latestMode = 'hardlink';
+      } catch (linkError) {
+        console.warn('[memory-server] latest 备份硬链接失败，改用复制:', linkError.message);
+      }
+    }
+    if (latestMode !== 'hardlink') {
+      await db.backup(latestBackupFile);
+    }
+
+    // 只保留最近 BACKUP_KEEP_COUNT 份历史备份，防止 backups 文件夹无限变大
+    const keepCount = BACKUP_KEEP_COUNT;
     const backupFiles = fs.readdirSync(BACKUP_DIR)
       .filter(name => /^memory-.*\.db$/.test(name))
       .sort();
@@ -2021,12 +2109,15 @@ async function backupSqliteDb() {
       }
     }
 
-    console.log('[memory-server] 已备份 memory.db:', backupFile);
+    console.log('[memory-server] 已备份 memory.db:', backupFile, latestMode === 'hardlink' ? '(latest=硬链接)' : '(latest=复制)');
+    lastSuccessfulBackupAt = Date.now();
+    pendingWriteBackupReason = null;
 
     return {
       ok: true,
       backupFile,
       latestBackupFile,
+      latestMode,
       timestamp,
       keptBackups: Math.min(backupFiles.length, keepCount)
     };
@@ -2038,6 +2129,71 @@ async function backupSqliteDb() {
       error: error.message
     };
   }
+}
+
+// 一批写入安静下来后补一次备份：保证每个「总结批次」结束时都有一份包含新记忆的快照。
+function scheduleTrailingBackup(reason) {
+  if (WRITE_BACKUP_IDLE_MS <= 0) return;
+  if (trailingBackupTimer) return;
+  const scheduledAt = Date.now();
+  trailingBackupTimer = setTimeout(async () => {
+    trailingBackupTimer = null;
+    if (lastSuccessfulBackupAt >= scheduledAt) return;   // 期间已经备份过就不重复
+    try {
+      const result = await backupSqliteDb();
+      if (result.ok) console.log(`[memory-server] 写入空闲补备份完成（${reason}）`);
+    } catch (error) {
+      console.warn('[memory-server] 写入空闲补备份失败:', error.message);
+    }
+  }, WRITE_BACKUP_IDLE_MS);
+  if (typeof trailingBackupTimer.unref === 'function') trailingBackupTimer.unref();
+}
+
+// 写入类接口的备份入口：按最小间隔节流；force=true（如 /memory/clear）时不做节流。
+async function maybeBackupOnWrite(reason, options = {}) {
+  if (options.force) return await backupSqliteDb();
+  if (WRITE_BACKUP_INTERVAL_MINUTES < 0) {
+    return { ok: true, skipped: true, reason: 'write_backup_disabled' };
+  }
+  const elapsed = Date.now() - lastSuccessfulBackupAt;
+  if (lastSuccessfulBackupAt && elapsed < WRITE_BACKUP_INTERVAL_MS) {
+    writeBackupSkippedCount += 1;
+    if (writeBackupSkippedCount === 1 || writeBackupSkippedCount % 50 === 0) {
+      console.log(`[memory-server] 写入备份节流（${reason}）：距上次备份 ${Math.round(elapsed / 1000)}s，本次跳过（累计 ${writeBackupSkippedCount} 次），已安排空闲补备份`);
+    }
+    scheduleTrailingBackup(reason);
+    pendingWriteBackupReason = pendingWriteBackupReason || reason;
+    return { ok: true, skipped: true, reason: 'write_backup_throttled', elapsedMs: elapsed };
+  }
+  return await backupSqliteDb();
+}
+
+// 退出前兜底：如果还有被节流跳过的写入没落备份，收到 SIGTERM/SIGINT 时补做一次。
+// 注意：PM2 默认 kill_timeout 只有 1.6 秒，可能等不到这次备份写完；
+// 那样只会留下无害的 .partial 文件（见 backupSqliteDb），不会破坏已有备份。
+async function flushPendingWriteBackup(signal) {
+  if (!pendingWriteBackupReason) return;
+  const reason = pendingWriteBackupReason;
+  try {
+    const result = await backupSqliteDb();
+    if (result.ok) {
+      console.log(`[memory-server] 收到 ${signal}：退出前补做了一次写入备份（原因 ${reason}，文件 ${path.basename(result.backupFile)}）`);
+    }
+  } catch (error) {
+    console.warn('[memory-server] 退出前补备份失败:', error.message);
+  }
+}
+
+let exitFlushStarted = false;
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, () => {
+    if (exitFlushStarted) return;
+    exitFlushStarted = true;
+    console.log(`[memory-server] 收到 ${signal}，准备退出`);
+    const guard = setTimeout(() => process.exit(0), 20000);
+    if (typeof guard.unref === 'function') guard.unref();
+    flushPendingWriteBackup(signal).finally(() => process.exit(0));
+  });
 }
 
 function mcpResult(id, result) {
@@ -2923,7 +3079,7 @@ async function handleMcpRequest(body) {
           }
         }
 
-        await backupSqliteDb();
+        await maybeBackupOnWrite('mcp_add_memory');
 
         const memory = normalizeMemoryFragment({
           ...args,
@@ -3126,7 +3282,7 @@ async function handleMcpRequest(body) {
           });
         }
 
-        await backupSqliteDb();
+        await maybeBackupOnWrite('mcp_ingest_summary');
 
         const embeddingConfig = {
           endpoint: args.embeddingEndpoint || process.env.EMBEDDING_ENDPOINT || '',
@@ -3316,7 +3472,7 @@ async function handleMcpRequest(body) {
           });
         }
 
-        await backupSqliteDb();
+        await maybeBackupOnWrite('mcp_ingest');
 
         const embeddingConfig = {
           endpoint: args.embeddingEndpoint || process.env.EMBEDDING_ENDPOINT || '',
@@ -4066,9 +4222,18 @@ const server = http.createServer(async (req, res) => {
       if (String(body.confirm || '') !== 'RUN_ORGANIZATION_PREVIEW') {
         throw new Error('Explicit confirmation is required to run the organization preview');
       }
-      const backup = await backupSqliteDb();
-      if (!backup.ok) {
-        throw new Error(`Pre-preview backup failed: ${backup.error || 'unknown error'}`);
+      const wantsBackup = PREVIEW_BACKUP_ENABLED && body.backup !== false && body.skipBackup !== true;
+      let backup;
+      if (wantsBackup) {
+        const backupResult = await backupSqliteDb();
+        if (!backupResult.ok) {
+          throw new Error(`Pre-preview backup failed: ${backupResult.error || 'unknown error'}`);
+        }
+        backup = backupResult;
+      } else {
+        // 预览不触碰 memories / 向量，只重建覆盖层，因此允许跳过整库副本
+        backup = { ok: true, skipped: true, reason: 'preview_backup_skipped' };
+        console.warn('[memory-server] 组织预览已按配置跳过预备份（memories/向量不受影响，仅重建覆盖层）');
       }
       const chatId = String(body.chatId || '');
       const inputs = getMemoryOrganizationPreviewInputs(chatId);
@@ -4082,6 +4247,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, {
         ok: true,
         backup,
+        backupSkipped: Boolean(backup && backup.skipped),
         preview: {
           algorithmVersion: preview.algorithmVersion,
           behaviorChanged: false,
@@ -4192,7 +4358,7 @@ const server = http.createServer(async (req, res) => {
         };
       }
 
-      await backupSqliteDb();
+      await maybeBackupOnWrite('memory_add');
 
       const savedMemory = addMemory({
         ...memory,
@@ -4901,7 +5067,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      await backupSqliteDb();
+      await maybeBackupOnWrite('memory_delete');
 
       const deleted = deleteMemory(id);
 
@@ -4924,7 +5090,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/memory/clear' && req.method === 'POST') {
-    await backupSqliteDb();
+    await maybeBackupOnWrite('memory_clear', { force: true });
 
     const deleted = clearAllMemories();
 
@@ -4949,6 +5115,9 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`Local health check: http://127.0.0.1:${PORT}/health`);
   console.log(`Tailscale access: http://100.81.84.121:${PORT}/health`);
   console.log('Storage: SQLite memory.db');
+  console.log(`Backups: keep=${BACKUP_KEEP_COUNT} dir=${BACKUP_DIR} latest=${LATEST_BACKUP_FILE}`);
+  console.log(`Write backups: ${WRITE_BACKUP_INTERVAL_MINUTES < 0 ? 'disabled' : `minInterval=${WRITE_BACKUP_INTERVAL_MINUTES}min`} idleBackup=${WRITE_BACKUP_IDLE_MS > 0 ? `${Math.round(WRITE_BACKUP_IDLE_MS / 1000)}s` : 'off'} latestHardlink=${BACKUP_LATEST_HARDLINK}`);
+  console.log(`Pre-preview backup: ${PREVIEW_BACKUP_ENABLED ? 'enabled' : 'disabled'}`);
 });
 
 if (String(process.env.MEMORY_ORGANIZATION_INCREMENTAL_ENABLED || 'true').toLowerCase() !== 'false') {
