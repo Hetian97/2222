@@ -253,7 +253,10 @@ const ThoughtChainManager = {
     buildBackgroundInstruction(baseSystemPrompt, mode = 'background') {
         const base = typeof baseSystemPrompt === 'string' ? baseSystemPrompt : '';
         const resolvedMode = this.modes[mode] ? mode : 'background';
-        if (!this.isModeEnabled(resolvedMode)) return base;
+        if (!this.isModeEnabled(resolvedMode)) {
+            console.log(`[思维链] 后台自主回复未注入：模式 "${resolvedMode}" 的思维链总开关是关闭的（设置 → 在聊天界面显示AI深度思考 旁边那个“启用当前模式思维链”）。`);
+            return base;
+        }
 
         const chunks = this.getPayloadChunks(resolvedMode);
         const context = (chunks.head || []).concat(chunks.middle || [])
@@ -263,7 +266,9 @@ const ThoughtChainManager = {
         const fallback = this.buildPrefillFallbackSystemPrompt(resolvedMode);
 
         if (context) {
-            console.log(`[思维链] 后台自主回复已注入思维链（模式: ${resolvedMode}，条目 ${(chunks.head || []).length + (chunks.middle || []).length} 条）`);
+            console.log(`[思维链] 后台自主回复已注入思维链（模式: ${resolvedMode}，条目 ${(chunks.head || []).length + (chunks.middle || []).length} 条，格式约束: ${fallback ? '有' : '无'}）`);
+        } else {
+            console.log(`[思维链] 后台自主回复：模式 "${resolvedMode}" 没有启用的头部/中间条目，只注入了格式约束: ${fallback ? '有' : '无'}。`);
         }
         return [base, context, fallback].filter(part => part && String(part).trim()).join('\n\n');
     },

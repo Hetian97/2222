@@ -1868,7 +1868,9 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
     });
   }
 
-  function parseAiResponse(content) {
+  // extractionMode：显式指定思维链模式（后台自主回复会传 'background'，
+  // 否则会按“当前正在看的聊天”推断，后台回复就可能套错模式而提取不到思考）
+  function parseAiResponse(content, extractionMode = null) {
     if (!content) return [{
       type: 'text',
       content: '(AI返回了空内容)'
@@ -1879,7 +1881,7 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
 
     // 思考提取：优先走思维链 APP 的“手动兼容设置”（标记 / 正则 / 大小写 / 缺开始标记 / 全部匹配）
     if (typeof ThoughtChainManager !== 'undefined' && typeof ThoughtChainManager.extractReasoning === 'function') {
-      const extraction = ThoughtChainManager.extractReasoning(trimmedContent);
+      const extraction = ThoughtChainManager.extractReasoning(trimmedContent, extractionMode);
       if (extraction.error) console.warn('思考内容提取配置无效，已保留原始回复:', extraction.error);
       if (extraction.reasoning) {
         prefixResults.push({

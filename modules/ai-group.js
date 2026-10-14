@@ -383,7 +383,7 @@ ${formatRules}
       return;
     }
 
-    const responseArray = parseAiResponse(aiResponseContent);
+    const responseArray = parseAiResponse(aiResponseContent, 'background');
     if (!responseArray || responseArray.length === 0) {
       console.warn(`线下自动回复：角色 "${chat.name}" API格式不正确，本次跳过。原始回复:`, aiResponseContent);
       return;
@@ -1196,7 +1196,7 @@ ${longTimeNoSee ? `【重要提示】你们已经很久没聊天了！你【必�
         return;
       }
 
-      const responseArray = parseAiResponse(aiResponseContent);
+      const responseArray = parseAiResponse(aiResponseContent, 'background');
 
       if (!responseArray || responseArray.length === 0) {
         console.warn(`API格式不正确，角色 "${chat.name}" 的本次后台活动跳过。原始回复:`, aiResponseContent);
@@ -2092,7 +2092,7 @@ ${longTermMemoryContext}
 
       const data = await response.json();
       const aiResponseContent = isGemini ? data.candidates[0].content.parts[0].text : data.choices[0].message.content;
-      const responseArray = parseAiResponse(aiResponseContent);
+      const responseArray = parseAiResponse(aiResponseContent, 'background');
 
       if (!responseArray || responseArray.length === 0) {
         console.warn(`群聊 "${chat.name}" 的独立行动API返回为空或格式不正确，本次跳过。`);
