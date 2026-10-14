@@ -1,11 +1,6 @@
 const ThoughtChainManager = {
     items: [],
     enabled: true,
-    // 底部触发器的“预填充兼容模式”：
-    //   auto = 自动（Gemini 的 flash 系列等已知不支持结尾 model 轮的模型自动改走无预填）
-    //   on   = 强制开启（底部 assistant 条目按原样预填充，Gemini Pro 等支持预填时使用）
-    //   off  = 强制关闭（完全不发送底部 assistant 预填，所有模型都走“无预填 + 提取思考”）
-    prefillCompatMode: 'auto',
     selectedIds: [],
     draggedItemId: null,
     activeMode: 'chat',
@@ -29,7 +24,271 @@ const ThoughtChainManager = {
             defaultEnabled: false
         }
     },
-    
+
+    // ==================== 手动兼容设置（behavior） ====================
+    // 与上游 wq70/2222 的字段名保持一致：
+    //   prefillEnabled   发送底部 / Assistant 预填条目（关闭 → 请求不再以 model/assistant 轮结尾，
+    //                    可规避 Gemini flash 的 400: Requests ending with a model turn are not supported）
+    //   extractionEnabled 提取思考内容；extractionMode = tags | regex
+    //   startMarker / endMarker / extractionRegex / ignoreCase / removeFromBody
+    //   allowMissingStart 兼容缺少开始标记（预填充关闭时靠结束标记反向截取，必须为 true）
+    //   extractAll        提取全部匹配
+    defaultBehavior: {
+        prefillEnabled: true,
+        extractionEnabled: true,
+        extractionMode: 'tags',
+        startMarker: '<thinking>',
+        endMarker: '</thinking>',
+        extractionRegex: '',
+        ignoreCase: true,
+        removeFromBody: true,
+        allowMissingStart: true,
+        extractAll: false
+    },
+
+    // 按模式隔离：线上 / 通话 / 线下各有自己的兼容设置
+    behaviors: {},
+
+    // 通话模式自己用 JSON thought_chain_block 方案，不参与通用注入
+    modeBehaviorOverrides: {
+        call: {
+            prefillEnabled: false,
+            extractionEnabled: false,
+            manageOwnInjection: true
+        }
+    },
+
+    getBehaviorStorageKey(mode = this.activeMode) {
+        return `ephone_thought_chain_behavior_${this.modes[mode] ? mode : 'chat'}`;
+    },
+
+    normalizeBehavior(behavior) {
+        const merged = { ...this.defaultBehavior, ...(behavior && typeof behavior === 'object' ? behavior : {}) };
+        merged.extractionMode = merged.extractionMode === 'regex' ? 'regex' : 'tags';
+        merged.startMarker = typeof merged.startMarker === 'string' ? merged.startMarker : this.defaultBehavior.startMarker;
+        merged.endMarker = typeof merged.endMarker === 'string' ? merged.endMarker : this.defaultBehavior.endMarker;
+        merged.extractionRegex = typeof merged.extractionRegex === 'string' ? merged.extractionRegex : '';
+        ['prefillEnabled', 'extractionEnabled', 'ignoreCase', 'removeFromBody', 'allowMissingStart', 'extractAll'].forEach(key => {
+            merged[key] = merged[key] !== false;
+        });
+        // extractAll 历史上默认是 false，与其它开关相反
+        merged.extractAll = behavior && behavior.extractAll === true;
+        return merged;
+    },
+
+    loadBehavior(mode = this.activeMode) {
+        const resolvedMode = this.modes[mode] ? mode : 'chat';
+        if (this.behaviors[resolvedMode]) return this.behaviors[resolvedMode];
+
+        let stored = null;
+        try {
+            stored = localStorage.getItem(this.getBehaviorStorageKey(resolvedMode));
+            // 兼容上游单模式键：只在本地没有该模式的独立设置时作为兜底
+            if (!stored) stored = localStorage.getItem('ephone_thought_chain_behavior');
+        } catch (e) {
+            stored = null;
+        }
+
+        let parsed = null;
+        if (stored) {
+            try {
+                parsed = JSON.parse(stored);
+            } catch (error) {
+                console.warn('思维链兼容设置读取失败，已使用默认值:', error);
+                parsed = null;
+            }
+        }
+
+        const behavior = this.normalizeBehavior({ ...(parsed || {}), ...(this.modeBehaviorOverrides[resolvedMode] || {}) });
+        this.behaviors[resolvedMode] = behavior;
+        return behavior;
+    },
+
+    getBehavior(mode = this.activeMode) {
+        return this.behaviors[this.modes[mode] ? mode : 'chat'] || this.loadBehavior(mode);
+    },
+
+    saveBehavior(mode = this.activeMode) {
+        const resolvedMode = this.modes[mode] ? mode : 'chat';
+        const behavior = this.behaviors[resolvedMode];
+        if (!behavior) return;
+        try {
+            localStorage.setItem(this.getBehaviorStorageKey(resolvedMode), JSON.stringify(behavior));
+        } catch (e) {
+            console.warn('思维链兼容设置保存失败:', e);
+        }
+    },
+
+    getStateSnapshot() {
+        return JSON.stringify({ enabled: this.enabled, items: this.items, behavior: this.getBehavior() });
+    },
+
+    setSavedSnapshot() {
+        this.lastSavedSnapshot = this.getStateSnapshot();
+        this.updateDirtyState();
+    },
+
+    updateDirtyState() {
+        const indicator = document.getElementById('thought-chain-unsaved-indicator');
+        if (!indicator) return;
+        const dirty = !!this.lastSavedSnapshot && this.getStateSnapshot() !== this.lastSavedSnapshot;
+        indicator.hidden = !dirty;
+    },
+
+    // 是否允许给“当前模式”发送底部 assistant 预填
+    shouldUsePrefill(mode = this.activeMode) {
+        return this.getBehavior(mode).prefillEnabled !== false;
+    },
+
+    // 某个底部条目是否发送：条目级 on/off 优先，auto 跟随当前模式的 compatibility 设置
+    shouldSendBottomItem(item, mode = this.activeMode) {
+        if (!item) return false;
+        const itemMode = item.prefillMode || 'auto';
+        if (itemMode === 'on') return true;
+        if (itemMode === 'off') return false;
+        return this.shouldUsePrefill(mode);
+    },
+
+    getSkippedBottomItems(mode = this.activeMode) {
+        const chunks = this.getPayloadChunks(mode);
+        return (chunks.bottom || []).filter(item => item && item.content && !this.shouldSendBottomItem(item, mode));
+    },
+
+    getBottomPayloadMessages(mode = this.activeMode) {
+        const chunks = this.getPayloadChunks(mode);
+        return (chunks.bottom || [])
+            .filter(item => item && item.content && this.shouldSendBottomItem(item, mode))
+            .map(item => ({
+                role: item.role || 'assistant',
+                content: item.content
+            }));
+    },
+
+    // 关闭预填充时，往 system prompt 补的替代约束（保持“能提取到思考”）
+    buildPrefillFallbackSystemPrompt(mode = this.activeMode) {
+        const behavior = this.getBehavior(mode);
+        // 通话模式自管注入，不需要这条兜底约束
+        if (behavior.manageOwnInjection) return '';
+        if (this.shouldUsePrefill(mode)) return '';
+        if (behavior.extractionEnabled === false) return '';
+
+        const chunks = this.getPayloadChunks(mode);
+        const triggerTexts = (chunks.bottom || [])
+            .filter(item => item && item.content && (item.role || 'assistant') === 'assistant')
+            .map(item => String(item.content).trim())
+            .filter(Boolean);
+        if (!triggerTexts.length) return '';
+
+        const startMarker = behavior.startMarker || '<thinking>';
+        const endMarker = behavior.endMarker || '</thinking>';
+        const opener = triggerTexts.find(text => text.indexOf(startMarker) === 0) || startMarker;
+
+        return [
+            '# 【思维链输出格式（本轮未使用预填充，必须严格遵守）】',
+            '- 本轮已关闭 assistant 预填充，没有替你预填任何开头文本。',
+            `- 你的回复【必须】直接以 ${opener} 开头，先完成思考，再以 ${endMarker} 结束思考。`,
+            `- ${endMarker} 之后必须继续输出正常的 JSON 数组回复，禁止只输出思考内容。`,
+            `- 禁止把 ${endMarker} 之后的内容再次包进新的 ${startMarker} 标签里。`,
+            `- 如果思考被打断或写不完，也必须先补上 ${endMarker} 再继续正文，否则整轮回复无法被识别。`
+        ].join('\n');
+    },
+
+    // 未显式传模式时，按当前活跃聊天推断：线下模式 → offline，其余 → chat
+    // （通话模式有独立的解析器，不走这里）
+    resolveExtractionMode(mode) {
+        if (mode && this.modes[mode]) return mode;
+        try {
+            if (typeof state !== 'undefined' && state && state.activeChatId && state.chats && state.chats[state.activeChatId]) {
+                const chat = state.chats[state.activeChatId];
+                if (chat && chat.settings && chat.settings.isOfflineMode) return 'offline';
+            }
+        } catch (e) {
+            /* 推断失败时回退到当前模式 */
+        }
+        return this.modes[this.activeMode] ? this.activeMode : 'chat';
+    },
+
+    // ==================== 思考提取（上游 extractReasoning 同款） ====================
+    extractReasoning(rawContent, mode = null) {
+        const raw = typeof rawContent === 'string' ? rawContent : String(rawContent ?? '');
+        const config = this.getBehavior(this.resolveExtractionMode(mode));
+        if (!config.extractionEnabled || !raw) return { reasoning: '', body: raw, matches: [], error: null };
+
+        try {
+            let source = '';
+            if (config.extractionMode === 'regex') {
+                if (!config.extractionRegex) return { reasoning: '', body: raw, matches: [], error: '正则表达式为空' };
+                source = config.extractionRegex;
+            } else {
+                const escapeRegex = value => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const start = escapeRegex(config.startMarker || '');
+                const end = escapeRegex(config.endMarker || '');
+                if (!end) return { reasoning: '', body: raw, matches: [], error: '结束标记为空' };
+                const comparisonRaw = config.ignoreCase ? raw.toLowerCase() : raw;
+                const comparisonStart = config.ignoreCase ? String(config.startMarker || '').toLowerCase() : String(config.startMarker || '');
+                const hasStartMarker = !!comparisonStart && comparisonRaw.includes(comparisonStart);
+                if (start && hasStartMarker) source = `${start}([\\s\\S]*?)${end}`;
+                else if (config.allowMissingStart) source = `^([\\s\\S]*?)${end}`;
+                else if (start) source = `${start}([\\s\\S]*?)${end}`;
+                else source = `^([\\s\\S]*?)${end}`;
+            }
+
+            let flags = config.ignoreCase ? 'i' : '';
+            if (config.extractAll) flags += 'g';
+            const regex = new RegExp(source, flags);
+            const matches = [];
+            if (config.extractAll) {
+                let match;
+                while ((match = regex.exec(raw)) !== null) {
+                    matches.push({ full: match[0], content: (match[1] ?? match[0]).trim() });
+                    if (match[0] === '') regex.lastIndex += 1;
+                }
+            } else {
+                const match = regex.exec(raw);
+                if (match) matches.push({ full: match[0], content: (match[1] ?? match[0]).trim() });
+            }
+
+            let body = raw;
+            if (config.removeFromBody) matches.forEach(match => { body = body.replace(match.full, ''); });
+            return {
+                reasoning: matches.map(match => match.content).filter(Boolean).join('\n\n'),
+                body: body.trim(),
+                matches,
+                error: null
+            };
+        } catch (error) {
+            return { reasoning: '', body: raw, matches: [], error: error.message || String(error) };
+        }
+    },
+
+    // ==================== 消息注入（上游 injectIntoMessages 同款） ====================
+    injectIntoMessages(messages, mode = this.activeMode) {
+        const history = Array.isArray(messages) ? messages.slice() : [];
+        let result = history.slice();
+        if (!this.enabled) return result;
+        const behavior = this.getBehavior(mode);
+        if (behavior.manageOwnInjection) return result;
+
+        const chunks = this.getPayloadChunks(mode);
+        const asMessage = item => ({ role: item.role, content: item.content });
+        const beforeMessages = chunks.before_history.map(asMessage);
+        result = [...beforeMessages, ...result];
+
+        const insertedAnchors = [];
+        chunks.in_chat.forEach(item => {
+            const depth = Math.max(0, Number(item.depth) || 0);
+            const anchor = beforeMessages.length + Math.max(0, history.length - Math.min(depth, history.length));
+            const offset = insertedAnchors.filter(existingAnchor => existingAnchor <= anchor).length;
+            const index = anchor + offset;
+            result.splice(index, 0, asMessage(item));
+            insertedAnchors.push(anchor);
+        });
+
+        result.push(...chunks.after_history.map(asMessage));
+        if (behavior.prefillEnabled) result.push(...chunks.bottom.map(asMessage));
+        return result;
+    },
+
     defaultItems: [
         {
             id: 'tc_head_1',
@@ -79,46 +338,14 @@ const ThoughtChainManager = {
         this.ensurePresetStore();
         this.loadData('chat');
         this.bindEvents();
-        this.bindPrefillCompatModeUI();
+        this.renderBehaviorSettings();
         this.renderList();
         
         // 由于 Dexie 初始化可能是异步的，等待一点时间后加载下拉框
         setTimeout(() => {
             this.loadPresetsDropdown();
-            this.syncPrefillCompatModeSelect();
+            this.renderBehaviorSettings();
         }, 500);
-    },
-
-    // 全局“预填充兼容模式”下拉框（外观设置 → 显示与交互）
-    syncPrefillCompatModeSelect() {
-        const selectEl = document.getElementById('thought-chain-prefill-mode-select');
-        if (!selectEl) return;
-        selectEl.value = this.getPrefillCompatMode();
-    },
-
-    bindPrefillCompatModeUI() {
-        const selectEl = document.getElementById('thought-chain-prefill-mode-select');
-        if (!selectEl || selectEl.dataset.tcPrefillBound === '1') {
-            this.syncPrefillCompatModeSelect();
-            return;
-        }
-        selectEl.dataset.tcPrefillBound = '1';
-        this.syncPrefillCompatModeSelect();
-
-        selectEl.addEventListener('change', (e) => {
-            const mode = this.setPrefillCompatMode(e.target.value);
-            if (typeof db !== 'undefined' && db.globalSettings && state && state.globalSettings) {
-                db.globalSettings.put(state.globalSettings).catch(() => {});
-            }
-            const labelMap = {
-                auto: '自动：gemini flash 等自动不预填充，其余保持预填充',
-                on: '强制预填充：所有模型都发送底部 assistant 预填充',
-                off: '不预填充：所有模型都不发送底部 assistant 预填充'
-            };
-            if (typeof showToast === 'function') {
-                showToast(`思维链预填充兼容模式：${labelMap[mode] || mode}`);
-            }
-        });
     },
 
     ensurePresetStore() {
@@ -190,11 +417,15 @@ const ThoughtChainManager = {
                 return;
             }
             
-            // 尝试匹配当前配置
+            // 尝试匹配当前配置（条目 + 兼容设置 + 总开关）
             let matchingPresetId = null;
             const currentItemsJson = JSON.stringify(this.items);
+            const currentBehaviorJson = JSON.stringify(this.getBehavior());
             for (const preset of presets) {
-                if (JSON.stringify(preset.items) === currentItemsJson) {
+                const sameItems = JSON.stringify(this.normalizeItems(this.clone(preset.items || []))) === currentItemsJson;
+                const sameBehavior = JSON.stringify(this.normalizeBehavior(preset.behavior)) === currentBehaviorJson;
+                const sameEnabled = (preset.enabled !== false) === this.enabled;
+                if (sameItems && sameBehavior && sameEnabled) {
                     matchingPresetId = preset.id;
                     break;
                 }
@@ -218,8 +449,11 @@ const ThoughtChainManager = {
 
         if (selectedValue === 'default') {
             this.items = JSON.parse(JSON.stringify(this.defaultItems));
+            this.behaviors[this.activeMode] = this.normalizeBehavior({ ...this.defaultBehavior, ...(this.modeBehaviorOverrides[this.activeMode] || {}) });
             this.saveData();
             this.renderList();
+            this.renderBehaviorSettings();
+            this.setSavedSnapshot();
             showToast('已加载内置默认模板');
             return;
         }
@@ -232,9 +466,15 @@ const ThoughtChainManager = {
         try {
             const preset = await db.thoughtChainPresets.get(selectedId);
             if (preset && preset.items) {
-                this.items = preset.items;
+                this.items = this.normalizeItems(this.clone(preset.items));
+                if (preset.behavior) {
+                    this.behaviors[this.activeMode] = this.normalizeBehavior({ ...preset.behavior, ...(this.modeBehaviorOverrides[this.activeMode] || {}) });
+                }
+                if (typeof preset.enabled === 'boolean') this.enabled = preset.enabled;
                 this.saveData();
                 this.renderList();
+                this.renderBehaviorSettings();
+                this.setSavedSnapshot();
                 showToast(`已加载思维链预设: ${preset.name}`);
             }
         } catch (e) {
@@ -248,7 +488,11 @@ const ThoughtChainManager = {
 
         const presetData = {
             name: name.trim(),
-            items: JSON.parse(JSON.stringify(this.items)) // 深拷贝当前条目
+            items: JSON.parse(JSON.stringify(this.items)), // 深拷贝当前条目
+            behavior: this.clone(this.getBehavior()),
+            enabled: this.enabled,
+            formatVersion: 2,
+            updatedAt: Date.now()
         };
 
         try {
@@ -263,6 +507,7 @@ const ThoughtChainManager = {
 
             await db.thoughtChainPresets.put(presetData);
             await this.loadPresetsDropdown(presetData.id);
+            this.setSavedSnapshot();
             showToast('思维链预设已保存！');
         } catch (e) {
             console.error('保存思维链预设失败:', e);
@@ -300,6 +545,10 @@ const ThoughtChainManager = {
         return this.modes[mode] || this.modes.chat;
     },
 
+    clone(value) {
+        return JSON.parse(JSON.stringify(value === undefined ? null : value));
+    },
+
     cloneDefaultItems() {
         return JSON.parse(JSON.stringify(this.defaultItems));
     },
@@ -328,6 +577,7 @@ const ThoughtChainManager = {
         this.enabled = modeState.enabled;
         this.items = modeState.items;
         this.selectedIds = [];
+        this.loadBehavior(this.activeMode);
 
         if (!localStorage.getItem(this.getModeConfig(this.activeMode).itemsKey)) {
             this.saveData();
@@ -338,13 +588,19 @@ const ThoughtChainManager = {
             enableSwitch.checked = this.enabled;
         }
         this.updateModeTabs();
+        // 未初始化的脏状态不显示
+        this.lastSavedSnapshot = '';
+        this.updateDirtyState();
     },
 
     saveData(mode = this.activeMode) {
-        const config = this.getModeConfig(mode);
+        const resolvedMode = this.modes[mode] ? mode : this.activeMode;
+        const config = this.getModeConfig(resolvedMode);
         this.normalizeItems();
         localStorage.setItem(config.enabledKey, this.enabled);
         localStorage.setItem(config.itemsKey, JSON.stringify(this.items));
+        this.saveBehavior(resolvedMode);
+        this.updateDirtyState();
     },
 
     // 兼容旧数据：老条目没有 prefillMode 字段，统一补成 auto
@@ -359,101 +615,12 @@ const ThoughtChainManager = {
         return items;
     },
 
-    getPrefillCompatMode() {
-        const stored = (typeof state !== 'undefined' && state.globalSettings)
-            ? state.globalSettings.thoughtChainPrefillMode
-            : null;
-        return (stored === 'on' || stored === 'off') ? stored : this.prefillCompatMode;
-    },
-
-    setPrefillCompatMode(mode) {
-        const next = (mode === 'on' || mode === 'off') ? mode : 'auto';
-        this.prefillCompatMode = next;
-        if (typeof state !== 'undefined' && state.globalSettings) {
-            state.globalSettings.thoughtChainPrefillMode = next;
-            // 兼容旧布尔字段（旧版本/其他模块若读取它会得到一致结果）
-            state.globalSettings.thoughtChainPrefillEnabled = next !== 'off';
-        }
-        return next;
-    },
-
-    // 当前 API 是否可能是“不支持以 model/assistant 轮结尾”的上游（Gemini flash 系列）
-    isPrefillUnsupportedUpstream() {
-        const apiConfig = (typeof state !== 'undefined' && state.apiConfig) ? state.apiConfig : null;
-        const model = String((apiConfig && apiConfig.model) || '').toLowerCase();
-        const proxyUrl = String((apiConfig && apiConfig.proxyUrl) || '').toLowerCase();
-        const isGeminiLike = proxyUrl.includes('generativelanguage') || model.includes('gemini');
-
-        if (!isGeminiLike) return false;
-        // gemini pro 支持预填充；flash / flash-lite 等不支持
-        if (model.includes('flash')) return true;
-        if (!model) return true; // 拿不到模型名时保守处理
-        return false;
-    },
-
-    // 是否允许发送底部 assistant 预填充（单一判断入口，自动/强制开/强制关都在这里收口）
-    shouldUsePrefill() {
-        const mode = this.getPrefillCompatMode();
-        if (mode === 'off') return false;
-        if (mode === 'on') return true;
-        return !this.isPrefillUnsupportedUpstream();
-    },
-
-    // 是否发送某个具体的底部条目（per-item 可覆盖自动判断）
-    shouldSendBottomItem(item) {
-        if (!item) return false;
-        const itemMode = item.prefillMode || 'auto';
-        if (itemMode === 'on') return true;
-        if (itemMode === 'off') return false;
-        return this.shouldUsePrefill();
-    },
-
-    // 依赖 assistant 预填充的底部条目（被跳过时需要把“先输出思考”的约束补进 system）
-    getSkippedBottomItems(mode = 'chat') {
-        const chunks = this.getPayloadChunks(mode);
-        return (chunks.bottom || []).filter(item => item && item.content && !this.shouldSendBottomItem(item));
-    },
-
-    // 统一的底部注入入口：返回真正要 push 进 messagesPayload 的底部消息
-    getBottomPayloadMessages(mode = 'chat') {
-        const chunks = this.getPayloadChunks(mode);
-        return (chunks.bottom || [])
-            .filter(item => item && item.content && this.shouldSendBottomItem(item))
-            .map(item => ({
-                role: item.role || 'assistant',
-                content: item.content
-            }));
-    },
-
-    // 被跳过底部预填时，往 system prompt 补的替代约束
-    buildPrefillFallbackSystemPrompt(mode = 'chat') {
-        const skipped = this.getSkippedBottomItems(mode);
-        if (!skipped.length) return '';
-
-        const triggerTexts = skipped
-            .filter(item => (item.role || 'assistant') === 'assistant')
-            .map(item => String(item.content || '').trim())
-            .filter(Boolean);
-        if (!triggerTexts.length) return '';
-
-        const thinkingTrigger = triggerTexts.find(text => /^<thinking>/i.test(text));
-        if (!thinkingTrigger) return '';
-
-        return [
-            '# 【思维链输出格式（本轮未使用预填充，必须严格遵守）】',
-            '- 当前 API 不支持 assistant 预填充，本轮没有替你预填任何开头文本。',
-            `- 你的回复【必须】直接以 ${thinkingTrigger} 开头，先完成思考，再以 </thinking> 结束思考。`,
-            '- </thinking> 之后必须继续输出正常的 JSON 数组回复，禁止只输出思考内容。',
-            '- 禁止把 </thinking> 之后的内容再次包进新的 <thinking> 标签里。',
-            '- 如果思考被打断或写不完，也必须先补上 </thinking> 再继续正文，否则整轮回复无法被识别。'
-        ].join('\n');
-    },
-
     switchMode(mode) {
         if (!this.modes[mode] || mode === this.activeMode) return;
         this.saveData();
         this.loadData(mode);
         this.renderList();
+        this.renderBehaviorSettings();
         this.loadPresetsDropdown();
     },
 
@@ -482,10 +649,12 @@ const ThoughtChainManager = {
         const resetBtn = document.getElementById('thought-chain-reset-btn');
         if (resetBtn) {
             resetBtn.addEventListener('click', () => {
-                if (confirm('确定要恢复默认的思维链条目吗？这会覆盖你所有的自定义修改。')) {
+                if (confirm('确定要恢复默认的思维链条目和兼容设置吗？这会覆盖你所有的自定义修改。')) {
                     this.items = this.cloneDefaultItems();
+                    this.behaviors[this.activeMode] = this.normalizeBehavior({ ...this.defaultBehavior, ...(this.modeBehaviorOverrides[this.activeMode] || {}) });
                     this.saveData();
                     this.renderList();
+                    this.renderBehaviorSettings();
                 }
             });
         }
@@ -543,6 +712,179 @@ const ThoughtChainManager = {
             importPresetBtn.addEventListener('click', () => importPresetFile.click());
             importPresetFile.addEventListener('change', (e) => this.importPreset(e));
         }
+
+        // ===== 手动兼容设置（behavior）绑定 =====
+        const behaviorBindings = {
+            'thought-chain-prefill-switch': ['prefillEnabled', 'checked'],
+            'thought-chain-extraction-switch': ['extractionEnabled', 'checked'],
+            'thought-chain-extraction-mode': ['extractionMode', 'value'],
+            'thought-chain-start-marker': ['startMarker', 'value'],
+            'thought-chain-end-marker': ['endMarker', 'value'],
+            'thought-chain-extraction-regex': ['extractionRegex', 'value'],
+            'thought-chain-ignore-case-switch': ['ignoreCase', 'checked'],
+            'thought-chain-remove-from-body-switch': ['removeFromBody', 'checked'],
+            'thought-chain-allow-missing-start-switch': ['allowMissingStart', 'checked'],
+            'thought-chain-extract-all-switch': ['extractAll', 'checked']
+        };
+        Object.entries(behaviorBindings).forEach(([id, [key, property]]) => {
+            const element = document.getElementById(id);
+            if (!element || element.dataset.tcBehaviorBound === '1') return;
+            element.dataset.tcBehaviorBound = '1';
+            const eventName = (element.tagName === 'SELECT' || element.type === 'checkbox') ? 'change' : 'input';
+            element.addEventListener(eventName, () => {
+                const behavior = this.getBehavior();
+                behavior[key] = element[property];
+                this.saveBehavior();
+                this.updateBehaviorVisibility();
+                this.updateDirtyState();
+                if (key === 'prefillEnabled') {
+                    this.updatePrefillHint();
+                }
+            });
+        });
+
+        const previewBtn = document.getElementById('thought-chain-preview-btn');
+        if (previewBtn) previewBtn.addEventListener('click', () => this.openPreviewTool());
+        const parserTestBtn = document.getElementById('thought-chain-parser-test-btn');
+        if (parserTestBtn) parserTestBtn.addEventListener('click', () => this.openParserTestTool());
+        const toolsCloseBtn = document.getElementById('thought-chain-tools-close-btn');
+        if (toolsCloseBtn) toolsCloseBtn.addEventListener('click', () => this.closeToolsModal());
+        const toolsRunBtn = document.getElementById('thought-chain-tools-run-btn');
+        if (toolsRunBtn) toolsRunBtn.addEventListener('click', () => this.runParserTest());
+    },
+
+    renderBehaviorSettings() {
+        const behavior = this.getBehavior();
+        const values = {
+            'thought-chain-prefill-switch': ['prefillEnabled', 'checked'],
+            'thought-chain-extraction-switch': ['extractionEnabled', 'checked'],
+            'thought-chain-extraction-mode': ['extractionMode', 'value'],
+            'thought-chain-start-marker': ['startMarker', 'value'],
+            'thought-chain-end-marker': ['endMarker', 'value'],
+            'thought-chain-extraction-regex': ['extractionRegex', 'value'],
+            'thought-chain-ignore-case-switch': ['ignoreCase', 'checked'],
+            'thought-chain-remove-from-body-switch': ['removeFromBody', 'checked'],
+            'thought-chain-allow-missing-start-switch': ['allowMissingStart', 'checked'],
+            'thought-chain-extract-all-switch': ['extractAll', 'checked']
+        };
+        Object.entries(values).forEach(([id, [key, property]]) => {
+            const element = document.getElementById(id);
+            if (element) element[property] = behavior[key];
+        });
+        const enableSwitch = document.getElementById('thought-chain-enable-switch');
+        if (enableSwitch) enableSwitch.checked = this.enabled;
+        this.updateBehaviorVisibility();
+        this.updateDirtyState();
+    },
+
+    updateBehaviorVisibility() {
+        const behavior = this.getBehavior();
+        const settings = document.getElementById('thought-chain-extraction-settings');
+        const tagSettings = document.getElementById('thought-chain-tag-settings');
+        const regexSetting = document.getElementById('thought-chain-regex-setting');
+        const regexMode = behavior.extractionMode === 'regex';
+        if (settings) settings.hidden = behavior.extractionEnabled === false;
+        if (tagSettings) tagSettings.hidden = regexMode;
+        if (regexSetting) regexSetting.hidden = !regexMode;
+        this.updatePrefillHint();
+    },
+
+    // 让用户看清“关闭预填”之后发生了什么（是否补了兜底约束）
+    updatePrefillHint() {
+        const hint = document.getElementById('thought-chain-prefill-hint');
+        if (!hint) return;
+        const behavior = this.getBehavior();
+        const fallback = this.buildPrefillFallbackSystemPrompt();
+        if (behavior.manageOwnInjection) {
+            hint.textContent = '通话模式自行管理思维链注入，此处设置不影响它。';
+            return;
+        }
+        if (behavior.prefillEnabled !== false) {
+            hint.textContent = '当前会照常发送底部预填；Gemini flash 等不支持预填充的模型请关闭。';
+            return;
+        }
+        hint.textContent = fallback
+            ? '已关闭：请求不再以 Assistant 轮结尾，并会在 system 提示词末尾补上“必须先输出思考标签再输出正文”的兜底约束，思考内容照常提取与显示。'
+            : '已关闭：请求不再以 Assistant 轮结尾（当前没有底部 Assistant 条目或提取已关闭，因此未补兜底约束）。';
+    },
+
+    // ===== 工具：最终注入预览 / 测试提取规则 =====
+    openToolsModal(title, inputVisible) {
+        const modal = document.getElementById('thought-chain-tools-modal');
+        const titleEl = document.getElementById('thought-chain-tools-title');
+        const input = document.getElementById('thought-chain-test-input');
+        const runBtn = document.getElementById('thought-chain-tools-run-btn');
+        if (!modal || !titleEl || !input || !runBtn) return;
+        titleEl.textContent = title;
+        input.hidden = !inputVisible;
+        runBtn.hidden = !inputVisible;
+        modal.classList.add('visible');
+    },
+
+    closeToolsModal() {
+        const modal = document.getElementById('thought-chain-tools-modal');
+        if (modal) modal.classList.remove('visible');
+    },
+
+    openPreviewTool() {
+        this.openToolsModal('最终注入预览', false);
+        const output = document.getElementById('thought-chain-tools-output');
+        if (!output) return;
+        const behavior = this.getBehavior();
+        const chunks = this.getPayloadChunks();
+        const sections = [
+            ['头部（合并到主提示词）', chunks.head],
+            ['中间（合并到主提示词）', chunks.middle],
+            ['聊天记录之前', chunks.before_history],
+            ['聊天记录内部', chunks.in_chat],
+            ['聊天记录之后', chunks.after_history],
+            ['底部 / Assistant 预填', behavior.prefillEnabled ? chunks.bottom : []]
+        ];
+        const lines = [
+            `当前模式：${this.getModeConfig().label || this.activeMode}`,
+            `总开关：${this.enabled ? '开启' : '关闭'}`,
+            `底部 / 预填：${behavior.prefillEnabled ? '发送' : '不发送'}`,
+            `提取思考：${behavior.extractionEnabled === false ? '关闭' : `开启（${behavior.extractionMode === 'regex' ? '正则' : '开始/结束标记'}）`}`,
+            ''
+        ];
+        sections.forEach(([title, items]) => {
+            lines.push(`【${title}】`);
+            if (!items.length) {
+                lines.push('（无启用条目）', '');
+                return;
+            }
+            items.forEach(item => {
+                lines.push(`- ${item.name} | ${item.role} | depth=${item.depth || 0} | order=${Number(item.order) || 0}`);
+                lines.push(item.content);
+            });
+            lines.push('');
+        });
+        const unresolved = [...new Set(this.items.flatMap(item => Array.from(String(item.content || '').matchAll(/\{\{([^{}]+)\}\}/g), match => match[1].trim())))];
+        if (unresolved.length) lines.push(`待运行时展开的变量：${unresolved.join('、')}`);
+        output.textContent = lines.join('\n');
+    },
+
+    openParserTestTool() {
+        this.openToolsModal('测试思考提取规则', true);
+        const output = document.getElementById('thought-chain-tools-output');
+        if (output) output.textContent = '粘贴模拟返回内容后点击“运行测试”。此操作不会调用模型，也不会写入聊天记录。';
+    },
+
+    runParserTest() {
+        const input = document.getElementById('thought-chain-test-input');
+        const output = document.getElementById('thought-chain-tools-output');
+        if (!input || !output) return;
+        const result = this.extractReasoning(input.value);
+        output.textContent = [
+            `匹配数量：${result.matches.length}`,
+            result.error ? `配置错误：${result.error}` : '',
+            '',
+            '【提取出的思考内容】',
+            result.reasoning || '（无）',
+            '',
+            '【交给正文解析器的内容】',
+            result.body || '（空）'
+        ].filter((line, index) => line || index > 1).join('\n');
     },
 
     async createNewPreset() {
@@ -554,7 +896,11 @@ const ThoughtChainManager = {
         
         const presetData = {
             name: name.trim(),
-            items: JSON.parse(JSON.stringify(coreItems))
+            items: JSON.parse(JSON.stringify(coreItems)),
+            behavior: this.clone(this.getBehavior()),
+            enabled: this.enabled,
+            formatVersion: 2,
+            updatedAt: Date.now()
         };
 
         try {
@@ -571,7 +917,9 @@ const ThoughtChainManager = {
             this.items = presetData.items;
             this.saveData();
             this.renderList();
+            this.renderBehaviorSettings();
             await this.loadPresetsDropdown(newId);
+            this.setSavedSnapshot();
             showToast('新模板创建成功，你可以自由添加中间的自定义条目了。');
         } catch (e) {
             console.error('新建思维链预设失败:', e);
@@ -588,7 +936,16 @@ const ThoughtChainManager = {
         const presetSelect = document.getElementById('thought-chain-preset-select');
         const presetName = presetSelect.options[presetSelect.selectedIndex].text || '思维链预设';
         
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(this.items, null, 2));
+        const exportData = {
+            formatVersion: 2,
+            type: 'ephone-thought-chain-preset',
+            name: presetName,
+            exportedAt: new Date().toISOString(),
+            enabled: this.enabled,
+            behavior: this.clone(this.getBehavior()),
+            items: this.clone(this.items)
+        };
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
         const downloadAnchorNode = document.createElement('a');
         downloadAnchorNode.setAttribute("href",     dataStr);
         // 去除名称中的非法字符
@@ -606,11 +963,16 @@ const ThoughtChainManager = {
 
         try {
             const text = await file.text();
-            let parsedItems = JSON.parse(text);
-            
-            // 简单验证数据结构
+            const parsed = JSON.parse(text);
+            let parsedItems = parsed;
+            let importedBehavior = null;
+            let importedEnabled = this.enabled;
+
+            // 兼容历史数组格式，同时支持新版 { items, behavior, enabled } 结构
             if (!Array.isArray(parsedItems)) {
                 if (parsedItems.items && Array.isArray(parsedItems.items)) {
+                    importedBehavior = parsedItems.behavior;
+                    if (typeof parsedItems.enabled === 'boolean') importedEnabled = parsedItems.enabled;
                     parsedItems = parsedItems.items;
                 } else {
                      throw new Error('导入的数据格式不正确，应为包含数组的JSON。');
@@ -619,14 +981,19 @@ const ThoughtChainManager = {
 
             const confirmed = await showCustomConfirm('导入配置', '确定要导入此思维链配置吗？这将覆盖当前的未保存配置。', { confirmButtonText: '确定导入' });
             if (confirmed) {
-                this.items = parsedItems;
+                this.items = this.normalizeItems(parsedItems);
                 // 重置所有导入项的内部状态以防冲突 (可选，但推荐生成新的内部 ID)
                 this.items = this.items.map(item => ({
                     ...item,
                     id: 'tc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
                 }));
+                if (importedBehavior) {
+                    this.behaviors[this.activeMode] = this.normalizeBehavior({ ...importedBehavior, ...(this.modeBehaviorOverrides[this.activeMode] || {}) });
+                }
+                this.enabled = importedEnabled;
                 this.saveData();
                 this.renderList();
+                this.renderBehaviorSettings();
                 
                 let defaultName = file.name.replace(/\.json$/i, '');
                 if (defaultName.startsWith('思维链预设_')) {
@@ -637,7 +1004,11 @@ const ThoughtChainManager = {
                 if (name && name.trim()) {
                     const presetData = {
                         name: name.trim(),
-                        items: JSON.parse(JSON.stringify(this.items))
+                        items: JSON.parse(JSON.stringify(this.items)),
+                        behavior: this.clone(this.getBehavior()),
+                        enabled: this.enabled,
+                        formatVersion: 2,
+                        updatedAt: Date.now()
                     };
                     
                     const existingPreset = await db.thoughtChainPresets.where('name').equals(presetData.name).first();
@@ -1040,6 +1411,12 @@ const ThoughtChainManager = {
         if (prefillSelect) prefillSelect.value = 'auto';
         document.getElementById('tc-content-input').value = '';
         document.getElementById('tc-enabled-switch').checked = true;
+        const depthInput = document.getElementById('tc-depth-input');
+        const orderInput = document.getElementById('tc-order-input');
+        const noteInput = document.getElementById('tc-note-input');
+        if (depthInput) depthInput.value = '0';
+        if (orderInput) orderInput.value = String(this.items.length);
+        if (noteInput) noteInput.value = '';
         
         this.currentEditId = null;
 
@@ -1054,6 +1431,9 @@ const ThoughtChainManager = {
                 if (prefillSelect) prefillSelect.value = item.prefillMode || 'auto';
                 document.getElementById('tc-content-input').value = item.content;
                 document.getElementById('tc-enabled-switch').checked = item.enabled;
+                if (depthInput) depthInput.value = String(item.depth || 0);
+                if (orderInput) orderInput.value = String(Number.isFinite(Number(item.order)) ? Number(item.order) : this.items.indexOf(item));
+                if (noteInput) noteInput.value = item.note || '';
             }
         } else {
             titleEl.textContent = '添加新条目';
@@ -1078,6 +1458,12 @@ const ThoughtChainManager = {
         const prefillMode = prefillSelect ? (prefillSelect.value || 'auto') : 'auto';
         const content = document.getElementById('tc-content-input').value.trim();
         const enabled = document.getElementById('tc-enabled-switch').checked;
+        const depthInput = document.getElementById('tc-depth-input');
+        const orderInput = document.getElementById('tc-order-input');
+        const noteInput = document.getElementById('tc-note-input');
+        const depth = Math.max(0, parseInt(depthInput ? depthInput.value : '0', 10) || 0);
+        const order = orderInput ? (Number(orderInput.value) || 0) : 0;
+        const note = noteInput ? noteInput.value.trim() : '';
 
         if (!name || !content) {
             alert('名称和内容不能为空！');
@@ -1093,6 +1479,9 @@ const ThoughtChainManager = {
                 item.prefillMode = prefillMode;
                 item.content = content;
                 item.enabled = enabled;
+                item.depth = depth;
+                item.order = order;
+                item.note = note;
             }
         } else {
             const newItem = {
@@ -1102,7 +1491,10 @@ const ThoughtChainManager = {
                 role,
                 prefillMode,
                 content,
-                enabled
+                enabled,
+                depth,
+                order,
+                note
             };
 
             let insertIndex = this.items.length;
@@ -1126,28 +1518,36 @@ const ThoughtChainManager = {
         this.renderList();
         this.closeEditor();
         this.loadPresetsDropdown(); // 更新下拉框状态，可能变为"当前配置 (未保存)"
+        this.updateDirtyState();
     },
 
-    getPayloadChunks(mode = 'chat') {
-        const modeState = mode === this.activeMode
+    getPayloadChunks(mode = this.activeMode) {
+        const resolvedMode = this.modes[mode] ? mode : 'chat';
+        const modeState = resolvedMode === this.activeMode
             ? { enabled: this.enabled, items: this.items }
-            : this.getStoredModeState(mode);
+            : this.getStoredModeState(resolvedMode);
 
-        if (!modeState.enabled) return { head: [], middle: [], bottom: [] };
+        const empty = { head: [], middle: [], bottom: [], before_history: [], in_chat: [], after_history: [] };
+        if (!modeState.enabled) return empty;
 
         const chunks = {
             head: [],
             middle: [],
-            bottom: []
+            bottom: [],
+            before_history: [],
+            in_chat: [],
+            after_history: []
         };
 
-        modeState.items.forEach(item => {
-            if (item.enabled) {
-                if (item.position === 'head') chunks.head.push(item);
-                else if (item.position === 'middle') chunks.middle.push(item);
-                else if (item.position === 'bottom') chunks.bottom.push(item);
-            }
+        (modeState.items || []).forEach(item => {
+            if (!item || !item.enabled) return;
+            if (item.position === 'head') chunks.head.push(item);
+            else if (item.position === 'middle') chunks.middle.push(item);
+            else if (item.position === 'bottom') chunks.bottom.push(item);
+            else if (chunks[item.position]) chunks[item.position].push(item);
         });
+
+        Object.values(chunks).forEach(items => items.sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0)));
 
         return chunks;
     }

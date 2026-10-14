@@ -177,7 +177,7 @@ document.addEventListener('DOMContentLoaded', () => {
       safeRenderMode: false,
       dropdownPopupMode: false,
       showThoughtChainInChat: true, // 是否在聊天界面显示AI深度思考
-      thoughtChainPrefillMode: 'auto', // 思维链底部预填充兼容模式：auto(自动) / on(强制预填充) / off(不预填充)
+      // 思维链的预填充 / 思考提取已改为思维链 APP 内的“手动兼容设置”，按模式存于 localStorage
       systemNotification: {
         enabled: false,
         appName: 'EPhone',

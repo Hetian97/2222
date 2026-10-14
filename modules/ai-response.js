@@ -1862,15 +1862,29 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
     let trimmedContent = content.trim();
     let prefixResults = [];
 
-    // 兼容AI回复中可能缺少开头 <thinking> 标签的情况
-    const thinkingMatch = trimmedContent.match(/^(?:<thinking>)?([\s\S]*?)<\/thinking>/i);
-    if (thinkingMatch && thinkingMatch[1]) {
-      prefixResults.push({
-        type: 'thought_chain_block',
-        content: thinkingMatch[1].trim()
-      });
-      trimmedContent = trimmedContent.slice(thinkingMatch[0].length).trim();
-      if (!trimmedContent) return prefixResults;
+    // 思考提取：优先走思维链 APP 的“手动兼容设置”（标记 / 正则 / 大小写 / 缺开始标记 / 全部匹配）
+    if (typeof ThoughtChainManager !== 'undefined' && typeof ThoughtChainManager.extractReasoning === 'function') {
+      const extraction = ThoughtChainManager.extractReasoning(trimmedContent);
+      if (extraction.error) console.warn('思考内容提取配置无效，已保留原始回复:', extraction.error);
+      if (extraction.reasoning) {
+        prefixResults.push({
+          type: 'thought_chain_block',
+          content: extraction.reasoning
+        });
+      }
+      trimmedContent = extraction.body;
+      if (!trimmedContent && prefixResults.length) return prefixResults;
+    } else {
+      // 兼容AI回复中可能缺少开头 <thinking> 标签的情况
+      const thinkingMatch = trimmedContent.match(/^(?:<thinking>)?([\s\S]*?)<\/thinking>/i);
+      if (thinkingMatch && thinkingMatch[1]) {
+        prefixResults.push({
+          type: 'thought_chain_block',
+          content: thinkingMatch[1].trim()
+        });
+        trimmedContent = trimmedContent.slice(thinkingMatch[0].length).trim();
+        if (!trimmedContent) return prefixResults;
+      }
     }
 
     const markdownRegex = /```json\s*([\s\S]*?)\s*```/;
@@ -5146,22 +5160,28 @@ ${getActiveThoughtsPrompt()}
         }
       }
 
-      // 注入 思维链 底部触发器
-      // 预填充兼容：Gemini flash 这类不支持以 model/assistant 轮结尾的上游会直接 400
-      //（Requests ending with a model turn are not supported），此时跳过底部预填，
-      // 改用 system 约束让模型自己输出同样的开头，思考提取与界面显示逻辑完全不变。
+      // 按思维链 APP 中配置的「位置 / 深度 / 顺序 / 预填充开关」注入消息
+      // 预填充兼容：关闭“发送底部 / Assistant 预填条目”后，请求不再以 model/assistant 轮结尾，
+      // 可规避 Gemini flash 的 400（Requests ending with a model turn are not supported），
+      // 思考内容改由结束标记反向提取，界面显示逻辑完全不变。
       let bottomPrefillInjected = [];
-      if (thoughtChainChunks.bottom && thoughtChainChunks.bottom.length > 0) {
-        const bottomMessages = (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.getBottomPayloadMessages)
-          ? ThoughtChainManager.getBottomPayloadMessages(thoughtChainMode)
-          : thoughtChainChunks.bottom.map(c => ({
-              role: c.role,
-              content: c.content
-            }));
-        if (bottomMessages.length > 0) {
-          messagesPayload.push(...bottomMessages);
-          bottomPrefillInjected = bottomMessages;
+      const messagesPayloadBeforeThoughtChain = messagesPayload.slice();
+      if (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.injectIntoMessages) {
+        const injectedResult = ThoughtChainManager.injectIntoMessages(messagesPayload, thoughtChainMode);
+        if (Array.isArray(injectedResult)) {
+          bottomPrefillInjected = injectedResult.slice(messagesPayloadBeforeThoughtChain.length);
+          messagesPayload = injectedResult;
+          if (bottomPrefillInjected.length > 0) {
+            console.log(`[思维链] 已注入 ${bottomPrefillInjected.length} 条独立消息（模式: ${thoughtChainMode}）`);
+          }
         }
+      } else if (thoughtChainChunks.bottom && thoughtChainChunks.bottom.length > 0) {
+        const bottomMessages = thoughtChainChunks.bottom.map(c => ({
+          role: c.role,
+          content: c.content
+        }));
+        messagesPayload.push(...bottomMessages);
+        bottomPrefillInjected = bottomMessages;
       }
 
       let prefillFallbackPrompt = (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.buildPrefillFallbackSystemPrompt)
@@ -5301,13 +5321,13 @@ ${getActiveThoughtsPrompt()}
       }
 
       // 兜底：上游确实不支持预填充时（先声明后报错、或开关没来得及切换），
-      // 自动撤掉底部 assistant 预填并原样重试一次，思考提取与显示逻辑不变。
+      // 自动撤掉思维链注入 + 底部 assistant 预填并原样重试一次，思考提取与显示逻辑不变。
       if (
         !response.ok &&
         bottomPrefillInjected.length > 0 &&
         prefillFallbackPrompt &&
         typeof ThoughtChainManager !== 'undefined' &&
-        typeof ThoughtChainManager.setPrefillCompatMode === 'function'
+        ThoughtChainManager.injectIntoMessages
       ) {
         let prefillErrorRaw = '';
         try { prefillErrorRaw = await response.clone().text(); } catch (cloneError) { prefillErrorRaw = ''; }
@@ -5315,13 +5335,10 @@ ${getActiveThoughtsPrompt()}
           console.warn('[思维链预填充] 上游不支持以 model turn 结尾，已自动去除底部预填充并重试一次。');
           try {
             if (typeof showToast === 'function') {
-              showToast('检测到当前模型不支持预填充，本轮已自动改用“无预填充+提取思考”。如需固定，请到 设置→显示与交互→思维链预填充兼容模式 选择“不预填充”。', 'warning', 6000);
+              showToast('检测到当前模型不支持预填充，本轮已自动改用“无预填充+提取思考”。如需固定，请到 思维链 App → 手动兼容设置 关闭“发送底部 / Assistant 预填条目”。', 'warning', 6000);
             }
           } catch (toastError) { /* 忽略提示失败 */ }
-          for (const injected of bottomPrefillInjected) {
-            const index = messagesPayload.lastIndexOf(injected);
-            if (index !== -1) messagesPayload.splice(index, 1);
-          }
+          messagesPayload = messagesPayloadBeforeThoughtChain.slice();
           bottomPrefillInjected = [];
           try {
             response = await buildMainApiResponse();

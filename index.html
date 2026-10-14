@@ -48,7 +48,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js" defer></script>
   <script src="update-notification.js?v=0.0.36" defer></script>
-  <script src="thought-chain-manager.js?v=0.0.37" defer></script>
+  <script src="thought-chain-manager.js?v=0.0.40" defer></script>
   <script src="online-chat-manager.js?v=0.0.36" defer></script>
   <script src="online-chat-integration.js?v=0.0.36" defer></script>
   <script src="sticker-vision.js?v=0.0.36" defer></script>
@@ -2174,6 +2174,65 @@
              </div>
           </div>
           
+          <!-- 手动兼容设置（与上游一致：预填充 + 思考提取） -->
+          <div class="settings-item" style="border-bottom: 1px solid #eee;">
+            <div>
+              <div style="font-weight: 500;">手动兼容设置</div>
+              <div class="settings-desc" style="font-size: 12px;">预填充与思考提取，按上方模式（聊天 / 通话 / 线下）分别保存</div>
+            </div>
+            <span id="thought-chain-unsaved-indicator" hidden style="font-size: 11px; color: #b25000; background: rgba(255,149,0,0.12); border-radius: 6px; padding: 2px 6px; white-space: nowrap;">未保存修改</span>
+          </div>
+          <div class="settings-item" style="border-bottom: 1px solid #eee;">
+            <div>
+              <div style="font-weight: 500;">发送底部 / Assistant 预填条目</div>
+              <div class="settings-desc" style="font-size: 12px;">关闭后保留条目，但不把底部条目追加到请求末尾（Gemini flash 报 400 “Requests ending with a model turn are not supported” 时请关闭）</div>
+              <div id="thought-chain-prefill-hint" style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; line-height: 1.5;"></div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="thought-chain-prefill-switch" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="settings-item" style="border-bottom: 1px solid #eee;">
+            <div>
+              <div style="font-weight: 500;">提取思考内容</div>
+              <div class="settings-desc" style="font-size: 12px;">关闭后不拆分思考块，完整回复交给原正文解析</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="thought-chain-extraction-switch" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div id="thought-chain-extraction-settings" style="padding: 12px 15px 15px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid #eee;">
+            <label style="font-size: 13px; font-weight: 500;">提取方式
+              <select id="thought-chain-extraction-mode" class="settings-select" style="margin-top: 6px; width: 100%;">
+                <option value="tags">开始 / 结束标记</option>
+                <option value="regex">正则表达式</option>
+              </select>
+            </label>
+            <div id="thought-chain-tag-settings" style="display: flex; gap: 10px;">
+              <label style="flex: 1; min-width: 0; font-size: 12px; color: #666;">开始标记
+                <input type="text" id="thought-chain-start-marker" value="&lt;thinking&gt;" style="width: 100%; margin-top: 4px; padding: 8px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box;">
+              </label>
+              <label style="flex: 1; min-width: 0; font-size: 12px; color: #666;">结束标记
+                <input type="text" id="thought-chain-end-marker" value="&lt;/thinking&gt;" style="width: 100%; margin-top: 4px; padding: 8px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box;">
+              </label>
+            </div>
+            <label id="thought-chain-regex-setting" hidden style="font-size: 12px; color: #666;">正则表达式
+              <input type="text" id="thought-chain-extraction-regex" placeholder="例如：&lt;thinking&gt;([\s\S]*?)&lt;/thinking&gt;" style="width: 100%; margin-top: 4px; padding: 8px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box;">
+            </label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; font-size: 12px; color: #444;">
+              <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="thought-chain-ignore-case-switch" checked> 忽略大小写</label>
+              <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="thought-chain-remove-from-body-switch" checked> 从正文移除</label>
+              <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="thought-chain-allow-missing-start-switch" checked> 兼容缺少开始标记</label>
+              <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="thought-chain-extract-all-switch"> 提取全部匹配</label>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button id="thought-chain-preview-btn" class="settings-mini-btn">最终注入预览</button>
+              <button id="thought-chain-parser-test-btn" class="settings-mini-btn">测试提取规则</button>
+            </div>
+          </div>
+
           <button id="thought-chain-reset-btn" style="width: 100%; padding: 12px; background: none; border: none; color: #ff3b30; font-size: 15px; font-weight: 500; cursor: pointer;">
             恢复默认条目
           </button>
@@ -4450,19 +4509,6 @@
                 </label>
             </div>
             <div class="settings-item">
-                <div>
-                    <label>思维链预填充兼容模式</label>
-                    <div class="settings-desc">自动 / 强制预填充 / 不预填充。Gemini flash 等不支持预填充的模型请选“不预填充”，否则会报 400（Requests ending with a model turn are not supported）；Gemini pro 支持预填充，可保持“自动”。</div>
-                </div>
-                <div class="settings-right">
-                    <select id="thought-chain-prefill-mode-select" class="settings-select">
-                        <option value="auto">自动</option>
-                        <option value="on">强制预填充</option>
-                        <option value="off">不预填充</option>
-                    </select>
-                </div>
-            </div>
-            <div class="settings-item">
                 <label>顶部状态栏</label>
                 <label class="toggle-switch">
                     <input type="checkbox" id="status-bar-toggle-switch">
@@ -4825,6 +4871,9 @@
                 <option value="head">头部</option>
                 <option value="middle">中间</option>
                 <option value="bottom">底部</option>
+                <option value="before_history">记录前</option>
+                <option value="in_chat">记录内</option>
+                <option value="after_history">记录后</option>
               </select>
             </div>
             <div style="flex: 1; min-width: 0;">
@@ -4844,10 +4893,24 @@
               </select>
             </div>
           </div>
-          <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-top: -6px;">
-            位置：头部/中间注入 system，底部作为触发器注入。<br>
-            预填充「自动」= Gemini flash 这类不支持预填充的模型自动改为不预填充；「强制」= 一定发送 assistant 预填充（Gemini pro 可保持自动或强制）；「关闭」= 本轮不发送这条 assistant 开头文本，改由 system 约束让模型自己输出同样的开头，思考内容照常提取并显示思维链。<br>
-            报 400：Requests ending with a model turn are not supported 时，把底部条目设为「关闭」或全局选「不预填充」。
+          <div style="display: flex; gap: 10px;">
+            <div style="flex: 1; min-width: 0;">
+              <label style="font-size: 12px; color: #666;">聊天深度</label>
+              <input type="number" id="tc-depth-input" min="0" value="0" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box;">
+            </div>
+            <div style="flex: 1; min-width: 0;">
+              <label style="font-size: 12px; color: #666;">同位置顺序</label>
+              <input type="number" id="tc-order-input" value="0" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box;">
+            </div>
+          </div>
+          <div>
+            <label style="font-size: 12px; color: #666;">条目备注（不会发给模型）</label>
+            <input type="text" id="tc-note-input" placeholder="可选" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box;">
+          </div>
+          <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
+            位置：头部/中间沿用合并到主提示词的逻辑；记录前/记录内/记录后按“身份”作为独立消息插入（记录内按“聊天深度”从末尾往前插入）。<br>
+            预填充「自动」跟随思维链 App 内“手动兼容设置 → 发送底部 / Assistant 预填条目”；「强制 / 关闭」只覆盖这一个条目。<br>
+            报 400：Requests ending with a model turn are not supported 时，去“手动兼容设置”关闭“发送底部 / Assistant 预填条目”。
           </div>
           <div class="form-group" style="flex-grow: 1; display: flex; flex-direction: column;">
             <label>内容文本 <span style="font-size: 12px; color: #999; font-weight: normal;">(支持 <code><变量名></code>)</span></label>
@@ -4864,6 +4927,23 @@
         <div class="modal-footer">
           <button class="cancel" id="tc-cancel-btn">取消</button>
           <button class="save" id="tc-save-btn">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 思维链工具弹窗（最终注入预览 / 测试提取规则） -->
+    <div id="thought-chain-tools-modal" class="modal">
+      <div class="modal-content" style="height: 78%; max-width: 620px; width: min(calc(100% - 32px), 620px);">
+        <div class="modal-header">
+          <span id="thought-chain-tools-title">思维链工具</span>
+        </div>
+        <div class="modal-body" style="display: flex; flex-direction: column; gap: 12px;">
+          <textarea id="thought-chain-test-input" placeholder="测试提取规则时，在这里粘贴一段模型返回内容" style="min-height: 120px; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-family: monospace; font-size: 12px; resize: vertical; box-sizing: border-box;"></textarea>
+          <pre id="thought-chain-tools-output" style="flex-grow: 1; margin: 0; padding: 12px; overflow: auto; background: #f8f8f7; border: 1px solid #ddd; border-radius: 6px; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;"></pre>
+        </div>
+        <div class="modal-footer">
+          <button class="cancel" id="thought-chain-tools-close-btn">关闭</button>
+          <button class="save" id="thought-chain-tools-run-btn">运行测试</button>
         </div>
       </div>
     </div>
