@@ -333,6 +333,11 @@ ${formatRules}
       if (walletPrompt) systemPrompt += '\n\n' + walletPrompt;
     }
 
+    // 思维链：后台自动回复也按“后台”模式注入（后台请求不带对话消息，强制不预填充）
+    if (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.buildBackgroundInstruction) {
+      systemPrompt = ThoughtChainManager.buildBackgroundInstruction(systemPrompt, 'background');
+    }
+
     const messagesPayload = [{
       role: 'user',
       content: `[系统指令：这是线下模式的后台自动回复。请不要等待用户输入；请基于上面的线下提示词、预设、记忆和现场历史，生成一次自然的现场回应或动作推进。]`
@@ -394,6 +399,25 @@ ${formatRules}
     let pushedCount = 0;
 
     for (const action of responseArray) {
+      // 思考块不是动作：存档成 thought_chain_block，让它照常显示“深度思考”
+      if (action && action.type === 'thought_chain_block') {
+        const thoughtContent = String(action.content || '').trim();
+        if (thoughtContent) {
+          const blockMessage = {
+            role: 'assistant',
+            senderName: chat.name,
+            type: 'thought_chain_block',
+            content: thoughtContent,
+            timestamp: messageTimestamp++
+          };
+          chat.history.push(blockMessage);
+          if (isViewingThisChat && typeof appendMessage === 'function') {
+            appendMessage(blockMessage, chat);
+          }
+        }
+        continue;
+      }
+
       if (!action || action.type !== 'offline_text') {
         console.warn('线下自动回复：忽略非 offline_text 动作:', action);
         continue;
@@ -1130,15 +1154,18 @@ ${longTimeNoSee ? `【重要提示】你们已经很久没聊天了！你【必�
     ];
 
     try {
+      const backgroundSystemPrompt = (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.buildBackgroundInstruction)
+        ? ThoughtChainManager.buildBackgroundInstruction(systemPrompt, 'background')
+        : systemPrompt;
       const messagesPayload = [{
         role: 'user',
-        content: `${systemPrompt}\n\n[系统指令：请根据你在上面读到的规则和以下最新信息，开始你的独立行动。]\n${dynamicContext}`
+        content: `${backgroundSystemPrompt}\n\n[系统指令：请根据你在上面读到的规则和以下最新信息，开始你的独立行动。]\n${dynamicContext}`
       }];
 
       console.log(`正在为后台活动发送API请求 ("${chat.name}")`);
 
       let isGemini = proxyUrl === GEMINI_API_URL;
-      let geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messagesPayload);
+      let geminiConfig = toGeminiRequestData(model, apiKey, backgroundSystemPrompt, messagesPayload);
 
       const response = isGemini ?
         await fetch(geminiConfig.url, geminiConfig.data) :
@@ -1200,6 +1227,11 @@ ${longTimeNoSee ? `【重要提示】你们已经很久没聊天了！你【必�
         }
       }
       for (const action of processedActions) {
+        // 思考块不是行动：正常情况下已被 ThoughtChainManager 摘除，这里再兜一层
+        if (action.type === 'thought_chain_block') {
+          console.log(`[思维链] 后台活动：跳过 thought_chain_block（${String(action.content || '').slice(0, 40)}…）`);
+          continue;
+        }
         chat.lastActionType = action.type;
         chat.lastActionTimestamp = actionTimestamp;
 
@@ -2027,12 +2059,15 @@ ${longTermMemoryContext}
     ];
 
     try {
+      const backgroundSystemPrompt = (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.buildBackgroundInstruction)
+        ? ThoughtChainManager.buildBackgroundInstruction(systemPrompt, 'background')
+        : systemPrompt;
       const messagesPayload = [{
         role: 'user',
-        content: systemPrompt
+        content: backgroundSystemPrompt
       }];
       let isGemini = proxyUrl === GEMINI_API_URL;
-      let geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messagesPayload);
+      let geminiConfig = toGeminiRequestData(model, apiKey, backgroundSystemPrompt, messagesPayload);
 
       const response = isGemini ?
         await fetch(geminiConfig.url, geminiConfig.data) :
@@ -2092,6 +2127,8 @@ ${longTermMemoryContext}
       }
       for (const action of processedActions) {
         if (!action || !action.type || (!action.name && action.type !== 'narration')) continue;
+        // 思考块不是行动：正常情况下已被 ThoughtChainManager 摘除，这里再兜一层
+        if (action.type === 'thought_chain_block') continue;
 
         // 纠正AI可能返回群昵称而非本名的问题
         if (action.name) {

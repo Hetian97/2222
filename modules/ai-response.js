@@ -1502,6 +1502,21 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
     })
     ];
 
+    // 开头这段 user(system) + model(确认) 是给“有后续对话”的场景做铺垫的。
+    // 如果后面没有接任何消息，整串请求就会以 model 轮结尾，Gemini 的 flash 等模型会直接 400：
+    // Requests ending with a model turn are not supported。
+    // 这里补一条收尾的用户消息，把请求重新交回 user 轮；预填充（底部 assistant 条目）是
+    // 有意留成 model 轮的，所以只有“后面什么都没接”时才补。
+    const hasTrailingMessages = Array.isArray(messagesForDecision) && messagesForDecision.length > 0;
+    if (!hasTrailingMessages) {
+      contents.push({
+        role: 'user',
+        parts: [{
+          text: '[系统指令：上面是背景与规则，本轮没有新的用户消息。请直接根据以上设定与最近的记录继续生成你本轮的回复，不要等待用户输入。]'
+        }]
+      });
+    }
+
 
     return {
       url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${getRandomValue(apiKey)}`,

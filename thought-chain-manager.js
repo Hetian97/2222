@@ -22,6 +22,15 @@ const ThoughtChainManager = {
             enabledKey: 'ephone_thought_chain_offline_enabled',
             itemsKey: 'ephone_thought_chain_offline_items',
             defaultEnabled: false
+        },
+        // 后台自主回复：与“聊天”共用总开关和条目，但有自己独立的兼容设置。
+        // 后台请求原本不带任何对话消息（见 ai-group.js），所以这里强制不预填充，
+        // 否则请求又会以 model 轮结尾而报 400。
+        background: {
+            label: '后台',
+            enabledKey: 'ephone_thought_chain_enabled',
+            itemsKey: 'ephone_thought_chain_items',
+            defaultEnabled: true
         }
     },
 
@@ -48,7 +57,7 @@ const ThoughtChainManager = {
         fallbackBeforeJson: true
     },
 
-    // 按模式隔离：线上 / 通话 / 线下各有自己的兼容设置
+    // 按模式隔离：线上 / 通话 / 线下 / 后台各有自己的兼容设置
     behaviors: {},
 
     // 通话模式自己用 JSON thought_chain_block 方案，不参与通用注入
@@ -57,6 +66,13 @@ const ThoughtChainManager = {
             prefillEnabled: false,
             extractionEnabled: false,
             manageOwnInjection: true
+        },
+        // 后台自主回复：强制不预填充（否则请求以 model 轮结尾会 400），
+        // 但保留思考提取，走 JSON thought_chain_block 方案。
+        background: {
+            prefillEnabled: false,
+            extractionEnabled: true,
+            manageOwnInjection: false
         }
     },
 
@@ -169,6 +185,10 @@ const ThoughtChainManager = {
     // 当前模式是否启用（非当前模式读存储值）
     isModeEnabled(mode = this.activeMode) {
         const resolvedMode = this.modes[mode] ? mode : 'chat';
+        // 后台自主回复与“聊天”共用总开关，直接跟随聊天的实时状态，避免读存储值滞后
+        if (resolvedMode === 'background') {
+            return this.isModeEnabled('chat');
+        }
         if (resolvedMode === this.activeMode) return this.enabled !== false;
         return !!this.getStoredModeState(resolvedMode).enabled;
     },
@@ -228,8 +248,28 @@ const ThoughtChainManager = {
         return lines.join('\n');
     },
 
+    // 后台自主回复（ai-group.js）：把思维链的头部/中间条目注入 system，
+    // 并在关闭预填充时补上“必须输出 thought_chain_block”的约束。
+    buildBackgroundInstruction(baseSystemPrompt, mode = 'background') {
+        const base = typeof baseSystemPrompt === 'string' ? baseSystemPrompt : '';
+        const resolvedMode = this.modes[mode] ? mode : 'background';
+        if (!this.isModeEnabled(resolvedMode)) return base;
+
+        const chunks = this.getPayloadChunks(resolvedMode);
+        const context = (chunks.head || []).concat(chunks.middle || [])
+            .map(item => String(item && item.content || '').trim())
+            .filter(Boolean)
+            .join('\n');
+        const fallback = this.buildPrefillFallbackSystemPrompt(resolvedMode);
+
+        if (context) {
+            console.log(`[思维链] 后台自主回复已注入思维链（模式: ${resolvedMode}，条目 ${(chunks.head || []).length + (chunks.middle || []).length} 条）`);
+        }
+        return [base, context, fallback].filter(part => part && String(part).trim()).join('\n\n');
+    },
+
     // 未显式传模式时，按当前活跃聊天推断：线下模式 → offline，其余 → chat
-    // （通话模式有独立的解析器，不走这里）
+    // （通话、后台有各自的入口，不走这里的推断）
     resolveExtractionMode(mode) {
         if (mode && this.modes[mode]) return mode;
         try {
@@ -360,11 +400,24 @@ const ThoughtChainManager = {
         });
         if (!thoughts.length) return { reasoning: '', body: source };
 
-        const serialized = JSON.stringify(kept, null, 2);
-        return {
-            reasoning: thoughts.join('\n\n'),
-            body: source.slice(0, startIndex).trim() + (source.slice(0, startIndex).trim() ? '\n' : '') + serialized
-        };
+        const prefix = source.slice(0, startIndex).trim();
+        const suffixes = [];
+        let cursor = endIndex + 1;
+        let nextStart = source.indexOf('[', cursor);
+        if (nextStart !== -1) {
+            const nextEnd = source.lastIndexOf(']');
+            if (nextEnd > nextStart) suffixes.push(source.slice(nextStart, nextEnd + 1));
+        }
+
+        // 思考块一律从正文里摘除：后台行动循环和正文解析器都不认识这个类型，
+        // 留着只会被当成“未知动作”警告掉。同时把解析结果重新序列化，
+        // 避免留下 `[, {...}]` 这种不合法的 JSON。
+        const serializeList = items => (items.length ? JSON.stringify(items) : '');
+        let body = [prefix, ...suffixes].filter(Boolean).join('\n');
+        if (!body) {
+            body = serializeList(kept);
+        }
+        return { reasoning: thoughts.join('\n\n'), body };
     },
 
     // 取正文 JSON（数组或对象）之前的前置文本作为思考内容
