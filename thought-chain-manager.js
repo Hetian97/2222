@@ -43,7 +43,9 @@ const ThoughtChainManager = {
         ignoreCase: true,
         removeFromBody: true,
         allowMissingStart: true,
-        extractAll: false
+        extractAll: false,
+        // 关闭预填充后模型可能完全不打标记：把 JSON 正文之前的内容当思考内容
+        fallbackBeforeJson: true
     },
 
     // 按模式隔离：线上 / 通话 / 线下各有自己的兼容设置
@@ -68,7 +70,7 @@ const ThoughtChainManager = {
         merged.startMarker = typeof merged.startMarker === 'string' ? merged.startMarker : this.defaultBehavior.startMarker;
         merged.endMarker = typeof merged.endMarker === 'string' ? merged.endMarker : this.defaultBehavior.endMarker;
         merged.extractionRegex = typeof merged.extractionRegex === 'string' ? merged.extractionRegex : '';
-        ['prefillEnabled', 'extractionEnabled', 'ignoreCase', 'removeFromBody', 'allowMissingStart', 'extractAll'].forEach(key => {
+        ['prefillEnabled', 'extractionEnabled', 'ignoreCase', 'removeFromBody', 'allowMissingStart', 'extractAll', 'fallbackBeforeJson'].forEach(key => {
             merged[key] = merged[key] !== false;
         });
         // extractAll 历史上默认是 false，与其它开关相反
@@ -250,15 +252,65 @@ const ThoughtChainManager = {
 
             let body = raw;
             if (config.removeFromBody) matches.forEach(match => { body = body.replace(match.full, ''); });
+            let reasoning = matches.map(match => match.content).filter(Boolean).join('\n\n');
+
+            // 兼容无标记思考：模型完全没输出开始/结束标记时（Gemini flash 关闭预填充后很常见），
+            // 把 JSON 正文之前的那段内容当作思考内容，否则思维链会整块消失。
+            let usedFallback = false;
+            if (!reasoning && config.fallbackBeforeJson !== false) {
+                const fallback = this.extractLeadingNonJson(body);
+                if (fallback.reasoning) {
+                    reasoning = fallback.reasoning;
+                    body = fallback.body;
+                    usedFallback = true;
+                }
+            }
+
+            this.reportExtractionDebug(config, raw, reasoning, usedFallback);
+
             return {
-                reasoning: matches.map(match => match.content).filter(Boolean).join('\n\n'),
+                reasoning,
                 body: body.trim(),
                 matches,
+                usedFallback,
                 error: null
             };
         } catch (error) {
             return { reasoning: '', body: raw, matches: [], error: error.message || String(error) };
         }
+    },
+
+    // 取正文 JSON（数组或对象）之前的前置文本作为思考内容
+    extractLeadingNonJson(text) {
+        const source = typeof text === 'string' ? text : String(text ?? '');
+        const arrayIndex = source.indexOf('[');
+        const objectIndex = source.indexOf('{');
+        let jsonIndex = -1;
+        if (arrayIndex !== -1 && objectIndex !== -1) jsonIndex = Math.min(arrayIndex, objectIndex);
+        else jsonIndex = arrayIndex !== -1 ? arrayIndex : objectIndex;
+        if (jsonIndex <= 0) return { reasoning: '', body: source };
+        return {
+            reasoning: source.slice(0, jsonIndex).trim(),
+            body: source.slice(jsonIndex).trim()
+        };
+    },
+
+    // 提取失败时的诊断日志（移动端控制台可见）：只提示一次，避免刷屏
+    reportExtractionDebug(config, raw, reasoning, usedFallback) {
+        const mode = this.resolveExtractionMode(null);
+        if (reasoning) {
+            if (usedFallback) {
+                console.log(`[思维链] 未找到「${config.startMarker || ''} / ${config.endMarker || ''}」标记，已按“兼容无标记思考”取 JSON 之前的文本作为思考内容。`);
+            }
+            return;
+        }
+        if (this._extractionWarned && this._extractionWarned[mode]) return;
+        this._extractionWarned = this._extractionWarned || {};
+        this._extractionWarned[mode] = true;
+        console.warn(
+            `[思维链] 提取思考内容失败：原始返回里既没有「${config.startMarker || ''}」也没有「${config.endMarker || ''}」。` +
+            `原始返回开头 240 字：${String(raw).slice(0, 240)}`
+        );
     },
 
     // ==================== 消息注入（上游 injectIntoMessages 同款） ====================
@@ -724,7 +776,8 @@ const ThoughtChainManager = {
             'thought-chain-ignore-case-switch': ['ignoreCase', 'checked'],
             'thought-chain-remove-from-body-switch': ['removeFromBody', 'checked'],
             'thought-chain-allow-missing-start-switch': ['allowMissingStart', 'checked'],
-            'thought-chain-extract-all-switch': ['extractAll', 'checked']
+            'thought-chain-extract-all-switch': ['extractAll', 'checked'],
+            'thought-chain-fallback-before-json-switch': ['fallbackBeforeJson', 'checked']
         };
         Object.entries(behaviorBindings).forEach(([id, [key, property]]) => {
             const element = document.getElementById(id);
@@ -765,7 +818,8 @@ const ThoughtChainManager = {
             'thought-chain-ignore-case-switch': ['ignoreCase', 'checked'],
             'thought-chain-remove-from-body-switch': ['removeFromBody', 'checked'],
             'thought-chain-allow-missing-start-switch': ['allowMissingStart', 'checked'],
-            'thought-chain-extract-all-switch': ['extractAll', 'checked']
+            'thought-chain-extract-all-switch': ['extractAll', 'checked'],
+            'thought-chain-fallback-before-json-switch': ['fallbackBeforeJson', 'checked']
         };
         Object.entries(values).forEach(([id, [key, property]]) => {
             const element = document.getElementById(id);
