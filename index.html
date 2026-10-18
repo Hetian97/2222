@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="css/features-1.css?v=0.0.37">
   <link rel="stylesheet" href="css/features-2.css?v=0.0.47">
   <link rel="stylesheet" href="css/features-3.css?v=0.0.36">
-  <link rel="stylesheet" href="css/features-4.css?v=0.0.36">
+  <link rel="stylesheet" href="css/features-4.css?v=0.0.52-watch-pip">
   <link rel="stylesheet" href="css/douban.css?v=0.0.36">
   <link rel="stylesheet" href="css/douban-menu.css?v=0.0.36">
   <link rel="stylesheet" href="update-notification.css?v=0.0.36">
@@ -71,7 +71,7 @@
   <script src="modules/ui-loaders.js?v=0.0.38" defer></script>
   <!-- 第三层：核心聊天功能 -->
   <script src="modules/chat-list.js?v=0.0.38" defer></script>
-  <script src="modules/chat-interface.js?v=0.0.45" defer></script>
+  <script src="modules/chat-interface.js?v=0.0.52-watch-pip" defer></script>
   <script src="modules/chat-input.js?v=0.0.37" defer></script>
   <script src="modules/mcp-guide-cache.js?v=0.0.1" defer></script>
   <!-- 第四层：AI 核心 -->
@@ -83,7 +83,7 @@
   <script src="modules/sticker-manager.js?v=0.0.36" defer></script>
   <script src="modules/memory-summary.js?v=0.0.53" defer></script>
   <script src="modules/video-voice-call.js?v=0.0.36" defer></script>
-  <script src="modules/message-actions.js?v=0.0.38" defer></script>
+  <script src="modules/message-actions.js?v=0.0.53-narration-sender" defer></script>
   <script src="modules/nai-imagen.js?v=0.0.37" defer></script>
   <script src="modules/backup-import-export.js?v=0.0.42" defer></script>
   <script src="modules/settings-presets.js?v=0.0.39" defer></script>
@@ -126,9 +126,9 @@
   <!-- PIN/城市（依赖 DOM） -->
   <script src="modules/init-pin-city.js?v=0.0.36" defer></script>
   <!-- 事件绑定和功能（依赖 state, db） -->
-  <script src="modules/init-event-bindingsA.js?v=0.0.44" defer></script>
+  <script src="modules/init-event-bindingsA.js?v=0.0.53-narration-sender" defer></script>
   <script src="modules/init-event-bindingsB.js?v=0.0.39" defer></script>
-  <script src="modules/init-features.js?v=0.0.38" defer></script>
+  <script src="modules/init-features.js?v=0.0.52-watch-pip" defer></script>
   <!-- 自由桌面 / 经典桌面切换与桌面小组件 -->
   <script src="modules/ui/free-home-layout.js?v=0.0.2" defer></script>
   <script src="modules/ui/custom-widget-studio.js?v=0.0.1" defer></script>
@@ -7688,6 +7688,7 @@
           <div id="watch-together-placeholder">
             <p>点击右上角"+"上传视频开始观看</p>
           </div>
+          <button id="watch-together-pip-btn" class="watch-together-compact-action" type="button" title="悬浮播放，去日常聊天" aria-label="悬浮播放">▣</button>
         </div>
         <div id="watch-together-chat-float">
           <div id="watch-together-chat-header">
@@ -7704,6 +7705,20 @@
       </div>
     </div>
   </div>
+  <!-- 一起看电影：应用内悬浮播放器（不支持原生画中画时使用） -->
+  <div id="watch-together-pip-shell" class="watch-together-pip-shell" aria-hidden="true">
+    <div id="watch-together-pip-drag-handle" class="watch-together-pip-shell__header">
+      <span id="watch-together-pip-title">一起看电影</span>
+      <div class="watch-together-pip-shell__actions">
+        <button id="watch-together-pip-back-btn" type="button" title="返回观影界面" aria-label="返回观影界面">⤢</button>
+        <button id="watch-together-pip-collapse-btn" type="button" title="收起" aria-label="收起">—</button>
+      </div>
+    </div>
+    <div id="watch-together-pip-body" class="watch-together-pip-shell__body">
+      <div id="watch-together-pip-placeholder">悬浮播放中</div>
+    </div>
+  </div>
+  <div id="watch-together-pip-bar" class="watch-together-pip-bar">一起看电影</div>
   <div id="watch-together-upload-modal" class="modal" style="z-index: 10001;">
     <div class="modal-content" style="width: 400px; height: auto;">
       <div class="modal-header">
@@ -7839,6 +7854,15 @@
           <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #333;">记住最近对话条数</label>
           <input type="number" id="watch-together-max-messages" min="5" max="100" value="20" style="width: 100%; padding: 8px; border: 1px solid #d0d0d0; border-radius: 4px;">
           <p style="font-size: 12px; color: #999; margin-top: 5px;">AI能记住的最近对话记录数量，超出部分将被删除</p>
+        </div>
+        <div class="form-group" style="margin-bottom: 20px;">
+          <label style="display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; color: #333; margin-bottom: 8px;">
+            <span>关闭时生成观影总结</span>
+            <input type="checkbox" id="watch-together-summary-enabled" checked>
+          </label>
+          <textarea id="watch-together-summary-prompt" rows="5" placeholder="留空使用默认提示词" style="width: 100%; padding: 8px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 13px; line-height: 1.5; box-sizing: border-box; resize: vertical;"></textarea>
+          <button id="reset-watch-together-summary-prompt" type="button" style="width: 100%; margin-top: 8px; padding: 8px; background: #f0f0f0; border: 1px solid #d0d0d0; border-radius: 4px; cursor: pointer; font-size: 13px;">恢复默认提示词</button>
+          <p style="font-size: 12px; color: #999; margin-top: 5px; line-height: 1.5;">关闭观影时，用主 API 把片名、时间、播放进度和你们的讨论总结成一段第三人称文字，写入当前聊天记录。提示词可使用 {{user}}、{{char}}、{{title}} 占位符；留空使用默认提示词。</p>
         </div>
         <div class="form-group" style="margin-bottom: 20px;">
           <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #333;">对话框位置</label>

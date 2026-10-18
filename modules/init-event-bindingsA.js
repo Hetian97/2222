@@ -1629,6 +1629,7 @@ window.initEventBindingsA = async function(state, db) {
           role: 'system', // 设为 system 居中显示
           type: 'narration',
           content: narrationText,
+          senderName: '旁白',
           timestamp: Date.now()
         };
 

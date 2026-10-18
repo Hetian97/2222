@@ -582,12 +582,20 @@
     if (msg.type === 'narration') {
       const wrapper = document.createElement('div');
       wrapper.className = 'message-wrapper system-pat'; // 复用系统消息样式(居中灰色)
+      if (msg.isWatchSummary) wrapper.classList.add('watch-summary');
       wrapper.dataset.timestamp = msg.timestamp; // 关键：必须有时间戳才能编辑/删除
 
       const bubble = document.createElement('div');
       bubble.className = 'message-bubble system-bubble';
       // 可以加个图标让它和普通拍一拍区分开，也可以不加
-      bubble.innerHTML = `<span style="font-style:italic; opacity: 0.9;">${msg.content}</span>`;
+      if (msg.isWatchSummary) {
+        const text = document.createElement('span');
+        text.className = 'watch-summary-text';
+        text.textContent = msg.content;
+        bubble.appendChild(text);
+      } else {
+        bubble.innerHTML = `<span style="font-style:italic; opacity: 0.9;">${msg.content}</span>`;
+      }
       bubble.dataset.timestamp = msg.timestamp;
 
       wrapper.appendChild(bubble);

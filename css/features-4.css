@@ -619,7 +619,161 @@
                cursor: not-allowed;
            }
 
-           /* ========== 真心话悬浮球样式 ========== */
+           /* ========== 一起看电影：悬浮播放 ========== */
+            #watch-together-video-container .watch-together-compact-action {
+                position: absolute;
+                top: 8px;
+                right: 8px;
+                z-index: 2;
+                width: 30px;
+                min-width: 30px;
+                height: 30px;
+                padding: 0;
+                border-radius: 6px;
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                color: #fff;
+                background: rgba(18, 18, 20, 0.72);
+                font-size: 15px;
+                line-height: 1;
+                backdrop-filter: blur(8px);
+                -webkit-backdrop-filter: blur(8px);
+            }
+
+            .watch-together-pip-shell {
+                position: absolute;
+                top: calc(var(--safe-top, 0px) + 54px);
+                left: 50%;
+                z-index: 9050;
+                display: none;
+                width: min(calc(100% - var(--safe-left, 0px) - var(--safe-right, 0px) - 20px), 420px);
+                min-width: 0;
+                overflow: hidden;
+                transform: translateX(-50%);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 14px;
+                background: rgba(18, 18, 20, 0.96);
+                box-shadow: 0 14px 36px rgba(0, 0, 0, 0.34);
+                backdrop-filter: blur(18px);
+                -webkit-backdrop-filter: blur(18px);
+            }
+
+            .watch-together-pip-shell.is-visible {
+                display: block;
+            }
+
+            .watch-together-pip-shell__header {
+                display: flex;
+                min-width: 0;
+                min-height: 36px;
+                padding: 0 8px 0 12px;
+                align-items: center;
+                justify-content: space-between;
+                gap: 8px;
+                color: #fff;
+                background: rgba(255, 255, 255, 0.06);
+                touch-action: none;
+                cursor: move;
+            }
+
+            #watch-together-pip-title {
+                min-width: 0;
+                overflow: hidden;
+                font-size: 12px;
+                font-weight: 500;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .watch-together-pip-shell__actions {
+                display: flex;
+                flex-shrink: 0;
+                gap: 4px;
+            }
+
+            .watch-together-pip-shell__actions button {
+                width: 28px;
+                height: 28px;
+                padding: 0;
+                border: 0;
+                border-radius: 7px;
+                color: #fff;
+                background: rgba(255, 255, 255, 0.08);
+                font: inherit;
+                font-size: 15px;
+            }
+
+            .watch-together-pip-shell__body {
+                position: relative;
+                aspect-ratio: 16 / 9;
+                background: #000;
+            }
+
+            #watch-together-pip-body > video {
+                display: block;
+                width: 100%;
+                height: 100%;
+                object-fit: contain;
+            }
+
+            #watch-together-pip-placeholder {
+                position: absolute;
+                inset: 0;
+                display: grid;
+                padding: 14px;
+                place-items: center;
+                color: rgba(255, 255, 255, 0.72);
+                font-size: 12px;
+                text-align: center;
+                pointer-events: none;
+            }
+
+            .watch-together-pip-bar {
+                position: absolute;
+                top: calc(var(--safe-top, 0px) + 54px);
+                right: calc(var(--safe-right, 0px) + 8px);
+                z-index: 9050;
+                display: none;
+                max-width: calc(100% - 16px - var(--safe-left, 0px) - var(--safe-right, 0px));
+                min-height: 32px;
+                padding: 0 12px;
+                overflow: hidden;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 16px;
+                color: #fff;
+                background: rgba(18, 18, 20, 0.96);
+                box-shadow: 0 10px 24px rgba(0, 0, 0, 0.26);
+                font-size: 12px;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .watch-together-pip-bar.is-visible {
+                display: block;
+            }
+
+            /* 观影总结：以旁白形式留在聊天记录里 */
+            .message-wrapper.system-pat.watch-summary {
+                max-width: 92%;
+            }
+
+            .message-wrapper.system-pat.watch-summary .message-bubble.system-bubble {
+                max-width: 100%;
+                padding: 10px 14px;
+                text-align: left;
+                font-size: 12.5px;
+                line-height: 1.7;
+                border-left: 2px solid rgba(255, 255, 255, 0.45);
+            }
+
+            .watch-summary-text {
+                display: block;
+                font-style: normal;
+                opacity: 0.95;
+                white-space: pre-wrap;
+                word-break: break-word;
+            }
+
+            /* ========== 真心话悬浮球样式 ========== */
            #truth-game-float-ball {
                position: fixed;
                bottom: 80px;

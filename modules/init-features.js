@@ -4081,9 +4081,320 @@ ${truthGameHistoryContext}
       mediaRecorder: null,
       audioChunks: [],
       corsWarningShown: false, // 跨域警告是否已显示
-      hlsInstance: null // HLS.js 实例
+      hlsInstance: null, // HLS.js 实例
+      isStopping: false,
+      videoTitle: '',
+      sessionStartedAt: 0,
+      videoEnded: false
     };
     window.watchTogetherState = watchTogetherState;
+
+    // 观影总结的默认提示词。影片信息由代码统一附加，这里只写叙述要求。
+    const DEFAULT_WATCH_SUMMARY_PROMPT = `你是一个客观的观影记录助手。请根据下面这场“一起看电影”的信息，写一段第三人称的中文总结，用于保存进聊天记录。
+
+要求：
+1. 用第三人称叙述，称用户为「{{user}}」，称角色为「{{char}}」；不要用“我”“你”。
+2. 第一句交代时间、人物和片名，格式参考：下午 13:35–15:50，{{char}} 陪 {{user}} 看了《{{title}}》，影片全部播放完毕。/ 影片播放到 01:23:45（共 02:00:00）。
+3. 接着用 1–3 句话概括影片大概讲了什么。只能依据片名、听到的台词和你们的讨论来写；如果不确定剧情，就写“剧情以实际观看为准”，不要编造具体情节。
+4. 再用 1–3 句话写你们聊了什么、氛围如何；如果几乎没有交流，就写“这次没有过多讨论，主要是一起安静地看”。
+5. 全文 80–200 字，一段话，不要分点、不要 Markdown、不要加“总结：”前缀，不要加引号。`;
+
+    function ensureWatchTogetherFloatingHost() {
+      const phone = document.getElementById('phone-screen');
+      const shell = document.getElementById('watch-together-pip-shell');
+      const bar = document.getElementById('watch-together-pip-bar');
+      if (!phone) return;
+      if (shell && shell.parentElement !== phone) phone.appendChild(shell);
+      if (bar && bar.parentElement !== phone) phone.appendChild(bar);
+    }
+
+    // 浮窗生命周期参考并独立改写自 yxlforever/YYY ece2d6b 的播放器资源治理思路。
+    function restoreWatchTogetherFromFloating() {
+      ensureWatchTogetherFloatingHost();
+      const shell = document.getElementById('watch-together-pip-shell');
+      const bar = document.getElementById('watch-together-pip-bar');
+      const video = document.getElementById('watch-together-video');
+      const videoContainer = document.getElementById('watch-together-video-container');
+      const placeholder = document.getElementById('watch-together-placeholder');
+      const modal = document.getElementById('watch-together-modal');
+      if (video && videoContainer && video.parentElement !== videoContainer) {
+        videoContainer.insertBefore(video, placeholder);
+      }
+      shell?.classList.remove('is-visible');
+      shell?.setAttribute('aria-hidden', 'true');
+      bar?.classList.remove('is-visible');
+      if (watchTogetherState.isActive && !watchTogetherState.isStopping) modal?.classList.add('visible');
+    }
+
+    function closeWatchTogetherFloatingPlayer() {
+      const shell = document.getElementById('watch-together-pip-shell');
+      const bar = document.getElementById('watch-together-pip-bar');
+      shell?.classList.remove('is-visible');
+      shell?.setAttribute('aria-hidden', 'true');
+      bar?.classList.remove('is-visible');
+      if (document.pictureInPictureElement === document.getElementById('watch-together-video')) {
+        document.exitPictureInPicture?.().catch(() => {});
+      }
+      restoreWatchTogetherFromFloating();
+      document.getElementById('watch-together-modal')?.classList.remove('visible');
+    }
+
+    async function showWatchTogetherFloatingPlayer() {
+      if (!watchTogetherState.isActive || watchTogetherState.isStopping) return false;
+      ensureWatchTogetherFloatingHost();
+      const shell = document.getElementById('watch-together-pip-shell');
+      const bar = document.getElementById('watch-together-pip-bar');
+      const video = document.getElementById('watch-together-video');
+      const body = document.getElementById('watch-together-pip-body');
+      const placeholder = document.getElementById('watch-together-pip-placeholder');
+      const modal = document.getElementById('watch-together-modal');
+      if (!shell || !bar || !video || !body || !modal) return false;
+
+      const title = state.chats[watchTogetherState.chatId]?.name || '正在一起看';
+      const titleElement = document.getElementById('watch-together-pip-title');
+      if (titleElement) titleElement.textContent = `与 ${title} 一起看`;
+      bar.textContent = `与 ${title} 一起看`;
+
+      if ('mediaSession' in navigator && typeof MediaMetadata === 'function') {
+        try {
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title: '一起看电影',
+            artist: `与 ${title} 一起看`
+          });
+        } catch (error) {
+          console.info('[一起看电影] 当前环境不支持设置媒体信息:', error);
+        }
+      }
+
+      if (video.readyState > 0) {
+        try {
+          if (document.pictureInPictureEnabled && video.requestPictureInPicture) {
+            await video.requestPictureInPicture();
+            modal.classList.remove('visible');
+            return false;
+          }
+          if (typeof video.webkitSetPresentationMode === 'function') {
+            video.webkitSetPresentationMode('picture-in-picture');
+            modal.classList.remove('visible');
+            return false;
+          }
+        } catch (error) {
+          console.info('[一起看电影] 原生画中画不可用，使用应用内悬浮播放器:', error);
+        }
+      }
+
+      if (video.parentElement !== body) body.insertBefore(video, placeholder);
+      shell.classList.add('is-visible');
+      shell.setAttribute('aria-hidden', 'false');
+      bar.classList.remove('is-visible');
+      modal.classList.remove('visible');
+      return false;
+    }
+
+    function collapseWatchTogetherFloatingPlayer() {
+      const shell = document.getElementById('watch-together-pip-shell');
+      const bar = document.getElementById('watch-together-pip-bar');
+      shell?.classList.remove('is-visible');
+      shell?.setAttribute('aria-hidden', 'true');
+      if (watchTogetherState.isActive) bar?.classList.add('is-visible');
+    }
+
+    function bindWatchTogetherFloatingDrag() {
+      ensureWatchTogetherFloatingHost();
+      const shell = document.getElementById('watch-together-pip-shell');
+      const handle = document.getElementById('watch-together-pip-drag-handle');
+      const phone = document.getElementById('phone-screen');
+      if (!shell || !handle || !phone || handle.dataset.dragBound === '1') return;
+      handle.dataset.dragBound = '1';
+      handle.addEventListener('pointerdown', event => {
+        if (event.target.closest('button')) return;
+        const shellRect = shell.getBoundingClientRect();
+        const phoneRect = phone.getBoundingClientRect();
+        const startX = event.clientX;
+        const startY = event.clientY;
+        const startLeft = shellRect.left - phoneRect.left;
+        const startTop = shellRect.top - phoneRect.top;
+        handle.setPointerCapture?.(event.pointerId);
+        const move = moveEvent => {
+          const maxLeft = Math.max(8, phoneRect.width - shellRect.width - 8);
+          const maxTop = Math.max(8, phoneRect.height - shellRect.height - 8);
+          const left = Math.min(maxLeft, Math.max(8, startLeft + moveEvent.clientX - startX));
+          const top = Math.min(maxTop, Math.max(8, startTop + moveEvent.clientY - startY));
+          shell.style.left = `${left}px`;
+          shell.style.top = `${top}px`;
+          shell.style.transform = 'none';
+        };
+        const finish = () => {
+          handle.removeEventListener('pointermove', move);
+          handle.removeEventListener('pointerup', finish);
+          handle.removeEventListener('pointercancel', finish);
+        };
+        handle.addEventListener('pointermove', move);
+        handle.addEventListener('pointerup', finish);
+        handle.addEventListener('pointercancel', finish);
+      });
+    }
+
+    window.showWatchTogetherFloatingPlayer = showWatchTogetherFloatingPlayer;
+    window.restoreWatchTogetherFromFloating = restoreWatchTogetherFromFloating;
+    window.closeWatchTogetherFloatingPlayer = closeWatchTogetherFloatingPlayer;
+
+    // ========== 观影总结 ==========
+    function formatWatchClock(timestamp) {
+      return new Date(timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+
+    function formatWatchDuration(seconds) {
+      const total = Math.max(0, Math.floor(Number(seconds) || 0));
+      const hours = Math.floor(total / 3600);
+      const minutes = Math.floor((total % 3600) / 60);
+      const secs = total % 60;
+      return hours > 0
+        ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+        : `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    function deriveWatchTitleFromUrl(url) {
+      try {
+        const parsed = new URL(url, location.href);
+        let name = decodeURIComponent(parsed.pathname.split('/').filter(Boolean).pop() || '');
+        name = name.replace(/\.(mp4|m3u8|webm|mkv|mov|avi|flv)$/i, '').replace(/[_-]+/g, ' ').trim();
+        if (name && !/^index$/i.test(name)) return name.slice(0, 80);
+        return parsed.hostname.replace(/^www\./, '');
+      } catch (error) {
+        return '';
+      }
+    }
+
+    function buildWatchSummaryPayload() {
+      const chat = state.chats[watchTogetherState.chatId];
+      if (!chat) return null;
+      const video = document.getElementById('watch-together-video');
+      const duration = Number.isFinite(video?.duration) ? video.duration : 0;
+      const position = Number.isFinite(video?.currentTime) ? video.currentTime : 0;
+      const ended = watchTogetherState.videoEnded || (duration > 0 && position >= duration - 2);
+      const start = watchTogetherState.sessionStartedAt || Date.now();
+      const end = Date.now();
+      const dialogue = watchTogetherState.messages
+        .filter(message => message.role === 'user' || message.role === 'assistant')
+        .slice(-(watchTogetherState.maxMessages || 20))
+        .map(message => ({ role: message.role, content: String(message.content || '').slice(0, 300) }));
+      const transcripts = watchTogetherState.messages
+        .filter(message => message.role === 'system' && message.type === '语音识别')
+        .slice(-(watchTogetherState.maxAudios || 10))
+        .map(message => String(message.content || '').slice(0, 300));
+      return {
+        chatId: watchTogetherState.chatId,
+        title: (watchTogetherState.videoTitle || '').trim() || '未命名影片',
+        startTime: formatWatchClock(start),
+        endTime: formatWatchClock(end),
+        watchMinutes: Math.max(1, Math.round((end - start) / 60000)),
+        progressText: ended
+          ? '影片全部播放完毕'
+          : duration > 0
+            ? `影片播放到 ${formatWatchDuration(position)}（共 ${formatWatchDuration(duration)}）`
+            : `影片播放到 ${formatWatchDuration(position)}`,
+        dialogue,
+        transcripts,
+        ended,
+        position,
+        duration
+      };
+    }
+
+    function buildWatchSummaryPrompt(chat, payload) {
+      const settings = chat.watchTogetherSettings || {};
+      const userName = chat.settings?.myNickname || state.qzoneSettings?.nickname || '用户';
+      const charName = chat.name || chat.originalName || '角色';
+      const instruction = String(settings.summaryPrompt || '').trim() || DEFAULT_WATCH_SUMMARY_PROMPT;
+      const filled = instruction
+        .replace(/\{\{user\}\}/g, userName)
+        .replace(/\{\{char\}\}/g, charName)
+        .replace(/\{\{title\}\}/g, payload.title);
+
+      const info = [
+        '【本次观影信息】',
+        `片名：${payload.title}`,
+        `角色：${charName}`,
+        `用户昵称：${userName}`,
+        `时间：${payload.startTime}–${payload.endTime}（约 ${payload.watchMinutes} 分钟）`,
+        `播放进度：${payload.progressText}`
+      ];
+      if (payload.transcripts.length) {
+        info.push('语音转写（最近听到的台词，可能不完整）：');
+        payload.transcripts.forEach(text => info.push(`- ${text}`));
+      }
+      if (payload.dialogue.length) {
+        info.push('讨论记录：');
+        payload.dialogue.forEach(message => {
+          info.push(`${message.role === 'user' ? userName : charName}：${message.content}`);
+        });
+      } else {
+        info.push('讨论记录：（这次几乎没有聊天）');
+      }
+      return `${filled}
+
+${info.join('\n')}`;
+    }
+
+    async function generateWatchTogetherSummary(payload) {
+      if (!payload) return;
+      const chat = state.chats[payload.chatId];
+      if (!chat) return;
+      const settings = chat.watchTogetherSettings || {};
+      if (settings.summaryEnabled === false) return;
+      if (!payload.dialogue.length && !payload.transcripts.length && !payload.ended && payload.position < 60) return;
+      const { proxyUrl, apiKey, model } = state.apiConfig || {};
+      if (!proxyUrl || !apiKey || !model) {
+        console.warn('[一起看电影] 未配置主 API，跳过观影总结');
+        return;
+      }
+      try {
+        const prompt = buildWatchSummaryPrompt(chat, payload);
+        const response = await fetch(`${String(proxyUrl).replace(/\/+$/, '')}/v1/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: 'system', content: prompt }],
+            temperature: 0.5,
+            max_tokens: 600
+          })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        let text = String(data.choices?.[0]?.message?.content || '')
+          .replace(/```[\s\S]*?```/g, '')
+          .replace(/^\s*(观影)?总结[:：]\s*/, '')
+          .replace(/^["“]|["”]$/g, '')
+          .trim();
+        if (!text) return;
+        if (text.length > 600) text = `${text.slice(0, 600).trim()}…`;
+        const message = {
+          role: 'system',
+          type: 'narration',
+          content: text,
+          senderName: '旁白',
+          timestamp: Date.now(),
+          isWatchSummary: true
+        };
+        chat.history.push(message);
+        await db.chats.put(chat);
+        if (state.activeChatId === chat.id && typeof window.appendMessage === 'function') {
+          await window.appendMessage(message, chat);
+        } else if (typeof renderChatList === 'function') {
+          renderChatList();
+        }
+        window.showToast?.('观影总结已写入聊天', 'success');
+      } catch (error) {
+        console.error('[一起看电影] 生成观影总结失败:', error);
+        window.showToast?.('观影总结生成失败', 'error');
+      }
+    }
+    // ========== 观影总结结束 ==========
 
     // 打开观影界面
     document.getElementById('open-watch-together-btn').addEventListener('click', () => {
@@ -4097,9 +4408,17 @@ ${truthGameHistoryContext}
         return;
       }
 
+      if (watchTogetherState.isActive) {
+        restoreWatchTogetherFromFloating();
+        return;
+      }
+
       watchTogetherState.isActive = true;
       watchTogetherState.chatId = state.activeChatId;
       watchTogetherState.messages = [];
+      watchTogetherState.videoTitle = '';
+      watchTogetherState.sessionStartedAt = 0;
+      watchTogetherState.videoEnded = false;
 
       document.getElementById('watch-together-modal').classList.add('visible');
       document.getElementById('watch-together-chat-name').textContent = chat.name;
@@ -4130,11 +4449,23 @@ ${truthGameHistoryContext}
       }, 100);
 
       renderWatchTogetherMessages();
+      bindWatchTogetherFloatingDrag();
     });
 
     // 关闭观影界面
     document.getElementById('close-watch-together-btn').addEventListener('click', () => {
       stopWatchTogether();
+    });
+
+    document.getElementById('watch-together-pip-btn')?.addEventListener('click', showWatchTogetherFloatingPlayer);
+    document.getElementById('watch-together-pip-back-btn')?.addEventListener('click', restoreWatchTogetherFromFloating);
+    document.getElementById('watch-together-pip-collapse-btn')?.addEventListener('click', collapseWatchTogetherFloatingPlayer);
+    document.getElementById('watch-together-pip-bar')?.addEventListener('click', showWatchTogetherFloatingPlayer);
+    document.getElementById('watch-together-video')?.addEventListener('leavepictureinpicture', () => {
+      if (watchTogetherState.isActive && !watchTogetherState.isStopping) restoreWatchTogetherFromFloating();
+    });
+    document.getElementById('watch-together-video')?.addEventListener('ended', () => {
+      watchTogetherState.videoEnded = true;
     });
 
     // 上传按钮
@@ -4272,6 +4603,15 @@ ${truthGameHistoryContext}
       document.getElementById('watch-together-settings-modal').classList.remove('visible');
     });
 
+    // 恢复默认观影总结提示词
+    document.getElementById('reset-watch-together-summary-prompt')?.addEventListener('click', () => {
+      const area = document.getElementById('watch-together-summary-prompt');
+      if (area) {
+        area.value = '';
+        area.placeholder = DEFAULT_WATCH_SUMMARY_PROMPT;
+      }
+    });
+
     // 重置位置按钮
     document.getElementById('reset-watch-together-position-btn').addEventListener('click', () => {
       const chat = state.chats[watchTogetherState.chatId];
@@ -4342,6 +4682,9 @@ ${truthGameHistoryContext}
       // 存储当前视频信息，用于保存到播放列表
       watchTogetherState.currentVideoFile = file;
       watchTogetherState.currentVideoUrl = null;
+      watchTogetherState.videoTitle = String(file.name || '').replace(/\.[^.]+$/, '').trim() || '未命名影片';
+      watchTogetherState.sessionStartedAt = Date.now();
+      watchTogetherState.videoEnded = false;
 
       // 开始监听
       startWatchTogetherMonitoring();
@@ -4357,7 +4700,7 @@ ${truthGameHistoryContext}
     }
 
     // 加载视频（URL）
-    function loadWatchTogetherVideoFromUrl(url, skipSavePrompt = false) {
+    function loadWatchTogetherVideoFromUrl(url, skipSavePrompt = false, title = '') {
       const video = document.getElementById('watch-together-video');
       const placeholder = document.getElementById('watch-together-placeholder');
 
@@ -4374,6 +4717,9 @@ ${truthGameHistoryContext}
       watchTogetherState.corsWarningShown = false;
       watchTogetherState.currentVideoFile = null;
       watchTogetherState.currentVideoUrl = url;
+      watchTogetherState.videoTitle = String(title || '').trim() || deriveWatchTitleFromUrl(url) || '未命名影片';
+      watchTogetherState.sessionStartedAt = Date.now();
+      watchTogetherState.videoEnded = false;
 
       const isHls = /\.m3u8(\?|$)/i.test(url);
 
@@ -4548,7 +4894,7 @@ ${truthGameHistoryContext}
         const file = new File([blob], video.name, { type: blob.type });
         loadWatchTogetherVideo(file, true);
       } else if (video.type === 'url') {
-        loadWatchTogetherVideoFromUrl(video.data, true);
+        loadWatchTogetherVideoFromUrl(video.data, true, video.name);
       }
     };
 
@@ -5275,6 +5621,13 @@ ${linkedContents}
       document.getElementById('watch-together-max-screenshots').value = settings.maxScreenshots || 10;
       document.getElementById('watch-together-max-audios').value = settings.maxAudios || 10;
       document.getElementById('watch-together-max-messages').value = settings.maxMessages || 20;
+      const summaryEnabled = document.getElementById('watch-together-summary-enabled');
+      if (summaryEnabled) summaryEnabled.checked = settings.summaryEnabled !== false;
+      const summaryPrompt = document.getElementById('watch-together-summary-prompt');
+      if (summaryPrompt) {
+        summaryPrompt.value = settings.summaryPrompt || '';
+        summaryPrompt.placeholder = DEFAULT_WATCH_SUMMARY_PROMPT;
+      }
 
       const whisperConfig = document.getElementById('watch-together-whisper-config');
       whisperConfig.style.display = (settings.speechApi === 'whisper') ? 'block' : 'none';
@@ -5292,7 +5645,9 @@ ${linkedContents}
         whisperUrl: document.getElementById('watch-together-whisper-url').value,
         maxScreenshots: parseInt(document.getElementById('watch-together-max-screenshots').value) || 10,
         maxAudios: parseInt(document.getElementById('watch-together-max-audios').value) || 10,
-        maxMessages: parseInt(document.getElementById('watch-together-max-messages').value) || 20
+        maxMessages: parseInt(document.getElementById('watch-together-max-messages').value) || 20,
+        summaryEnabled: document.getElementById('watch-together-summary-enabled')?.checked !== false,
+        summaryPrompt: String(document.getElementById('watch-together-summary-prompt')?.value || '').trim()
       };
 
       watchTogetherState.mode = chat.watchTogetherSettings.mode;
@@ -5341,6 +5696,9 @@ ${linkedContents}
 
     // 停止观影
     function stopWatchTogether() {
+      const summaryPayload = buildWatchSummaryPayload();
+      watchTogetherState.isStopping = true;
+      closeWatchTogetherFloatingPlayer();
       stopMonitoring();
 
       // 销毁 HLS 实例
@@ -5366,8 +5724,15 @@ ${linkedContents}
       restoreNormalMessageActionsFromWatchTogether();
 
       watchTogetherState.isActive = false;
+      watchTogetherState.isStopping = false;
       watchTogetherState.videoUrl = null;
       watchTogetherState.messages = [];
+      watchTogetherState.videoTitle = '';
+      watchTogetherState.sessionStartedAt = 0;
+      watchTogetherState.videoEnded = false;
+
+      // 关闭即释放临时窗口内容，但先把本场观影总结写进聊天记录。
+      if (summaryPayload) generateWatchTogetherSummary(summaryPayload).catch(console.error);
     }
 
     // ========== 影视搜索功能 ==========
@@ -5630,7 +5995,7 @@ ${linkedContents}
       document.getElementById('watch-together-search-modal').classList.remove('visible');
 
       // 加载视频
-      loadWatchTogetherVideoFromUrl(url);
+      loadWatchTogetherVideoFromUrl(url, false, title);
 
       // 显示提示
       addWatchTogetherSystemMessage(`正在加载: ${title}`);

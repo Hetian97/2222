@@ -1280,6 +1280,7 @@
             ...baseMessage,
             type: 'narration',
             content: String(msgData.content),
+            senderName: '旁白',
             role: 'system' // 强制设为 system 角色以确保样式正确
           };
           break;
