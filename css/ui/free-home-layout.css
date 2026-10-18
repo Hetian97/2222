@@ -27,6 +27,8 @@
 .free-widget-legacy img { width:100%; height:100%; object-fit:cover; border-radius:10px; }
 .free-widget-classic { align-items:stretch; justify-content:flex-start; padding:2px; text-align:initial; }
 .free-classic-widget { width:100%; max-width:100%; min-width:0; box-sizing:border-box; pointer-events:none; }
+/* 个人资料克隆保留 #profile-widget 的宽度上限，放进格子后需要自己居中 */
+#free-home .free-template-profile { margin-left:auto; margin-right:auto; }
 .free-template-polaroid { height:100%; }
 .free-template-largePhoto { height:100%; }
 .free-template-largePhoto img { width:100%; height:100%; object-fit:cover; }
@@ -68,7 +70,8 @@
 .free-widget-gallery { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-bottom:12px; }
 .free-widget-choice { appearance:none; min-width:0; border:0; background:transparent; padding:6px; color:#24242a; font:inherit; font-size:12px; text-align:left; cursor:pointer; }
 .free-widget-choice-preview { position:relative; display:block; width:100%; height:112px; overflow:hidden; margin-bottom:5px; }
-.free-widget-choice-preview > .free-classic-widget { width:200%; max-width:none; transform:scale(.5); transform-origin:top left; }
+/* 克隆保留 id 后，#profile-widget 的 width/max-width 会压过这里的类选择器，需强制还原缩放尺寸 */
+.free-widget-choice-preview > .free-classic-widget { width:200%!important; max-width:none!important; transform:scale(.5); transform-origin:top left; }
 .free-home-layout-note { margin:0 0 12px; color:#707078; font-size:12px; line-height:1.5; }
 .free-drag-ghost { position:fixed!important; left:0; top:0; z-index:1100; width:65px!important; height:78px!important; pointer-events:none!important; opacity:.9; filter:drop-shadow(0 6px 12px #0005); will-change:transform; }
 .home-layout-setting .settings-right { min-width:0; }

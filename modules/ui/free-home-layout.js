@@ -166,7 +166,11 @@ window.FreeHomeLayout = (() => {
     copy.classList.add('free-classic-widget', `free-template-${item.key}`);
     [copy, ...copy.querySelectorAll('*')].forEach(node => {
       node.removeAttribute('onclick');
-      if (node.id) { node.dataset.widgetField = node.id; node.removeAttribute('id'); }
+      // 经典组件（尤其“个人资料”）的版式大量写在 #id 选择器里：去掉 id 后横幅会按原图
+      // 尺寸撑满格子、头像与文字被挤出可视区域。保留 id 才能原样复刻经典布局。
+      // 自由布局激活时经典桌面整体隐藏，且克隆节点排在经典节点之后，
+      // 因此页面上按 id 取元素仍会命中经典桌面里的原件，不影响编辑逻辑。
+      if (node.id) node.dataset.widgetField = node.id;
     });
     copy.querySelectorAll('[data-widget-field]').forEach(node => {
       const value = item.fields?.[node.dataset.widgetField];
