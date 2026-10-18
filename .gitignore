@@ -16,6 +16,9 @@ memory-server/raw-test.txt
 __pycache__/
 *.pyc
 
+# 本地部署用的健康 MCP（含个人域名/内网端口布局，不进版本库）
+health-mcp-server/
+
 # 临时目录（PDF/图片等中间产物）
 tmp/
 
