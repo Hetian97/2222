@@ -398,7 +398,13 @@
         inventory,
         emails,
         watchTogetherPlaylist,
-        coupleAlbumPhotos
+        coupleAlbumPhotos,
+        mailThreads,
+        mailContacts,
+        mailAccounts,
+        mailEvents,
+        mailPublicBoxes,
+        mailSettings
       ] = await Promise.all([
         db.chats.toArray(),
         db.worldBooks.toArray(),
@@ -449,7 +455,13 @@
         db.inventory.toArray(),
         db.emails.toArray(),
         db.watchTogetherPlaylist.toArray(),
-        db.coupleAlbumPhotos.toArray()
+        db.coupleAlbumPhotos.toArray(),
+        db.mailThreads.toArray(),
+        db.mailContacts.toArray(),
+        db.mailAccounts.toArray(),
+        db.mailEvents.toArray(),
+        db.mailPublicBoxes.toArray(),
+        db.mailSettings.toArray()
       ]);
 
       // 方案3：导出时移除API历史记录
@@ -513,6 +525,12 @@
         emails,
         watchTogetherPlaylist,
         coupleAlbumPhotos,
+        mailThreads,
+        mailContacts,
+        mailAccounts,
+        mailEvents,
+        mailPublicBoxes,
+        mailSettings,
         
         // 情侣空间 localStorage 数据
         localStorage: coupleSpaceLocalStorage,
@@ -638,7 +656,13 @@
         auctions: '拍卖',
         inventory: '背包',
         emails: '邮件',
-        watchTogetherPlaylist: '观影播放列表'
+        watchTogetherPlaylist: '观影播放列表',
+        mailThreads: '邮件线程',
+        mailContacts: '邮件联系人',
+        mailAccounts: '邮箱账户',
+        mailEvents: '邮件事件',
+        mailPublicBoxes: '公共邮箱',
+        mailSettings: '邮箱设置'
       };
 
       // 统计各表数据
@@ -1049,6 +1073,12 @@
       'inventory': '物品清单',
       'emails': '邮件',
       'watchTogetherPlaylist': '观影播放列表',
+      'mailThreads': '邮件线程',
+      'mailContacts': '邮件联系人',
+      'mailAccounts': '邮箱账户',
+      'mailEvents': '邮件事件',
+      'mailPublicBoxes': '公共邮箱',
+      'mailSettings': '邮箱设置',
       'localStorage': '情侣空间数据',
       'mcpLocalStorage': 'MCP服务设置',
       'thoughtChainLocalStorage': '思维链配置'
@@ -1212,6 +1242,12 @@
       'inventory': '物品清单',
       'emails': '邮件',
       'watchTogetherPlaylist': '观影播放列表',
+      'mailThreads': '邮件线程',
+      'mailContacts': '邮件联系人',
+      'mailAccounts': '邮箱账户',
+      'mailEvents': '邮件事件',
+      'mailPublicBoxes': '公共邮箱',
+      'mailSettings': '邮箱设置',
       'localStorage': '情侣空间数据',
       'mcpLocalStorage': 'MCP服务设置',
       'thoughtChainLocalStorage': '思维链配置'
@@ -1489,6 +1525,12 @@
         if (Array.isArray(backupData.emails)) await db.emails.bulkPut(backupData.emails);
         if (Array.isArray(backupData.watchTogetherPlaylist)) await db.watchTogetherPlaylist.bulkPut(backupData.watchTogetherPlaylist);
         if (Array.isArray(backupData.coupleAlbumPhotos)) await db.coupleAlbumPhotos.bulkPut(backupData.coupleAlbumPhotos);
+        if (Array.isArray(backupData.mailThreads)) await db.mailThreads.bulkPut(backupData.mailThreads);
+        if (Array.isArray(backupData.mailContacts)) await db.mailContacts.bulkPut(backupData.mailContacts);
+        if (Array.isArray(backupData.mailAccounts)) await db.mailAccounts.bulkPut(backupData.mailAccounts);
+        if (Array.isArray(backupData.mailEvents)) await db.mailEvents.bulkPut(backupData.mailEvents);
+        if (Array.isArray(backupData.mailPublicBoxes)) await db.mailPublicBoxes.bulkPut(backupData.mailPublicBoxes);
+        if (Array.isArray(backupData.mailSettings)) await db.mailSettings.bulkPut(backupData.mailSettings);
       });
       
       restoreContextLocalStorageFromBackupData(backupData.data || backupData);
@@ -1977,7 +2019,7 @@
       '金融系统': ['userWallet', 'userTransactions', 'funds'],
       'NPC与故事': ['npcs', 'npcGroups', 'grAuthors', 'grStories'],
       '快捷回复': ['quickReplies', 'quickReplyCategories'],
-      '邮件系统': ['emails'],
+      '邮件系统': ['emails', 'mailThreads', 'mailContacts', 'mailAccounts', 'mailEvents', 'mailPublicBoxes', 'mailSettings'],
       '外观设置': ['appearancePresets']
     };
 

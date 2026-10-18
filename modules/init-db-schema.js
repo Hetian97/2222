@@ -124,6 +124,27 @@ db.version(61).stores({
   customWidgetInstances: '&id, packageId, updatedAt'
 });
 
+// 邮箱通信生态：保留旧 emails 表及旧字段，只补索引和独立数据表；
+// 旧邮件会在邮箱首次打开时补齐方向、文件夹、线程和联系人关联。
+db.version(62).stores({
+  emails: '++id, &uid, threadId, contactId, direction, folder, status, sender, senderType, recipient, subject, timestamp, scheduledAt, isRead, isStarred',
+  mailThreads: '&id, contactId, status, lastTimestamp, eventId',
+  mailContacts: '&id, email, name, relationshipStatus, chatId, lastContactAt, blocked',
+  mailAccounts: '&id, &email, isDefault',
+  mailEvents: '&id, type, status, contactId, threadId, nextActionAt, createdAt',
+  mailPublicBoxes: '&id, email, category',
+  mailSettings: '&id'
+});
+
+// 番茄钟可靠性与扩展数据：保留旧表，补阶段/任务/轮次索引和独立状态表。
+db.version(63).stores({
+  focusSessions: '++id, companionId, startTime, endTime, duration, completed, stage, phase, taskId, taskChatId, round',
+  focusStats: '&id, todayCount, totalCount, streakDays, lastFocusDate',
+  focusMessages: '++id, sessionId, companionId, stage, message, timestamp, format',
+  focusActiveState: '&id, sessionId, status, phase, updatedAt',
+  focusEvents: '++id, sessionId, type, timestamp'
+});
+
 window.db = db;
 
 // Every chat save stamps newly-created messages with the time zone in which

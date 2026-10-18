@@ -265,7 +265,13 @@ async function cleanupRedundantData() {
         auctions: '拍卖',
         inventory: '背包',
         emails: '邮件',
-        watchTogetherPlaylist: '观影播放列表'
+        watchTogetherPlaylist: '观影播放列表',
+        mailThreads: '邮件线程',
+        mailContacts: '邮件联系人',
+        mailAccounts: '邮箱账户',
+        mailEvents: '邮件事件',
+        mailPublicBoxes: '公共邮箱',
+        mailSettings: '邮箱设置'
       };
 
       // 统计各表数据

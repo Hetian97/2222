@@ -25,7 +25,8 @@
   <link rel="stylesheet" href="vector-memory.css?v=0.0.51">
   <link rel="stylesheet" href="online-app.css?v=0.0.36">
   <link rel="stylesheet" href="period-tracker.css?v=0.0.37">
-  <link rel="stylesheet" href="focus-timer.css?v=0.0.36">
+  <link rel="stylesheet" href="css/productivity/focus-timer.css?v=0.0.53-upstream">
+  <link rel="stylesheet" href="css/mail/mail-app.css?v=0.0.53-upstream">
   <link rel="stylesheet" href="css/living-space.css?v=0.0.4">
   <link rel="stylesheet" href="extra.css?v=0.0.37">
   <link rel="stylesheet" href="css/ui/free-home-layout.css?v=0.0.2">
@@ -85,7 +86,7 @@
   <script src="modules/video-voice-call.js?v=0.0.36" defer></script>
   <script src="modules/message-actions.js?v=0.0.53-narration-sender" defer></script>
   <script src="modules/nai-imagen.js?v=0.0.37" defer></script>
-  <script src="modules/backup-import-export.js?v=0.0.42" defer></script>
+  <script src="modules/backup-import-export.js?v=0.0.53-mail" defer></script>
   <script src="modules/settings-presets.js?v=0.0.39" defer></script>
   <script src="modules/chat-settings-presets.js?v=0.0.37" defer></script>
   <script src="modules/shopping.js?v=0.0.56" defer></script>
@@ -113,12 +114,13 @@
   <script src="modules/background-activity.js?v=0.0.37" defer></script>
   <script src="modules/card-import.js?v=0.0.36" defer></script>
   <script src="modules/character-export.js?v=0.0.38" defer></script>
-  <script src="modules/data-management.js?v=0.0.39" defer></script>
-  <script src="modules/misc-features.js?v=0.0.48" defer></script>
+  <script src="modules/data-management.js?v=0.0.53-mail" defer></script>
+  <script src="modules/misc-features.js?v=0.0.53-mail-focus" defer></script>
+  <script src="modules/mail/mail-app.js?v=0.0.53-upstream" defer></script>
   <!-- 第八层：初始化（必须在所有模块之后） -->
   <!-- 数据定义（无依赖） -->
   <script src="modules/init-avatar-frames.js?v=0.0.36" defer></script>
-  <script src="modules/init-db-schema.js?v=0.0.37" defer></script>
+  <script src="modules/init-db-schema.js?v=0.0.53-focus" defer></script>
   <!-- 数据保护（依赖 db） -->
   <script src="modules/init-data-protection.js?v=0.0.37" defer></script>
   <!-- 崩溃恢复（依赖 data-protection） -->
@@ -127,8 +129,8 @@
   <script src="modules/init-pin-city.js?v=0.0.36" defer></script>
   <!-- 事件绑定和功能（依赖 state, db） -->
   <script src="modules/init-event-bindingsA.js?v=0.0.53-narration-sender" defer></script>
-  <script src="modules/init-event-bindingsB.js?v=0.0.39" defer></script>
-  <script src="modules/init-features.js?v=0.0.52-watch-pip" defer></script>
+  <script src="modules/init-event-bindingsB.js?v=0.0.53-mail-focus" defer></script>
+  <script src="modules/init-features.js?v=0.0.53-mail-focus" defer></script>
   <!-- 自由桌面 / 经典桌面切换与桌面小组件 -->
   <script src="modules/ui/free-home-layout.js?v=0.0.2" defer></script>
   <script src="modules/ui/custom-widget-studio.js?v=0.0.1" defer></script>
@@ -141,7 +143,7 @@
   <script src="modules/api-style-beautify.js?v=0.0.36" defer></script>
   <script src="modules/voice-recording.js?v=0.0.36" defer></script>
   <script src="period-tracker.js?v=0.0.37" defer></script>
-  <script src="focus-timer.js?v=0.0.36" defer></script>
+  <script src="modules/productivity/focus-timer.js?v=0.0.53-upstream" defer></script>
   <!-- 情侣空间（从内联 script 拆分） -->
   <script src="couple-space.js?v=0.0.39"></script>
   <script src="helper-assistant.js?v=0.0.36" defer></script>
@@ -692,41 +694,60 @@
     </div>
 
     <!-- 番茄钟 - 角色选择弹窗 -->
-    <div id="focus-companion-modal" style="display: none;">
-      <div class="focus-companion-modal-content">
+    <div id="focus-companion-modal" class="focus-modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="focus-companion-modal-title">
+      <div class="focus-companion-modal-content" tabindex="-1">
         <div class="focus-companion-modal-header">
-          <span class="focus-companion-modal-title">选择陪伴角色</span>
-          <button class="focus-companion-modal-close" onclick="closeFocusCompanionModal()">×</button>
+          <span id="focus-companion-modal-title" class="focus-companion-modal-title">选择陪伴角色</span>
+          <button type="button" class="focus-companion-modal-close" onclick="closeFocusCompanionModal()" aria-label="关闭角色选择">×</button>
         </div>
         <div class="focus-companion-modal-body">
+          <button type="button" class="focus-companion-none" onclick="confirmFocusCompanion(null)">不使用陪伴角色</button>
           <div id="focus-companion-list"></div>
         </div>
       </div>
     </div>
 
     <!-- 番茄钟 - 设置弹窗 -->
-    <div id="focus-settings-modal" style="display: none;">
-      <div class="focus-settings-modal-content">
-        <div class="focus-settings-modal-header">番茄钟设置</div>
+    <div id="focus-settings-modal" class="focus-modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="focus-settings-title">
+      <div class="focus-settings-modal-content" tabindex="-1">
+        <div class="focus-settings-modal-header">
+          <span id="focus-settings-title">番茄钟设置</span>
+          <button type="button" class="focus-companion-modal-close" onclick="closeFocusSettings()" aria-label="关闭设置">×</button>
+        </div>
         <div class="focus-settings-form">
-          <div class="focus-settings-row">
-            <label class="focus-settings-label">专注时长（分钟）</label>
-            <input type="number" id="focus-duration-input" class="focus-settings-input" 
-                   min="1" max="120" value="25">
+          <div class="focus-settings-grid">
+            <label class="focus-settings-row"><span class="focus-settings-label">专注时长（分钟）</span><input type="number" id="focus-duration-input" class="focus-settings-input" min="1" max="120" step="1" value="25"></label>
+            <label class="focus-settings-row"><span class="focus-settings-label">短休息（分钟）</span><input type="number" id="focus-short-break-input" class="focus-settings-input" min="1" max="60" step="1" value="5"></label>
+            <label class="focus-settings-row"><span class="focus-settings-label">长休息（分钟）</span><input type="number" id="focus-long-break-input" class="focus-settings-input" min="1" max="120" step="1" value="15"></label>
+            <label class="focus-settings-row"><span class="focus-settings-label">每组专注次数</span><input type="number" id="focus-rounds-input" class="focus-settings-input" min="1" max="12" step="1" value="4"></label>
+            <label class="focus-settings-row"><span class="focus-settings-label">定时呼叫间隔（分钟）</span><input type="number" id="auto-call-interval-input" class="focus-settings-input" min="0" max="60" step="1" value="0" placeholder="0 表示关闭"></label>
+            <label class="focus-settings-row"><span class="focus-settings-label">有效专注最低时长（分钟）</span><input type="number" id="focus-min-valid-input" class="focus-settings-input" min="1" max="120" step="1" value="1"></label>
           </div>
-          <div class="focus-settings-row">
-            <label class="focus-settings-label">定时呼叫间隔（分钟）</label>
-            <input type="number" id="auto-call-interval-input" class="focus-settings-input" 
-                   min="0" max="60" value="0" placeholder="0表示不启用">
+          <div class="focus-settings-toggles">
+            <label class="focus-setting-toggle"><input type="checkbox" id="focus-auto-break-input"><span>完成后自动开始休息</span></label>
+            <label class="focus-setting-toggle"><input type="checkbox" id="focus-auto-next-input"><span>休息后自动开始下一轮</span></label>
+            <label class="focus-setting-toggle"><input type="checkbox" id="focus-notification-input" checked><span>到时提醒</span></label>
+            <label class="focus-setting-toggle"><input type="checkbox" id="focus-sound-input" checked><span>提示音</span></label>
+            <label class="focus-setting-toggle"><input type="checkbox" id="focus-vibration-input" checked><span>设备支持时震动</span></label>
+            <label class="focus-setting-toggle"><input type="checkbox" id="focus-sync-chat-input"><span>陪伴消息同步到主聊天</span></label>
           </div>
-          <div class="focus-settings-hint">
-            设置后，角色会按间隔时间自动呼叫你
-          </div>
+          <div id="focus-settings-error" class="focus-settings-error" role="alert"></div>
+          <div class="focus-settings-hint">设置会保存；进行中的会话继续使用开始时的时长与角色。自动呼叫为 0 时保持关闭。</div>
         </div>
         <div class="focus-settings-actions">
-          <button class="focus-btn focus-btn-secondary" onclick="closeFocusSettings()">取消</button>
-          <button class="focus-btn focus-btn-primary" onclick="saveFocusSettings()">保存</button>
+          <button type="button" class="focus-btn focus-btn-secondary" onclick="closeFocusSettings()">取消</button>
+          <button type="button" class="focus-btn focus-btn-primary" onclick="saveFocusSettings()">保存</button>
         </div>
+      </div>
+    </div>
+
+    <!-- 番茄钟 - 完成/放弃确认与复盘 -->
+    <div id="focus-action-modal" class="focus-modal" style="display: none;" role="dialog" aria-modal="true" aria-labelledby="focus-action-title">
+      <div class="focus-action-modal-content" tabindex="-1">
+        <div class="focus-settings-modal-header"><span id="focus-action-title">结束本次专注</span><button type="button" class="focus-companion-modal-close" onclick="closeFocusActionModal()" aria-label="关闭">×</button></div>
+        <p id="focus-action-description" class="focus-action-description"></p>
+        <label class="focus-settings-row"><span class="focus-settings-label">简短复盘或中断原因（可留空）</span><textarea id="focus-action-note" class="focus-settings-input focus-action-note" rows="3" maxlength="500" placeholder="完成了什么、为什么中断、下一步做什么…"></textarea></label>
+        <div class="focus-settings-actions"><button type="button" class="focus-btn focus-btn-secondary" onclick="closeFocusActionModal()">取消</button><button type="button" id="focus-action-confirm" class="focus-btn focus-btn-primary">确认</button></div>
       </div>
     </div>
 
@@ -7004,71 +7025,76 @@
         </div>
     </div>
 </div>
-<!-- 邮箱主界面 -->
-<div id="email-screen" class="screen mail-theme">
+<div id="email-screen" class="screen mail-theme" style="background-color: #FFFFFF;">
     <div class="mail-header">
-    <button class="mail-icon-btn" onclick="showScreen('home-screen')">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-        <span style="font-size: 16px; margin-left: -2px;">返回</span>
-    </button>
-    
-    <div class="mail-header-actions">
-        <button class="mail-icon-btn" onclick="openEmailSettings()" title="邮箱配置">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
-                <circle cx="12" cy="12" r="3"></circle>
-            </svg>
+        <button class="mail-icon-btn" onclick="showScreen('home-screen')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19l-7-7 7-7"/></svg>
+            <span class="mail-back-label">返回</span>
         </button>
-
-        <button class="mail-icon-btn" onclick="handleQuickReceiveMail()" title="一键接收新邮件">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2" y="4" width="20" height="16" rx="2"></rect>
-                <path d="M22 7l-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path>
-                <line x1="12" y1="19" x2="12" y2="15"></line>
-                <line x1="10" y1="17" x2="14" y2="17"></line>
-            </svg>
-        </button>
-
-        <button id="mail-edit-btn" class="mail-icon-btn" onclick="toggleEmailEditMode()" title="编辑列表">
-        编辑
-    </button>
+        <div class="mail-header-actions">
+            <button class="mail-icon-btn" onclick="openMailContacts()" title="联系人" aria-label="联系人">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </button>
+            <button class="mail-icon-btn" onclick="openEmailSettings()" title="邮箱配置" aria-label="邮箱配置">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            <button class="mail-icon-btn" onclick="handleQuickReceiveMail()" title="收取新邮件" aria-label="收取新邮件">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            </button>
+            <button id="mail-edit-btn" class="mail-icon-btn mail-text-action" onclick="toggleEmailEditMode()" title="编辑列表">编辑</button>
+        </div>
     </div>
-</div>
 
-    <div style="flex-shrink: 0;">
-        <h1 class="mail-large-title">收件箱</h1>
+    <div style="flex-shrink: 0; background-color: #FFFFFF;">
+        <div class="mail-title-row">
+            <h1 class="mail-large-title" id="mail-folder-title">收件箱</h1>
+            <button class="mail-compose-fab" onclick="openMailCompose()" title="写邮件" aria-label="写邮件">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            </button>
+        </div>
+        <div class="mail-folder-tabs" id="mail-folder-tabs" aria-label="邮箱文件夹">
+            <button class="active" data-folder="inbox">收件箱 <span id="mail-count-inbox"></span></button>
+            <button data-folder="starred">星标</button>
+            <button data-folder="sent">已发送</button>
+            <button data-folder="drafts">草稿</button>
+            <button data-folder="scheduled">定时</button>
+            <button data-folder="spam">垃圾邮件</button>
+            <button data-folder="trash">已删除</button>
+        </div>
         <div class="mail-search-bar">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8E8E93" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <input type="text" placeholder="搜索" id="mail-search-input">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8A8E99" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" placeholder="搜索发件人、主题或正文" id="mail-search-input">
         </div>
     </div>
 
-    <div id="email-list" class="mail-list-container">
-        </div>
-     <div id="mail-action-bar" style="display: none;">
+    <div id="email-list" class="mail-list-container"></div>
+    <div id="mail-action-bar" style="display: none;">
         <div class="select-all-btn" id="mail-select-all-btn">全选</div>
-        <button id="mail-delete-selected-btn" class="mail-delete-action-btn">删除 (0)</button>
+        <button id="mail-delete-selected-btn" class="mail-delete-action-btn">删除</button>
     </div>
 </div>
 
-<div id="email-detail-screen" class="screen mail-theme" style="background-color: #fff; display: flex; flex-direction: column;">
+<div id="email-detail-screen" class="screen mail-theme" style="background-color: #FFFFFF; display: flex; flex-direction: column;">
     <div class="mail-detail-header">
         <button class="mail-icon-btn" onclick="closeEmailDetail()">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#007AFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-            <span style="color: #007AFF; font-size: 16px; margin-left: -2px;">收件箱</span>
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#007AFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19l-7-7 7-7"/></svg>
+            <span style="color: #007AFF; font-size: 15px; margin-left: 2px;">收件箱</span>
         </button>
         
         <div class="mail-header-actions">
+            <button class="mail-icon-btn" id="mail-detail-star-btn" title="星标" aria-label="星标">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#007AFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            </button>
             <button class="mail-icon-btn" id="forward-email-btn" title="转发到聊天">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#007AFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#007AFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
             </button>
             <button class="mail-icon-btn" id="delete-email-btn" title="删除邮件" style="color: #ff3b30;">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             </button>
         </div>
     </div>
     
-    <div class="mail-detail-content">
+    <div class="mail-detail-content" id="mail-detail-scroll">
         <div class="mail-meta-header">
             <div class="mail-subject-line" id="mail-detail-subject">Subject</div>
             <div class="mail-meta-row">
@@ -7082,11 +7108,103 @@
                 </div>
             </div>
         </div>
-        <div class="mail-body-text" id="mail-detail-body">
+        <div id="mail-thread-list"></div>
+        <div class="mail-body-text" id="mail-detail-body"></div>
+        <div id="mail-detail-attachments" class="mail-attachment-list"></div>
+        <div id="mail-detail-status" class="mail-detail-status"></div>
+        <section id="mail-reply-progress" class="mail-reply-progress" hidden aria-live="polite"></section>
+        <section id="mail-generated-reply-tools" class="mail-generated-reply-tools" hidden>
+            <div class="mail-generated-reply-actions">
+                <button id="mail-edit-generated-btn" class="mail-secondary-btn" type="button">手动编辑</button>
+                <button id="mail-regenerate-btn" class="mail-secondary-btn" type="button">重说</button>
+                <button id="mail-reply-history-btn" class="mail-secondary-btn" type="button">历史</button>
             </div>
+            <div id="mail-generated-editor" class="mail-generated-editor" hidden>
+                <label><span>主题</span><input id="mail-edit-generated-subject" maxlength="120"></label>
+                <label><span>正文</span><textarea id="mail-edit-generated-content"></textarea></label>
+                <div class="mail-generated-editor-actions">
+                    <button id="mail-cancel-generated-edit" class="mail-secondary-btn" type="button">取消</button>
+                    <button id="mail-save-generated-edit" class="mail-secondary-btn mail-primary-compact" type="button">保存</button>
+                </div>
+            </div>
+        </section>
+        <div class="mail-detail-actions-row">
+            <button id="mail-reply-btn" class="mail-secondary-btn">回复</button>
+            <button id="mail-contact-btn" class="mail-secondary-btn">查看联系人</button>
+            <button id="mail-move-spam-btn" class="mail-secondary-btn">垃圾邮件</button>
+        </div>
     </div>
+</div>
+
+<!-- 写邮件 -->
+<div id="email-compose-screen" class="screen mail-theme mail-subscreen" style="background-color: #FFFFFF;">
+    <div class="mail-detail-header mail-compose-header">
+        <button class="mail-icon-btn mail-text-action" id="mail-compose-cancel-btn">取消</button>
+        <span class="mail-centered-title" id="mail-compose-title">新邮件</span>
+        <button class="mail-icon-btn mail-text-action mail-send-action" id="mail-compose-send-btn">发送</button>
     </div>
-    
+    <div class="mail-compose-scroll">
+        <label class="mail-compose-row"><span>发件人</span><select id="mail-compose-account"></select></label>
+        <label class="mail-compose-row"><span>收件人</span><select id="mail-compose-recipient"></select></label>
+        <label class="mail-compose-row"><span>地址</span><input id="mail-compose-recipient-address" type="email" placeholder="name@example.test"></label>
+        <label class="mail-compose-row"><span>抄送</span><input id="mail-compose-cc" type="text" placeholder="可选，用逗号分隔"></label>
+        <label class="mail-compose-row"><span>密送</span><input id="mail-compose-bcc" type="text" placeholder="可选，用逗号分隔"></label>
+        <label class="mail-compose-row mail-subject-row"><span>主题</span><input id="mail-compose-subject" maxlength="120" placeholder="邮件主题"></label>
+        <textarea id="mail-compose-body" class="mail-compose-body" placeholder="写下邮件正文……"></textarea>
+        <div class="mail-compose-tools">
+            <label class="mail-tool-btn" for="mail-compose-attachment-input">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg><span>附件</span>
+            </label>
+            <input id="mail-compose-attachment-input" type="file" multiple hidden>
+            <button class="mail-tool-btn" id="mail-ai-assist-btn"><span>AI 辅助</span></button>
+            <label class="mail-compact-toggle"><input type="checkbox" id="mail-compose-anonymous"><span>匿名</span></label>
+            <label class="mail-compact-toggle"><input type="checkbox" id="mail-compose-receipt"><span>回执</span></label>
+        </div>
+        <div id="mail-compose-attachments" class="mail-attachment-list"></div>
+        <label class="mail-compose-row mail-reply-mode-row"><span>回信</span><select id="mail-compose-reply-mode">
+            <option value="default">跟随默认设置</option>
+            <option value="instant">立即回复</option>
+            <option value="fixed">等待指定时间</option>
+            <option value="random">随机等待</option>
+            <option value="manual">仅手动调用</option>
+        </select></label>
+        <div id="mail-compose-reply-options" class="mail-compose-reply-options" hidden>
+            <label id="mail-compose-fixed-wrap"><span>等待分钟</span><input id="mail-compose-fixed-delay" type="number" min="0" max="10080" value="10"></label>
+            <div id="mail-compose-random-wrap" class="mail-compose-random-wrap"><label><span>最短分钟</span><input id="mail-compose-random-min" type="number" min="0" max="10080" value="2"></label><label><span>最长分钟</span><input id="mail-compose-random-max" type="number" min="0" max="10080" value="30"></label></div>
+        </div>
+        <label class="mail-schedule-row"><input type="checkbox" id="mail-compose-schedule-toggle"><span>定时发送</span><input type="datetime-local" id="mail-compose-scheduled-at" disabled></label>
+        <p class="mail-compose-hint" id="mail-compose-hint">取消时可选择保存为草稿；AI 辅助不会自动发送。</p>
+    </div>
+</div>
+
+<!-- 联系人与笔友 -->
+<div id="mail-contacts-screen" class="screen mail-theme mail-subscreen" style="background-color: #FFFFFF;">
+    <div class="mail-detail-header">
+        <button class="mail-icon-btn" onclick="closeMailContacts()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19l-7-7 7-7"/></svg><span class="mail-back-label">邮箱</span></button>
+        <span class="mail-centered-title">联系人</span>
+        <button class="mail-icon-btn mail-text-action" onclick="openMailCompose({ recipientMode: 'random' })">漂流信</button>
+    </div>
+    <div class="mail-contact-filter" id="mail-contact-filter">
+        <button class="active" data-filter="all">全部</button>
+        <button data-filter="penpal">笔友</button>
+        <button data-filter="suspicious">可疑</button>
+        <button data-filter="lost_contact">失联</button>
+        <button data-filter="blocked">已拉黑</button>
+    </div>
+    <div id="mail-contact-list" class="mail-contact-list"></div>
+    <div class="mail-public-boxes">
+        <div class="mail-section-label">公共邮箱</div>
+        <div id="mail-public-box-list"></div>
+    </div>
+</div>
+
+<div id="mail-contact-detail-screen" class="screen mail-theme mail-subscreen" style="background-color: #FFFFFF;">
+    <div class="mail-detail-header">
+        <button class="mail-icon-btn" onclick="closeMailContactDetail()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19l-7-7 7-7"/></svg><span class="mail-back-label">联系人</span></button>
+        <span class="mail-centered-title">联系人资料</span>
+        <button class="mail-icon-btn mail-text-action" id="mail-contact-write-btn" onclick="openMailCompose({ contactId: mailState.currentContactId })">写信</button>
+    </div>
+    <div class="mail-contact-detail" id="mail-contact-detail"></div>
 </div>
 
 <!-- 邮件生成器配置弹窗 -->
@@ -7133,16 +7251,35 @@
                     <!-- JS 动态填充世界书 -->
                 </div>
             </div>
-          <div class="gr-form-group">
+            <div class="gr-form-group">
                 <label>生成数量</label>
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <input type="number" id="mail-gen-count" class="gr-input" value="3" min="1" max="10" style="flex:1;">
                     <span style="font-size: 13px; color: #888;">封</span>
                 </div>
             </div>
+            <div class="gr-form-group">
+                <label>陌生人通信与后台活动</label>
+                <label class="mail-setting-switch"><span>允许后台处理到期回信</span><input type="checkbox" id="mail-background-enabled" checked></label>
+                <label class="mail-setting-switch"><span>允许陌生人发展为长期笔友</span><input type="checkbox" id="mail-penpal-enabled" checked></label>
+                <label class="mail-setting-switch"><span>允许联系人提出交换联系方式</span><input type="checkbox" id="mail-friend-enabled" checked></label>
+                <label class="mail-setting-switch"><span>允许悬疑与身份存疑内容</span><input type="checkbox" id="mail-mystery-enabled" checked></label>
+                <label class="mail-setting-switch"><span>允许荒诞世界邮件</span><input type="checkbox" id="mail-absurd-enabled" checked></label>
+                <label class="mail-setting-switch"><span>允许陌生人暧昧内容</span><input type="checkbox" id="mail-flirt-enabled"></label>
+                <label class="mail-setting-field"><span>默认回信方式</span><select id="mail-reply-mode" class="gr-input">
+                    <option value="instant">立即回复</option>
+                    <option value="fixed">等待指定时间</option>
+                    <option value="random">随机等待</option>
+                    <option value="manual">仅手动调用</option>
+                </select></label>
+                <label class="mail-setting-field" id="mail-fixed-delay-wrap"><span>固定等待（分钟）</span><input type="number" id="mail-reply-fixed-delay" min="0" max="10080" value="10"></label>
+                <div class="mail-delay-grid"><label>最短回信（分钟）<input type="number" id="mail-reply-delay-min" min="0" max="10080" value="2"></label><label>最长回信（分钟）<input type="number" id="mail-reply-delay-max" min="0" max="10080" value="30"></label></div>
+                <p class="mail-setting-note">陌生人均为本地 AI 虚构角色，不会进入真人联机好友列表。</p>
+            </div>
         </div>
         <div class="modal-footer" style="border-top: 1px solid #E5E5E5; display:flex; gap:15px;">
             <button class="cancel" style="background:#F5F5F7; color:#000; border:none;" onclick="document.getElementById('email-generator-modal').classList.remove('visible')">取消</button>
+            <button class="cancel" style="background:#EEF5FF; color:#007AFF; border:none;" id="save-mail-settings-btn">保存设置</button>
             <button class="save" style="background:#007AFF; color:#fff; border:none;" id="start-generate-email-btn">接收邮件</button>
         </div>
     </div>
