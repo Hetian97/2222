@@ -118,6 +118,12 @@ db.version(60).stores({
   livingSpaceTraces: '&id, spaceId, cornerId, characterId, createdAt'
 });
 
+// 用户自制小组件：作品定义与每次放置的私有内容分开保存。
+db.version(61).stores({
+  customWidgetPackages: '&id, name, updatedAt',
+  customWidgetInstances: '&id, packageId, updatedAt'
+});
+
 window.db = db;
 
 // Every chat save stamps newly-created messages with the time zone in which

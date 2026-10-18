@@ -1,0 +1,57 @@
+/* 自制小组件沿用桌面设置弹层的轻量白底与紧凑按钮。 */
+#custom-widget-overlay[hidden] { display:none; }
+#custom-widget-overlay { position:absolute; inset:0; z-index:1090; display:flex; align-items:center; justify-content:center; padding:16px; background:#0007; box-sizing:border-box; }
+.cw-dialog { width:100%; max-width:520px; max-height:min(88dvh,680px); display:flex; flex-direction:column; min-width:0; background:#f9f9fb; color:#24242a; border-radius:22px; padding:14px 16px; box-sizing:border-box; box-shadow:0 12px 36px #0004; animation:free-folder-open .2s cubic-bezier(.2,.8,.2,1); }
+.cw-dialog header { display:flex; align-items:center; justify-content:space-between; gap:10px; flex:none; min-width:0; }
+.cw-dialog header strong { font-size:15px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.cw-dialog button, .cw-dialog input, .cw-dialog select, .cw-dialog textarea { font:inherit; -webkit-appearance:none; appearance:none; }
+.cw-dialog button { cursor:pointer; border:1px solid #e5e5ea; border-radius:9px; background:#fff; color:#24242a; padding:7px 9px; font-size:12px; line-height:1.3; }
+.cw-dialog .cw-primary { color:#fff; background:#333840; border-color:#333840; }
+.cw-dialog .cw-close { border:0; background:transparent; color:#666; font-size:24px; padding:0 4px; line-height:24px; flex:none; }
+.cw-body { overflow-y:auto; min-height:0; padding-top:9px; overscroll-behavior:contain; }
+.cw-form, .cw-editor { display:flex; flex-direction:column; gap:10px; min-width:0; }
+.cw-actions { display:flex; flex-wrap:wrap; align-items:center; gap:6px; min-width:0; }
+.cw-actions > * { flex:0 1 auto; min-width:0; }
+.cw-note, .cw-help p { margin:0; color:#666; font-size:12px; line-height:1.5; }
+.cw-warning { color:#9b4d24; }
+.cw-help strong { font-size:12px; font-weight:600; }
+.cw-help .cw-actions { margin-top:3px; }
+.cw-library-card { display:flex; flex-direction:column; gap:7px; padding:10px; border:1px solid #e5e5ea; border-radius:11px; background:#fff; }
+.cw-library-info { display:flex; flex-direction:column; gap:3px; min-width:0; }
+.cw-library-info strong { font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cw-library-info span { color:#777; font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cw-library-info .cw-library-description { white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; line-height:1.4; }
+.cw-row-button { text-align:left; width:100%; }
+.cw-field { display:flex; flex-direction:column; gap:4px; min-width:0; font-size:11px; color:#62626a; }
+.cw-field input, .cw-field select, .cw-field textarea { min-width:0; width:100%; max-width:100%; box-sizing:border-box; border:1px solid #dedee4; border-radius:8px; background:#fff; color:#24242a; padding:7px 8px; font-size:13px; }
+.cw-field textarea { min-height:100px; resize:vertical; font-family:ui-monospace,Consolas,monospace; font-size:11px; }
+.cw-editor-meta { display:flex; flex-direction:column; gap:7px; }
+.cw-editor-meta > .cw-actions .cw-field { flex:1; }
+.cw-stage { width:min(100%,340px,calc(45dvh * var(--cw-ratio,1))); max-height:45dvh; aspect-ratio:1; flex:none; align-self:center; position:relative; overflow:hidden; border-radius:15px; background:repeating-linear-gradient(45deg,#efeff2 0 10px,#e7e7eb 10px 20px); touch-action:none; }
+.cw-stage-layer { position:absolute; display:flex; align-items:center; justify-content:center; overflow:hidden; min-width:0; padding:2px; border:0; color:#24242a; text-align:center; overflow-wrap:anywhere; cursor:grab; touch-action:none; }
+.cw-stage-layer.selected { outline:2px solid #4f6eaa; outline-offset:-2px; }
+.cw-stage-layer img { width:100%; height:100%; object-fit:cover; pointer-events:none; }
+.cw-editor-panel { border-top:1px solid #e5e5ea; padding-top:8px; }
+.cw-stage[hidden], .cw-actions[hidden], .cw-editor-panel[hidden] { display:none; }
+.cw-editor-panel strong { font-size:12px; }
+.cw-field-row { display:flex; align-items:center; gap:6px; min-width:0; }
+.cw-field-row input, .cw-field-row select, .cw-field-creator input, .cw-field-creator select { min-width:0; border:1px solid #dedee4; border-radius:8px; padding:6px 8px; background:#fff; color:#24242a; font-size:12px; box-sizing:border-box; }
+.cw-field-row input { flex:1; }
+.cw-field-row select { width:72px; flex:none; }
+.cw-field-row span { color:#777; font-size:11px; }
+.cw-field-card { display:flex; flex-direction:column; gap:5px; border:1px solid #e5e5ea; border-radius:9px; padding:7px; background:#fff; min-width:0; }
+.cw-field-card .cw-field-row button { flex:none; }
+.cw-field-creator { display:grid; grid-template-columns:minmax(0,1fr) 74px auto; gap:5px; min-width:0; }
+.cw-field-creator button { white-space:nowrap; }
+.cw-ai-prompt, .cw-import-text { min-height:180px!important; }
+.cw-import-code { min-height:85px!important; }
+.cw-code[hidden] { display:none; }
+.cw-code { display:flex; flex-direction:column; gap:8px; }
+.cw-preview { width:min(100%,320px,calc(50dvh * var(--cw-ratio,1))); max-height:50dvh; align-self:center; overflow:hidden; border-radius:15px; background:#fff; }
+.cw-frame { display:block; width:100%; height:100%; border:0; background:#fff; }
+.free-widget-custom { position:relative; padding:3px; }
+.cw-free-view { display:block; width:100%; height:100%; overflow:hidden; border-radius:15px; background:#fff; }
+.is-editing .free-widget-custom iframe { pointer-events:none; }
+.cw-free-manage { position:absolute; top:7px; right:7px; z-index:2; display:flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:#29292ecb; color:#fff; font-size:18px; line-height:1; box-shadow:0 1px 4px #0005; }
+.free-widget-custom-entry { width:100%; margin-bottom:8px; border:1px solid #e5e5ea; border-radius:10px; background:#fff; padding:10px 12px; font-size:13px; text-align:left; }
+@media(max-width:375px) { .cw-dialog { padding-inline:10px; } .cw-actions { gap:4px; } .cw-dialog button { padding:6px 7px; font-size:11px; } .cw-field-creator { grid-template-columns:minmax(0,1fr) 68px auto; gap:4px; } .cw-field-creator button { padding-inline:5px; } }

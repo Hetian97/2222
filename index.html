@@ -28,6 +28,8 @@
   <link rel="stylesheet" href="focus-timer.css?v=0.0.36">
   <link rel="stylesheet" href="css/living-space.css?v=0.0.4">
   <link rel="stylesheet" href="extra.css?v=0.0.37">
+  <link rel="stylesheet" href="css/ui/free-home-layout.css?v=0.0.1">
+  <link rel="stylesheet" href="css/ui/custom-widget-studio.css?v=0.0.1">
   <link rel="apple-touch-icon" href="https://i.postimg.cc/nMbyyt1t/D7CD735A73F5FD1D7B8407E0EB8BBAC0.png">
   <link rel="manifest" href="manifest.json?v=0.0.36">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -127,6 +129,9 @@
   <script src="modules/init-event-bindingsA.js?v=0.0.44" defer></script>
   <script src="modules/init-event-bindingsB.js?v=0.0.39" defer></script>
   <script src="modules/init-features.js?v=0.0.38" defer></script>
+  <!-- 自由桌面 / 经典桌面切换与桌面小组件 -->
+  <script src="modules/ui/free-home-layout.js?v=0.0.1" defer></script>
+  <script src="modules/ui/custom-widget-studio.js?v=0.0.1" defer></script>
   <!-- 主入口（最后加载，调用 init） -->
   <script src="modules/init-and-state.js?v=0.0.39" defer></script>
   <!-- 第九层：DOMContentLoaded 外部的独立模块 -->
@@ -4413,6 +4418,34 @@
         <!-- 1. 壁纸与背景 -->
         <div class="settings-header">壁纸与背景</div>
         <div class="settings-section">
+            <!-- 桌面布局：经典 / 自由 -->
+            <div class="settings-item home-layout-setting">
+                <label for="home-layout-select">桌面布局</label>
+                <div class="settings-right">
+                    <select id="home-layout-select" class="settings-select" aria-label="桌面布局">
+                        <option value="classic">经典布局</option>
+                        <option value="free">自由布局</option>
+                    </select>
+                </div>
+            </div>
+            <div class="settings-item home-layout-setting home-layout-preset-item">
+                <div class="home-layout-preset-header">
+                    <label>自由布局预设</label>
+                    <span id="home-layout-settings-status" role="status" aria-live="polite"></span>
+                </div>
+                <div class="home-layout-preset-actions">
+                    <div class="home-layout-preset-row home-layout-preset-primary-row">
+                        <select id="home-layout-preset-select" class="settings-select" aria-label="自由布局预设"><option value="">选择预设</option></select>
+                        <button id="home-layout-preset-save" class="settings-mini-btn" type="button">保存</button>
+                    </div>
+                    <div class="home-layout-preset-row home-layout-preset-tools-row">
+                        <button id="home-layout-preset-export" class="settings-mini-btn" type="button">导出</button>
+                        <button id="home-layout-preset-import" class="settings-mini-btn" type="button">导入</button>
+                        <button id="home-layout-preset-delete" class="settings-mini-btn" type="button">删除</button>
+                    </div>
+                    <input id="home-layout-preset-file" type="file" accept=".json,application/json" class="hidden-input">
+                </div>
+            </div>
             <!-- EPhone 主屏幕 -->
             <div class="settings-item">
                 <label>主屏幕壁纸</label>

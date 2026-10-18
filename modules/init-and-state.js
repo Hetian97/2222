@@ -161,6 +161,9 @@ document.addEventListener('DOMContentLoaded', () => {
       sendMessageSoundVolume: 1.0, // 发送消息按钮提示音音量 (0.0-1.0)
       soundPresets: [], // 消息提示音预设列表
       widgetData: {},
+      homeLayoutMode: 'classic', // classic | free：经典桌面 / 自由桌面
+      freeHomeLayout: null,      // 自由桌面的页面、App、小组件排列
+      customWidgetPermissions: {}, // 自制小组件申请过的联网 / 数据 / 打开应用授权
       globalChatBackground: '',
       enableAiDrawing: true,
       showPhoneFrame: false,
@@ -616,6 +619,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ==================== Features (from init-features.js) ====================
     window.initFeatures(state, db);
+
+    // 自由桌面 / 经典桌面切换与桌面小组件（可选模块，缺失时不影响启动）
+    if (window.FreeHomeLayout) await window.FreeHomeLayout.init(state, db);
 
     initLockScreen();
     checkForUpdates();
