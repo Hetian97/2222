@@ -747,11 +747,26 @@
 
       if (msg.type === 'offline_text') {
 
-        const combinedText = msg.content || `${msg.dialogue || ''} ${msg.description || ''}`.trim();
+        const originalText = msg.content || `${msg.dialogue || ''} ${msg.description || ''}`.trim();
+        const renderedOfflineText = typeof applyRenderingRulesDetailed === 'function'
+          ? await applyRenderingRulesDetailed(originalText, chat.id, {
+              messageId: msg.id ?? msg.timestamp,
+              timestamp: msg.timestamp,
+              role: msg.role,
+              type: msg.type,
+              field: 'content',
+              isGroup: !!chat.isGroup
+            })
+          : { content: await applyRenderingRules(originalText, chat.id, { messageId: msg.id ?? msg.timestamp, timestamp: msg.timestamp, role: msg.role, type: msg.type, field: 'content', isGroup: !!chat.isGroup }), isHtml: false, inlineOnly: true, excluded: false };
+        const combinedText = renderedOfflineText.content;
+        if (renderedOfflineText.excluded) wrapper.hidden = true;
 
         const useContinuousLayout = chat && chat.settings && chat.settings.offlineContinuousLayout;
 
-        if (useContinuousLayout) {
+        if (renderedOfflineText.isHtml && !renderedOfflineText.inlineOnly && combinedText !== originalText) {
+          contentHtml = combinedText;
+          bubble.classList.add('is-card-like');
+        } else if (useContinuousLayout) {
           // 连续排版模式：整体渲染，对话部分只加样式不拆段
           const dialogueRegex = /(「.*?」|".*?")/gs;
           let lastIndex = 0;
@@ -1311,7 +1326,19 @@
     `;
     } else {
       const processedContent = String(rawContent);
-      let processedByRule = await applyRenderingRules(processedContent, chat.id);
+      const ruleMeta = {
+        messageId: msg.id ?? msg.timestamp,
+        timestamp: msg.timestamp,
+        role: msg.role,
+        type: msg.type,
+        field: 'content',
+        isGroup: !!chat.isGroup
+      };
+      const renderedRule = typeof applyRenderingRulesDetailed === 'function'
+        ? await applyRenderingRulesDetailed(processedContent, chat.id, ruleMeta)
+        : { content: await applyRenderingRules(processedContent, chat.id, ruleMeta), isHtml: false, inlineOnly: true, excluded: false };
+      if (renderedRule.excluded) wrapper.hidden = true;
+      let processedByRule = renderedRule.content;
       if (processedByRule !== processedContent) {
         contentHtml = processedByRule;
         bubble.classList.add('is-card-like');

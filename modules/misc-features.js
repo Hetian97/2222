@@ -1848,8 +1848,8 @@
       randomJottingsEl.innerHTML = '<span style="color: #999;">心声功能已关闭</span>';
     } else {
       // 功能开启时正常显示
-      heartfeltVoiceEl.innerHTML = await applyRenderingRules(chat.heartfeltVoice || '...', chatId);
-      randomJottingsEl.innerHTML = await applyRenderingRules(chat.randomJottings || '...', chatId);
+      heartfeltVoiceEl.innerHTML = await applyRenderingRules(chat.heartfeltVoice || '...', chatId, { field: 'heartfeltVoice', type: 'thoughts', role: 'assistant', isGroup: !!state.chats[chatId]?.isGroup });
+      randomJottingsEl.innerHTML = await applyRenderingRules(chat.randomJottings || '...', chatId, { field: 'randomJottings', type: 'thoughts', role: 'assistant', isGroup: !!state.chats[chatId]?.isGroup });
     }
 
     const modal = document.getElementById('character-profile-modal');
@@ -1868,8 +1868,8 @@
         updatedHeartfeltVoiceEl.innerHTML = '<span style="color: #999;">心声功能已关闭</span>';
         updatedRandomJottingsEl.innerHTML = '<span style="color: #999;">心声功能已关闭</span>';
       } else {
-        updatedHeartfeltVoiceEl.innerHTML = await applyRenderingRules(chat.heartfeltVoice || '...', chatId);
-        updatedRandomJottingsEl.innerHTML = await applyRenderingRules(chat.randomJottings || '...', chatId);
+        updatedHeartfeltVoiceEl.innerHTML = await applyRenderingRules(chat.heartfeltVoice || '...', chatId, { field: 'heartfeltVoice', type: 'thoughts', role: 'assistant', isGroup: !!state.chats[chatId]?.isGroup });
+        updatedRandomJottingsEl.innerHTML = await applyRenderingRules(chat.randomJottings || '...', chatId, { field: 'randomJottings', type: 'thoughts', role: 'assistant', isGroup: !!state.chats[chatId]?.isGroup });
       }
     }
 
@@ -2162,14 +2162,14 @@
 
 
     const chatId = state.activeChatId;
-    const renderedVoice = await applyRenderingRules(thought.heartfeltVoice || '...', chatId);
-    const renderedJottings = await applyRenderingRules(thought.randomJottings || '...', chatId);
+    const renderedVoice = await applyRenderingRules(thought.heartfeltVoice || '...', chatId, { field: 'heartfeltVoice', type: 'thoughts', role: 'assistant', isGroup: !!state.chats[chatId]?.isGroup });
+    const renderedJottings = await applyRenderingRules(thought.randomJottings || '...', chatId, { field: 'randomJottings', type: 'thoughts', role: 'assistant', isGroup: !!state.chats[chatId]?.isGroup });
 
 
     let customThoughtsHtml = '';
     if (thought.customThoughts && Object.keys(thought.customThoughts).length > 0) {
       for (const [key, value] of Object.entries(thought.customThoughts)) {
-        const renderedCustom = await applyRenderingRules(value || '...', chatId);
+        const renderedCustom = await applyRenderingRules(value || '...', chatId, { field: 'custom', type: 'thoughts', role: 'assistant', isGroup: !!state.chats[chatId]?.isGroup });
         customThoughtsHtml += `
             <div class="custom-thought-item" style="margin-top: 10px;">
                 <div class="label" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; display: flex; align-items: center; gap: 4px;">

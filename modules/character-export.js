@@ -531,7 +531,18 @@
             const role = msg.role === 'user' ? '我' : chat.name;
             const zone = msg.timestampTimeZone || 'Europe/London';
             const time = msg.timestamp ? `${window.TimeZoneUtils.format(msg.timestamp, zone)} ${zone}` : '';
-            const content = getExportMessageText(msg);
+            let content = getExportMessageText(msg);
+            if (window.applyRenderingRulesForStage) {
+              const rendered = await window.applyRenderingRulesForStage(content, chat.id, {
+                messageId: msg.id ?? msg.timestamp,
+                timestamp: msg.timestamp,
+                role: msg.role,
+                type: msg.type,
+                field: 'content',
+                isGroup: !!chat.isGroup
+              }, 'export');
+              content = rendered.content;
+            }
             txtContent += `${role} [${time}]\n${content}\n\n`;
           }
         } else {
@@ -678,7 +689,18 @@
             // 头像颜色稍微区分
             const avatarBg = isUser ? '#7bed9f' : '#ff6b81';
             const initial = isUser ? '我' : aiInitial;
-            const rawText = getExportMessageText(msg);
+            let rawText = getExportMessageText(msg);
+            if (window.applyRenderingRulesForStage) {
+              const rendered = await window.applyRenderingRulesForStage(rawText, chat.id, {
+                messageId: msg.id ?? msg.timestamp,
+                timestamp: msg.timestamp,
+                role: msg.role,
+                type: msg.type,
+                field: 'content',
+                isGroup: !!chat.isGroup
+              }, 'export');
+              rawText = rendered.content;
+            }
             const safeRawText = escapeAttr(rawText);
             const safeContentHtml = escapeHtml(rawText);
             const safeMeta = escapeAttr(`${role} · ${time}`);

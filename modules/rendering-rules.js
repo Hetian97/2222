@@ -15,7 +15,25 @@
   let isRuleManagementMode = false;
   let selectedRules = new Set();
   let editingRuleId = null;
+  let editingRuleRecord = null;
   let ruleCache = {};
+  const renderingResultCache = new Map();
+  const MAX_RENDERING_RESULT_CACHE = 300;
+
+  function resetRenderingRuleCache() {
+    ruleCache = {};
+    renderingResultCache.clear();
+    window.RenderingRuleRuntime?.clear();
+    window.ruleCache = ruleCache;
+  }
+
+  function rememberRenderingResult(key, value) {
+    if (renderingResultCache.has(key)) renderingResultCache.delete(key);
+    renderingResultCache.set(key, value);
+    if (renderingResultCache.size > MAX_RENDERING_RESULT_CACHE) {
+      renderingResultCache.delete(renderingResultCache.keys().next().value);
+    }
+  }
 
   // ========== 来源：script.js 第 3402~3416 行 ==========
 
@@ -46,12 +64,16 @@
     tabsContainer.innerHTML = '';
     contentContainer.innerHTML = '';
 
-    const allRules = await db.renderingRules.toArray();
+    const allRules = (await db.renderingRules.toArray()).map((rule, index) => ({ rule, index })).sort((a, b) => (a.rule.executionOrder ?? a.rule.options?.order ?? a.index) - (b.rule.executionOrder ?? b.rule.options?.order ?? b.index)).map(item => item.rule);
+    window.RenderingRuleWorkbench?.updateList(allRules);
 
     if (allRules.length === 0) {
+      tabsContainer.style.display = 'none';
       contentContainer.innerHTML = '<p style="text-align:center; color: var(--text-secondary); margin-top: 50px;">还没有任何渲染规则。点击右上角"+"创建第一个吧！</p>';
       return;
     }
+
+    tabsContainer.style.display = 'flex';
 
     // 1. 创建"公用规则" Tab
     const globalTab = document.createElement('button');
@@ -117,6 +139,7 @@
         <div class="card-title">${rule.name}</div>
         <div class="card-content-preview">${escapeHTML(rule.regex)}</div>
     `;
+    window.RenderingRuleWorkbench?.decorateCard(card, rule);
 
     card.addEventListener('click', (e) => {
       if (e.target.classList.contains('rule-select-checkbox')) {
@@ -147,36 +170,92 @@
     isRuleManagementMode = !isRuleManagementMode;
     const container = document.getElementById('rules-content-container');
     const actionBar = document.getElementById('rules-action-bar');
-    const manageBtn = document.getElementById('manage-rules-btn');
+    const moreWrapper = document.querySelector('.rules-more-wrapper');
+    const exitBtn = document.getElementById('rules-exit-manage-btn');
+    const manageText = document.getElementById('manage-rules-btn-text');
 
-    const manageIconSVG = `
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
-            <polyline points="9 11 12 14 22 4"></polyline>
-        </svg>`;
-
-    const doneIconSVG = `
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-color);">
-             <polyline points="20 6 9 17 4 12"></polyline>
-        </svg>`;
-
+    closeRulesMoreMenu();
 
     if (isRuleManagementMode) {
-      container.classList.add('management-mode');
-      actionBar.style.display = 'flex';
-      manageBtn.innerHTML = doneIconSVG;
+      container?.classList.add('management-mode');
+      if (actionBar) actionBar.style.display = 'flex';
+      if (moreWrapper) moreWrapper.style.display = 'none';
+      if (exitBtn) exitBtn.style.display = 'inline-flex';
+      if (manageText) manageText.textContent = '完成管理';
     } else {
-      container.classList.remove('management-mode');
-      actionBar.style.display = 'none';
-      manageBtn.innerHTML = manageIconSVG;
-      manageBtn.style.color = '';
+      container?.classList.remove('management-mode');
+      if (actionBar) actionBar.style.display = 'none';
+      if (moreWrapper) moreWrapper.style.display = 'inline-flex';
+      if (exitBtn) exitBtn.style.display = 'none';
+      if (manageText) manageText.textContent = '批量管理';
 
       selectedRules.clear();
       updateRuleActionBar();
-      renderRulesList();
     }
 
     renderRulesList();
+  }
+
+  function closeRulesMoreMenu() {
+    const menu = document.getElementById('rules-more-menu');
+    const moreBtn = document.getElementById('rules-more-btn');
+    if (menu) menu.style.display = 'none';
+    if (moreBtn) moreBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  function toggleRulesMoreMenu(e) {
+    if (e) e.stopPropagation();
+    const menu = document.getElementById('rules-more-menu');
+    const moreBtn = document.getElementById('rules-more-btn');
+    if (!menu) return;
+    const isOpen = menu.style.display === 'flex';
+    if (isOpen) {
+      closeRulesMoreMenu();
+    } else {
+      menu.style.display = 'flex';
+      if (moreBtn) moreBtn.setAttribute('aria-expanded', 'true');
+    }
+  }
+
+  // 初始化更多菜单与按钮交互
+  function initRulesHeaderEvents() {
+    const moreBtn = document.getElementById('rules-more-btn');
+    const exitBtn = document.getElementById('rules-exit-manage-btn');
+    const manageBtn = document.getElementById('manage-rules-btn');
+    const menu = document.getElementById('rules-more-menu');
+
+    if (moreBtn && !moreBtn.dataset.bound) {
+      moreBtn.dataset.bound = 'true';
+      moreBtn.addEventListener('click', toggleRulesMoreMenu);
+    }
+
+    if (exitBtn && !exitBtn.dataset.bound) {
+      exitBtn.dataset.bound = 'true';
+      exitBtn.addEventListener('click', () => {
+        if (isRuleManagementMode) toggleRuleManagementMode();
+      });
+    }
+
+    if (manageBtn && !manageBtn.dataset.bound) {
+      manageBtn.dataset.bound = 'true';
+      manageBtn.addEventListener('click', () => {
+        closeRulesMoreMenu();
+        toggleRuleManagementMode();
+      });
+    }
+
+    document.addEventListener('click', (e) => {
+      const moreWrapper = document.querySelector('.rules-more-wrapper');
+      if (moreWrapper && !moreWrapper.contains(e.target)) {
+        closeRulesMoreMenu();
+      }
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initRulesHeaderEvents);
+  } else {
+    initRulesHeaderEvents();
   }
 
   function toggleRuleSelection(ruleId) {
@@ -239,6 +318,8 @@
       version: 1,
       timestamp: Date.now(),
       rules: rules.map(r => ({
+        ...r,
+        id: undefined,
         name: r.name,
         regex: r.regex,
         template: r.template,
@@ -269,6 +350,10 @@
       const text = await file.text();
       const data = JSON.parse(text);
 
+      if (window.RenderingRuleWorkbench) {
+        await window.RenderingRuleWorkbench.importRules(data);
+        return;
+      }
       if (data.type !== 'EPhoneRenderingRules' || !Array.isArray(data.rules)) {
         throw new Error("文件格式不正确，不是有效的渲染规则分享文件。");
       }
@@ -293,7 +378,7 @@
           addedCount++;
         }
 
-        ruleCache = {};
+        resetRenderingRuleCache();
         await renderRulesList();
         await showCustomAlert("成功", `已成功导入 ${addedCount} 条规则！`);
       }
@@ -316,8 +401,10 @@
     );
 
     if (confirmed) {
+      await window.RenderingRuleWorkbench?.beforeMutation();
       await db.renderingRules.bulkDelete([...selectedRules]);
-      ruleCache = {};
+      await window.RenderingRuleWorkbench?.afterMutation();
+      resetRenderingRuleCache();
       selectedRules.clear();
 
       toggleRuleManagementMode();
@@ -326,6 +413,7 @@
 
   async function openRuleEditor(ruleId = null) {
     editingRuleId = ruleId;
+    editingRuleRecord = null;
     const modal = document.getElementById('rule-editor-modal');
     const title = document.getElementById('rule-editor-title');
     const nameInput = document.getElementById('rule-name-input');
@@ -336,7 +424,7 @@
       if (oldSelect) {
         scopeContainer = document.createElement('div');
         scopeContainer.id = 'rule-scope-checkboxes';
-        scopeContainer.style.cssText = "max-height: 150px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px; background: #f9f9f9;";
+        scopeContainer.style.cssText = "max-height: 160px; overflow-y: auto; border: 1px solid rgba(0, 0, 0, 0.08); padding: 8px; border-radius: 12px; background: #ffffff;";
         oldSelect.parentNode.insertBefore(scopeContainer, oldSelect);
         oldSelect.style.display = 'none';
       }
@@ -358,6 +446,7 @@
       title.textContent = '编辑规则';
       const rule = await db.renderingRules.get(ruleId);
       if (rule) {
+        editingRuleRecord = rule;
         currentName = rule.name;
         currentRegex = rule.regex;
         currentTemplate = rule.template;
@@ -436,6 +525,7 @@
       });
     }
 
+    window.RenderingRuleWorkbench?.openEditor(editingRuleRecord);
     modal.classList.add('visible');
   }
 
@@ -444,14 +534,19 @@
     const name = document.getElementById('rule-name-input').value.trim();
     const regex = document.getElementById('rule-regex-input').value.trim();
 
-    if (!name || !regex) {
-      alert("规则名称和正则表达式不能为空！");
+    let options;
+    try { options = window.RenderingRuleWorkbench?.readOptions(); }
+    catch (error) { await showCustomAlert('配置格式错误', error.message); return; }
+    const action = options?.action || 'replace';
+    if (!name || (!regex && !['map', 'format'].includes(action) && options?.matchMode !== 'markers')) {
+      await showCustomAlert('无法保存', '请填写规则名称和查找内容。');
       return;
     }
     try {
-      new RegExp(regex);
+      if (window.RenderingRuleEngine) window.RenderingRuleEngine.compileRule({ regex, template: document.getElementById('rule-template-input').value, options });
+      else new RegExp(regex);
     } catch (e) {
-      alert(`正则表达式格式错误: ${e.message}`);
+      await showCustomAlert('规则格式错误', e.message);
       return;
     }
 
@@ -459,26 +554,31 @@
     const selectedScope = Array.from(checkboxes).map(cb => cb.value);
 
     if (selectedScope.length === 0) {
-      alert("请至少选择一个绑定范围（公用或指定角色）！");
+      await showCustomAlert('无法保存', '请至少选择一个绑定范围。');
       return;
     }
 
     const ruleData = {
+      ...editingRuleRecord,
       name: name,
       chatId: selectedScope,
       regex: regex,
       template: document.getElementById('rule-template-input').value,
       isEnabled: document.getElementById('rule-enabled-switch').checked,
-      doNotSend: document.getElementById('rule-do-not-send-switch').checked
+      doNotSend: document.getElementById('rule-do-not-send-switch').checked,
+      ...(options ? { options, executionOrder: options.order } : {}),
+      ...(window.RenderingRuleWorkbench?.readMetadata() || {})
     };
 
+    await window.RenderingRuleWorkbench?.beforeMutation();
     if (editingRuleId) {
       await db.renderingRules.update(editingRuleId, ruleData);
     } else {
       await db.renderingRules.add(ruleData);
     }
+    await window.RenderingRuleWorkbench?.afterMutation();
 
-    ruleCache = {};
+    resetRenderingRuleCache();
 
     document.getElementById('rule-editor-modal').classList.remove('visible');
     await renderRulesList();
@@ -490,7 +590,10 @@
       confirmButtonClass: 'btn-danger'
     });
     if (confirmed) {
+      await window.RenderingRuleWorkbench?.beforeMutation();
       await db.renderingRules.delete(ruleId);
+      await window.RenderingRuleWorkbench?.afterMutation();
+      resetRenderingRuleCache();
       await renderRulesList();
     }
   }
@@ -501,6 +604,18 @@
 
     // 1. 获取所有规则
     const allRules = await db.renderingRules.toArray();
+    if (window.RenderingRuleRuntime) {
+      const output = [];
+      for (const msg of history) {
+        if (typeof msg.content !== 'string' || !msg.content) { output.push(msg); continue; }
+        const result = await window.RenderingRuleRuntime.run(msg.content, allRules, chatId, {
+          role: msg.role, type: msg.type, timestamp: msg.timestamp, messageId: msg.id ?? msg.timestamp,
+          isGroup: !!state.chats[chatId]?.isGroup, field: 'content'
+        }, 'context');
+        if (!result.excluded) output.push({ ...msg, content: result.content });
+      }
+      return output;
+    }
 
     // 2. 筛选出：(启用了DoNotSend) AND (范围包含Global或当前ChatId)
     const doNotSendRules = allRules.filter(rule => {
@@ -556,55 +671,98 @@
     return modifiedHistory;
   }
 
-  async function applyRenderingRules(rawContent, chatId) {
+  async function applyRenderingRulesDetailed(rawContent, chatId, metadata = {}) {
     if (!rawContent || typeof rawContent !== 'string') {
-      return rawContent;
+      return { content: rawContent, isHtml: false };
     }
 
-    if (!ruleCache['active_rules_list']) {
-      const allRules = await db.renderingRules.toArray();
-      ruleCache['active_rules_list'] = allRules.filter(r => r.isEnabled);
+    if (!ruleCache.activeRules) {
+      const cacheToPopulate = ruleCache;
+      if (!cacheToPopulate.activeRulesPromise) {
+        cacheToPopulate.activeRulesPromise = db.renderingRules.toArray().then(allRules => {
+          cacheToPopulate.activeRules = allRules.filter(r => r.isEnabled).map(rule => {
+            if (window.RenderingRuleRuntime) return rule;
+            const regexString = rule.regex || rule.findRegex;
+            let compiledRegex = null;
+            if (regexString) {
+              try {
+                if (regexString.startsWith('/') && regexString.lastIndexOf('/') > 0) {
+                  const lastSlash = regexString.lastIndexOf('/');
+                  try {
+                    compiledRegex = new RegExp(
+                      regexString.substring(1, lastSlash),
+                      regexString.substring(lastSlash + 1)
+                    );
+                  } catch (_) {
+                    compiledRegex = new RegExp(regexString, 'g');
+                  }
+                } else {
+                  compiledRegex = new RegExp(regexString, 'g');
+                }
+              } catch (error) {
+                console.error(`渲染规则 [${rule.name}] 编译出错:`, error);
+              }
+            }
+            return {
+              ...rule,
+              _compiledRegex: compiledRegex,
+              _replacementString: rule.template ?? rule.replaceString,
+              _isHtmlTemplate: /<\/?[a-z][^>]*>/i.test(rule.template ?? rule.replaceString ?? '')
+            };
+          });
+          cacheToPopulate.applicableRulesByChat = new Map();
+        });
+      }
+      await cacheToPopulate.activeRulesPromise;
+      if (ruleCache !== cacheToPopulate) return applyRenderingRulesDetailed(rawContent, chatId, metadata);
     }
 
-    const allActiveRules = ruleCache['active_rules_list'];
+    if (window.RenderingRuleRuntime) {
+      return window.RenderingRuleRuntime.run(rawContent, ruleCache.activeRules, chatId, metadata);
+    }
 
-    const applicableRules = allActiveRules.filter(rule => {
-      const scope = Array.isArray(rule.chatId) ? rule.chatId : [rule.chatId];
+    const canCacheResult = rawContent.length <= 50000;
+    const cacheKey = canCacheResult ? `${String(chatId)}\u0000${rawContent}` : null;
+    if (cacheKey && renderingResultCache.has(cacheKey)) {
+      const cachedResult = renderingResultCache.get(cacheKey);
+      rememberRenderingResult(cacheKey, cachedResult);
+      return cachedResult;
+    }
 
-      return scope.includes('global') || scope.includes(chatId);
-    });
+    let applicableRules = ruleCache.applicableRulesByChat.get(chatId);
+    if (!applicableRules) {
+      applicableRules = ruleCache.activeRules.filter(rule => {
+        const scope = Array.isArray(rule.chatId) ? rule.chatId : [rule.chatId];
+        return scope.includes('global') || scope.includes(chatId);
+      });
+      ruleCache.applicableRulesByChat.set(chatId, applicableRules);
+    }
 
     let processedContent = rawContent;
+    let isHtml = false;
 
     for (const rule of applicableRules) {
       try {
-        let regex;
-        const regexString = rule.regex || rule.findRegex;
-        const replacementString = rule.template ?? rule.replaceString;
-
-        if (!regexString) continue;
-
-        if (regexString.startsWith('/') && regexString.lastIndexOf('/') > 0) {
-          const lastSlash = regexString.lastIndexOf('/');
-          const pattern = regexString.substring(1, lastSlash);
-          const flags = regexString.substring(lastSlash + 1);
-          try {
-            regex = new RegExp(pattern, flags);
-          } catch (e) {
-            regex = new RegExp(regexString, 'g');
-          }
-        } else {
-          regex = new RegExp(regexString, 'g');
-        }
-
-        processedContent = processedContent.replace(regex, replacementString);
+        const regex = rule._compiledRegex;
+        if (!regex) continue;
+        regex.lastIndex = 0;
+        const replacedContent = processedContent.replace(regex, rule._replacementString);
+        if (replacedContent !== processedContent && rule._isHtmlTemplate) isHtml = true;
+        processedContent = replacedContent;
 
       } catch (e) {
         console.error(`渲染规则 [${rule.name}] 执行出错:`, e);
       }
     }
 
-    return processedContent;
+    const result = { content: processedContent, isHtml };
+    if (cacheKey) rememberRenderingResult(cacheKey, result);
+    return result;
+  }
+
+  async function applyRenderingRules(rawContent, chatId, metadata = {}) {
+    const result = await applyRenderingRulesDetailed(rawContent, chatId, metadata);
+    return result.content;
   }
 
   // ========== 全局暴露 ==========
@@ -624,6 +782,8 @@
   window.deleteRenderingRule = deleteRenderingRule;
   window.filterHistoryWithDoNotSendRules = filterHistoryWithDoNotSendRules;
   window.applyRenderingRules = applyRenderingRules;
+  window.applyRenderingRulesDetailed = applyRenderingRulesDetailed;
+  window.invalidateRenderingRuleCache = resetRenderingRuleCache;
   window.switchRuleCategory = switchRuleCategory;
   window.ruleCache = ruleCache;
 

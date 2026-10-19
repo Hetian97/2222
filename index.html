@@ -28,6 +28,7 @@
   <link rel="stylesheet" href="period-tracker.css?v=0.0.37">
   <link rel="stylesheet" href="css/productivity/focus-timer.css?v=0.0.53-upstream">
   <link rel="stylesheet" href="css/mail/mail-app.css?v=0.0.53-upstream">
+  <link rel="stylesheet" href="css/chat/rendering-and-images.css?v=0.0.55-rules">
   <link rel="stylesheet" href="css/social/green-river.css?v=0.0.53-upstream">
   <link rel="stylesheet" href="css/social/green-river-comments.css?v=0.0.53-upstream">
   <link rel="stylesheet" href="css/living-space.css?v=0.0.4">
@@ -75,7 +76,7 @@
   <script src="modules/ui-loaders.js?v=0.0.38" defer></script>
   <!-- 第三层：核心聊天功能 -->
   <script src="modules/chat-list.js?v=0.0.38" defer></script>
-  <script src="modules/chat-interface.js?v=0.0.52-watch-pip" defer></script>
+  <script src="modules/chat-interface.js?v=0.0.55-rules" defer></script>
   <script src="modules/chat-input.js?v=0.0.37" defer></script>
   <script src="modules/mcp-guide-cache.js?v=0.0.1" defer></script>
   <!-- 第四层：AI 核心 -->
@@ -89,13 +90,16 @@
   <script src="modules/sticker-manager.js?v=0.0.36" defer></script>
   <script src="modules/memory-summary.js?v=0.0.55-remark" defer></script>
   <script src="modules/video-voice-call.js?v=0.0.36" defer></script>
-  <script src="modules/message-actions.js?v=0.0.53-narration-sender" defer></script>
+  <script src="modules/message-actions.js?v=0.0.55-rules" defer></script>
   <script src="modules/nai-imagen.js?v=0.0.37" defer></script>
   <script src="modules/backup-import-export.js?v=0.0.53-mail" defer></script>
   <script src="modules/settings-presets.js?v=0.0.39" defer></script>
   <script src="modules/chat-settings-presets.js?v=0.0.37" defer></script>
   <script src="modules/shopping.js?v=0.0.56" defer></script>
-  <script src="modules/rendering-rules.js?v=0.0.36" defer></script>
+  <script src="modules/rendering-rule-engine.js?v=0.0.55-rules" defer></script>
+  <script src="modules/rendering-rule-runtime.js?v=0.0.55-rules" defer></script>
+  <script src="modules/rendering-rules.js?v=0.0.55-rules" defer></script>
+  <script src="modules/rendering-rule-workbench.js?v=0.0.55-rules" defer></script>
   <script src="modules/red-packet-poll.js?v=0.0.36" defer></script>
   <script src="modules/persona-library.js?v=0.0.36" defer></script>
   <script src="modules/avatar-library.js?v=0.0.36" defer></script>
@@ -122,9 +126,9 @@
   <script src="modules/aisay-wake.js?v=0.0.3" defer></script>
   <script src="modules/background-activity.js?v=0.0.37" defer></script>
   <script src="modules/card-import.js?v=0.0.36" defer></script>
-  <script src="modules/character-export.js?v=0.0.38" defer></script>
+  <script src="modules/character-export.js?v=0.0.55-rules" defer></script>
   <script src="modules/data-management.js?v=0.0.55-remark" defer></script>
-  <script src="modules/misc-features.js?v=0.0.53-mail-focus" defer></script>
+  <script src="modules/misc-features.js?v=0.0.55-rules" defer></script>
   <script src="modules/mail/mail-app.js?v=0.0.53-upstream" defer></script>
   <!-- 第八层：初始化（必须在所有模块之后） -->
   <!-- 数据定义（无依赖） -->
@@ -139,7 +143,7 @@
   <!-- 事件绑定和功能（依赖 state, db） -->
   <script src="modules/init-event-bindingsA.js?v=0.0.55-remark" defer></script>
   <script src="modules/init-event-bindingsB.js?v=0.0.53-mail-focus" defer></script>
-  <script src="modules/init-features.js?v=0.0.54-music" defer></script>
+  <script src="modules/init-features.js?v=0.0.55-rules" defer></script>
   <!-- 自由桌面 / 经典桌面切换与桌面小组件 -->
   <script src="modules/ui/free-home-layout.js?v=0.0.2" defer></script>
   <script src="modules/ui/custom-widget-studio.js?v=0.0.1" defer></script>
@@ -6702,16 +6706,34 @@
         <span class="back-btn" onclick="showScreen('home-screen')">‹</span> 
         <span data-lang-key="homeAppRenderer">渲染规则</span> 
         <div class="header-actions">
-            <span class="action-btn" id="import-rules-btn" title="导入规则">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            <div class="rules-more-wrapper">
+                <span class="action-btn" id="rules-more-btn" title="更多操作" aria-haspopup="true" aria-expanded="false">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="1.5" fill="currentColor"></circle>
+                        <circle cx="19" cy="12" r="1.5" fill="currentColor"></circle>
+                        <circle cx="5" cy="12" r="1.5" fill="currentColor"></circle>
+                    </svg>
+                </span>
+                <div class="rules-dropdown-menu" id="rules-more-menu" style="display: none;">
+                    <button type="button" class="rules-dropdown-item" id="import-rules-btn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        <span>导入规则</span>
+                    </button>
+                    <button type="button" class="rules-dropdown-item" id="manage-rules-btn">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                            <polyline points="9 11 12 14 22 4"></polyline>
+                        </svg>
+                        <span id="manage-rules-btn-text">批量管理</span>
+                    </button>
+                </div>
+            </div>
+            <span class="action-btn" id="rules-exit-manage-btn" title="完成管理" style="display: none;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
             </span>
-            <span class="action-btn" id="manage-rules-btn" title="管理/多选">
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
-        <polyline points="9 11 12 14 22 4"></polyline>
-    </svg>
-</span>
-            <span class="action-btn" id="add-new-rule-btn">+</span> 
+            <span class="action-btn" id="add-new-rule-btn" title="创建新规则">+</span>
         </div>
       </div>
       <div id="rules-tabs"> </div>
@@ -6738,15 +6760,15 @@
             </select> </div>
           <div class="form-group" style="flex-grow: 1; display: flex; flex-direction: column;"> <label for="rule-regex-input">正则表达式 (使用g作为标志)</label> <textarea id="rule-regex-input" rows="3" style="font-family: monospace; resize: vertical;" placeholder="例如：MTR\[(.*?)\]\[(.*?)\|(.*?)\]"></textarea>
           </div>
-          <div class="form-group" style="flex-grow: 2; display: flex; flex-direction: column;"> <label for="rule-template-input">HTML 模板 (用 $1, $2 引用)</label> <textarea id="rule-template-input" rows="6" style="font-family: monospace; resize: vertical;"
+          <div class="form-group" style="flex-grow: 2; display: flex; flex-direction: column;"> <label for="rule-template-input">替换内容 / HTML 模板 (用 $1, $2 引用)</label> <textarea id="rule-template-input" rows="6" style="font-family: monospace; resize: vertical;"
               placeholder="例如：<div class=`waimai-card`>...<span>$2</span>...</div>"></textarea> </div>
           <div class="form-group" style="display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;"> <label for="rule-enabled-switch" style="margin-bottom: 0;">启用规则</label> <label class="toggle-switch"> <input type="checkbox" id="rule-enabled-switch" checked>
               <span class="slider"></span> </label> </div>
 <div class="form-group" style="display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
     <label for="rule-do-not-send-switch" style="margin-bottom: 0;">
-        渲染时从上下文中删除
+        发送给 AI 前删除匹配内容
         <p style="font-size: 12px; font-weight: normal; color: #999; margin-top: 5px;">
-            开启后，匹配此规则的消息将不会被发送给AI，仅用于前端显示。
+            开启后，仅删除发送给 AI 的匹配片段；显示仍按模板处理。
         </p>
     </label>
     <label class="toggle-switch">

@@ -7542,7 +7542,6 @@ ${finalInstruction}
         }
       });
     }
-    document.getElementById('manage-rules-btn').addEventListener('click', toggleRuleManagementMode);
     document.getElementById('import-rules-btn').addEventListener('click', () => {
       document.getElementById('import-rules-input').click();
     });
