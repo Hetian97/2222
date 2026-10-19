@@ -9,7 +9,8 @@
   <link rel="stylesheet" href="css/chat-ui.css?v=0.0.37">
   <link rel="stylesheet" href="css/image-nai.css?v=0.0.36">
   <link rel="stylesheet" href="css/memory.css?v=0.0.36">
-  <link rel="stylesheet" href="css/music-player.css?v=0.0.36">
+  <link rel="stylesheet" href="css/media/music-player.css?v=0.0.54-upstream">
+  <link rel="stylesheet" href="css/media/music-settings-and-groups.css?v=0.0.54-upstream">
   <link rel="stylesheet" href="css/video-voice-call.css?v=0.0.36">
   <link rel="stylesheet" href="css/settings-font.css?v=0.0.36">
   <link rel="stylesheet" href="css/main-ui.css?v=0.0.36">
@@ -27,6 +28,8 @@
   <link rel="stylesheet" href="period-tracker.css?v=0.0.37">
   <link rel="stylesheet" href="css/productivity/focus-timer.css?v=0.0.53-upstream">
   <link rel="stylesheet" href="css/mail/mail-app.css?v=0.0.53-upstream">
+  <link rel="stylesheet" href="css/social/green-river.css?v=0.0.53-upstream">
+  <link rel="stylesheet" href="css/social/green-river-comments.css?v=0.0.53-upstream">
   <link rel="stylesheet" href="css/living-space.css?v=0.0.4">
   <link rel="stylesheet" href="extra.css?v=0.0.37">
   <link rel="stylesheet" href="css/ui/free-home-layout.css?v=0.0.2">
@@ -79,7 +82,8 @@
   <script src="modules/ai-response.js?v=0.0.109" defer></script>
   <script src="modules/ai-group.js?v=0.0.41" defer></script>
   <!-- 第五层：功能模块 -->
-  <script src="modules/music-player.js?v=0.0.36" defer></script>
+  <script src="modules/music-online-services.js?v=0.0.54-upstream" defer></script>
+  <script src="modules/music-player.js?v=0.0.54-upstream" defer></script>
   <script src="modules/qzone.js?v=0.0.37" defer></script>
   <script src="modules/sticker-manager.js?v=0.0.36" defer></script>
   <script src="modules/memory-summary.js?v=0.0.53" defer></script>
@@ -98,7 +102,11 @@
   <!-- 第六层：大型独立功能 -->
   <script src="modules/alipay.js?v=0.0.43" defer></script>
   <script src="modules/auction.js?v=0.0.37" defer></script>
-  <script src="modules/green-river.js?v=0.0.36" defer></script>
+  <script src="modules/social/green-river/story-engine.js?v=0.0.53-upstream" defer></script>
+  <script src="modules/social/green-river/authors-and-library.js?v=0.0.53-upstream" defer></script>
+  <script src="modules/social/green-river/story-settings-and-reader.js?v=0.0.53-upstream" defer></script>
+  <script src="modules/social/green-river/story-generation.js?v=0.0.53-upstream" defer></script>
+  <script src="modules/social/green-river/chapters-and-export.js?v=0.0.53-upstream" defer></script>
   <script src="modules/cphone.js?v=0.0.37" defer></script>
   <script src="modules/myphone.js?v=0.0.36" defer></script>
   <script src="modules/werewolf.js?v=0.0.36" defer></script>
@@ -128,9 +136,9 @@
   <!-- PIN/城市（依赖 DOM） -->
   <script src="modules/init-pin-city.js?v=0.0.36" defer></script>
   <!-- 事件绑定和功能（依赖 state, db） -->
-  <script src="modules/init-event-bindingsA.js?v=0.0.53-narration-sender" defer></script>
+  <script src="modules/init-event-bindingsA.js?v=0.0.54-music" defer></script>
   <script src="modules/init-event-bindingsB.js?v=0.0.53-mail-focus" defer></script>
-  <script src="modules/init-features.js?v=0.0.53-mail-focus" defer></script>
+  <script src="modules/init-features.js?v=0.0.54-music" defer></script>
   <!-- 自由桌面 / 经典桌面切换与桌面小组件 -->
   <script src="modules/ui/free-home-layout.js?v=0.0.2" defer></script>
   <script src="modules/ui/custom-widget-studio.js?v=0.0.1" defer></script>
@@ -4342,6 +4350,7 @@
         <div class="music-player-window">
           <div class="music-player-top-actions">
             <div class="top-left-cluster"> <button id="music-return-btn">‹</button> <button id="music-exit-btn">×</button> </div>
+            <button id="music-sync-btn" type="button" aria-haspopup="dialog" aria-pressed="false" title="多人同步">多人同步</button>
             <div style="display: flex; align-items: center; gap: 15px;"> <button id="toggle-fullscreen-btn" title="切换全屏"> <svg class="icon-maximize" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
                 </svg> <svg class="icon-minimize" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -4378,25 +4387,69 @@
               </div>
               <div id="music-total-time" class="time-display">0:00</div>
             </div>
-            <div class="music-controls"> <button id="music-prev-btn">◀</button> <button id="music-play-pause-btn" class="play-pause-btn">▶</button> <button id="music-next-btn">▶</button> <button id="music-mode-btn">顺序</button> <button id="toggle-blur-btn" title="切换背景清晰度">清</button>
+            <div class="music-controls">
+              <button id="music-mode-btn" class="secondary-control-btn" title="播放模式: 顺序播放">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m17 2 4 4-4 4"></path>
+                  <path d="M3 11v-1a4 4 0 0 1 4-4h14"></path>
+                  <path d="m7 22-4-4 4-4"></path>
+                  <path d="M21 13v1a4 4 0 0 1-4 4H3"></path>
+                </svg>
+              </button>
+              <button id="music-prev-btn" class="secondary-control-btn" title="上一首">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="19 20 9 12 19 4 19 20" fill="currentColor"></polygon>
+                  <line x1="5" y1="4" x2="5" y2="20"></line>
+                </svg>
+              </button>
+              <button id="music-play-pause-btn" class="play-pause-btn" title="播放/暂停">▶</button>
+              <button id="music-next-btn" class="secondary-control-btn" title="下一首">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="5 4 15 12 5 20 5 4" fill="currentColor"></polygon>
+                  <line x1="19" y1="4" x2="19" y2="20"></line>
+                </svg>
+              </button>
+              <button id="toggle-blur-btn" class="secondary-control-btn text-btn" title="切换背景清晰度">清</button>
             </div>
+          </div>
+        </div>
+      </div>
+      <div id="music-sync-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="music-sync-title">
+        <div class="modal-content music-sync-content">
+          <div class="modal-header"><span id="music-sync-title">多人同步</span></div>
+          <div class="modal-body">
+            <div class="music-sync-toggle-row">
+              <span id="music-sync-toggle-label">开启多人同步</span>
+              <label class="toggle-switch"><input id="music-sync-enabled" type="checkbox" aria-labelledby="music-sync-toggle-label"><span class="slider"></span></label>
+            </div>
+            <p class="music-sync-description">开启后，选中的角色会像单独一起听时一样感知音乐。</p>
+            <div id="music-sync-options" hidden>
+              <div class="music-sync-selection-actions">
+                <span id="music-sync-count">已选 0 位</span>
+                <button id="music-sync-select-all" type="button">全选</button>
+                <button id="music-sync-clear-all" type="button">取消全选</button>
+              </div>
+              <div id="music-sync-role-list"></div>
+            </div>
+            <div id="music-sync-status" role="status" aria-live="polite"></div>
+          </div>
+          <div class="modal-footer">
+            <button id="music-sync-cancel-btn" class="cancel" type="button">取消</button>
+            <button id="music-sync-apply-btn" class="save" type="button">应用</button>
           </div>
         </div>
       </div>
       <div id="music-playlist-panel">
         <div class="playlist-header">
-          <div class="header-left-actions" style="display: flex; align-items: center; gap: 10px;">
+          <div class="header-left-actions">
             <span class="panel-btn" id="close-playlist-btn" data-lang-key="back">返回</span>
-            <span class="panel-btn" id="manage-playlist-btn" data-lang-key="manage">管理</span>
           </div>
           
-          <span data-lang-key="playlistTitle">播放列表</span>
+          <span class="playlist-title" data-lang-key="playlistTitle">播放列表</span>
           
-          <div>
-            <span class="panel-btn" id="playlist-manager-btn">歌单</span>
-            <span class="panel-btn" id="cleanup-songs-btn">清理</span> 
-            <span class="panel-btn" id="add-song-upload-btn">上传</span> 
+          <div class="header-right-actions">
             <span class="panel-btn" id="add-song-search-btn" data-lang-key="search">搜索</span>
+            <span class="panel-btn" id="playlist-more-actions-btn">更多</span>
           </div>
         </div>
         <div class="playlist-body" id="playlist-body"></div>
@@ -6938,6 +6991,7 @@
         <div class="gr-section-header">
             <span class="gr-section-title">书架 Library</span>
         </div>
+        <input id="gr-library-search" class="gr-input gr-library-search" type="search" placeholder="搜索书名、题材或标签">
         <div id="gr-book-list" class="gr-grid-list">
             </div>
     </div>
@@ -6967,13 +7021,12 @@
              <span class="gr-title" id="gr-book-name-display" style="font-size:14px; opacity:0.7;">书名</span>
              <span class="gr-title" id="gr-chapter-title-display" style="font-size:16px; font-weight:bold;">第一章</span>
         </div>
-        
-        <button class="gr-icon-btn" id="gr-export-txt-reader-btn" onclick="openExportTxtModal()" title="导出TXT">
-            <span style="font-size:12px;font-weight:700;letter-spacing:.3px;">TXT</span>
-        </button>
+        <div class="gr-reader-header-actions">
+        <button class="gr-mode-toggle-btn" id="gr-reading-mode-toggle" type="button" title="切换沉浸阅读">阅读</button>
         <button class="gr-icon-btn" onclick="openStorySettings()" title="设定">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         </button>
+        </div>
     </div>
 
     <div id="gr-sidebar-overlay" onclick="closeChapterList()"></div>
@@ -6996,6 +7049,10 @@
                 <button type="button" class="gr-comments-popup-close" aria-label="关闭">&times;</button>
             </div>
             <div class="gr-comments-popup-list"></div>
+            <div class="gr-comments-composer">
+                <input id="gr-user-comment-input" type="text" maxlength="300" placeholder="写一条段评…">
+                <button id="gr-user-comment-submit" type="button">发送</button>
+            </div>
         </div>
     </div>
 
@@ -7008,20 +7065,49 @@
             <button class="gr-text-btn" id="gr-next-chapter-btn">下一章</button>
         </div>
 
-        <div id="gr-writing-controls" style="display:none; gap:10px; align-items:center; width:100%; margin-top:10px;">
-             <div class="gr-input-group" style="flex-grow:1;">
-                <input type="text" id="gr-direction-input" class="gr-input" placeholder="输入本章剧情走向 (例如：两人发生争吵)...">
+        <div id="gr-creator-tools" class="gr-creator-tools" style="display:none;">
+            <button type="button" id="gr-story-bible-btn" class="gr-tool-btn">剧情档案</button>
+            <button type="button" id="gr-new-chapter-btn" class="gr-tool-btn">手动新章</button>
+            <button type="button" id="gr-edit-chapter-btn" class="gr-tool-btn">编辑正文</button>
+            <button type="button" id="gr-diagnose-btn" class="gr-tool-btn">本章诊断</button>
+            <button type="button" id="gr-revisions-btn" class="gr-tool-btn">修订记录</button>
+            <button type="button" id="gr-regenerate-comments-btn" class="gr-tool-btn">重生成段评</button>
+            <button type="button" id="gr-create-branch-btn" class="gr-tool-btn">创建分支</button>
+        </div>
+        <div id="gr-writing-controls" style="display:none; gap:8px; align-items:flex-end; width:100%; margin-top:8px;">
+             <div class="gr-input-group gr-direction-group" style="flex-grow:1;">
+                <button type="button" id="gr-writing-mode-trigger" class="gr-select gr-writing-mode" aria-haspopup="dialog" aria-expanded="false">自然续写</button>
+                <select id="gr-writing-mode" aria-hidden="true" tabindex="-1" hidden>
+                    <option value="continue">自然续写</option>
+                    <option value="direction">按方向续写</option>
+                    <option value="extend">延长当前场景</option>
+                    <option value="transition">补写自然过渡</option>
+                    <option value="dialogue">加强人物对话</option>
+                </select>
+                <textarea id="gr-direction-input" class="gr-input" rows="2" placeholder="可选：输入本章要发生什么、必须包含或不要出现的内容"></textarea>
             </div>
             <button id="gr-reroll-btn" class="gr-main-btn" style="background-color:#F4F4F5; color:#666; border:1px solid #ddd; padding: 10px;" title="重写本章">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
             </button>
             <button id="gr-generate-btn" class="gr-main-btn">
-                
+                <span id="gr-gen-text">续写</span>
                 <svg id="gr-gen-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="22" y1="2" x2="11" y2="13"></line>
                     <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
                 </svg>
             </button>
+        </div>
+        <div id="gr-writing-mode-modal" class="gr-writing-mode-modal" aria-hidden="true">
+            <div class="gr-writing-mode-dialog" role="dialog" aria-modal="true" aria-labelledby="gr-writing-mode-title">
+                <div class="gr-writing-mode-dialog-header"><span id="gr-writing-mode-title">选择写作方式</span><button type="button" id="gr-writing-mode-close" class="gr-writing-mode-close" aria-label="关闭">×</button></div>
+                <div id="gr-writing-mode-options" class="gr-writing-mode-options">
+                    <button type="button" data-value="continue">自然续写<span>承接上一章，自然推进剧情</span></button>
+                    <button type="button" data-value="direction">按方向续写<span>按照你给出的剧情方向展开</span></button>
+                    <button type="button" data-value="extend">延长当前场景<span>继续描写当前场景，不急着切换</span></button>
+                    <button type="button" data-value="transition">补写自然过渡<span>补足场景之间的连接和转折</span></button>
+                    <button type="button" data-value="dialogue">加强人物对话<span>让对话更有潜台词和推进感</span></button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -7487,24 +7573,6 @@
     </div>
   </div>
   
-<div id="gr-export-txt-modal" class="modal">
-  <div class="modal-content" style="height: auto; max-height: 80%; max-width: 460px;">
-    <div class="modal-header">
-      <span>导出TXT</span>
-    </div>
-    <div class="modal-body" style="padding: 0;">
-      <label style="display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid #eee;font-size:14px;">
-        <input type="checkbox" id="select-all-gr-export" checked style="width:18px;height:18px;">
-        <span>全选章节</span>
-      </label>
-      <div id="gr-export-txt-list" style="max-height: 360px; overflow-y: auto;"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="cancel" id="cancel-gr-export-btn">取消</button>
-      <button class="save" id="confirm-gr-export-btn">导出</button>
-    </div>
-  </div>
-</div>
 
 <div id="custom-modal-overlay">
     <div id="custom-modal">
@@ -8246,6 +8314,45 @@
       <div class="modal-header"> <span>搜索结果</span> <label style="font-size: 14px; font-weight: normal; display: flex; align-items: center; gap: 5px;"> <input type="checkbox" id="select-all-music-search"> 全选 </label> </div>
       <div class="modal-body" id="search-results-list" style="padding: 0;"> </div>
       <div class="modal-footer"> <button class="cancel" id="cancel-music-search-btn"data-lang-key="cancel">取消</button> <button class="save" id="add-selected-music-btn"data-lang-key="add">添加选中</button> </div>
+    </div>
+  </div>
+  <div id="music-account-modal" class="modal">
+    <div class="modal-content music-account-content">
+      <div class="modal-header">
+        <span>音乐账号</span>
+        <button id="close-music-account-btn" class="music-account-close" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-body music-account-body">
+        <section class="music-account-card">
+          <div class="music-account-platform-row">
+            <div>
+              <div class="music-account-platform-name">网易云音乐</div>
+              <div id="netease-account-status" class="music-account-status">正在检查登录状态…</div>
+            </div>
+            <button id="netease-login-btn" class="music-account-primary-btn" type="button">扫码登录</button>
+            <button id="netease-logout-btn" class="music-account-secondary-btn" type="button" hidden>退出</button>
+          </div>
+          <div id="netease-profile" class="music-account-profile" hidden>
+            <img id="netease-profile-avatar" alt="网易云头像">
+            <span id="netease-profile-name"></span>
+          </div>
+          <div id="netease-qr-area" class="music-account-qr-area" hidden>
+            <img id="netease-qr-image" alt="网易云扫码登录二维码">
+            <div id="netease-qr-message">请使用网易云音乐 App 扫码并确认</div>
+            <a id="netease-qr-link" target="_blank" rel="noopener noreferrer">在网易云音乐中打开</a>
+          </div>
+          <p class="music-account-safety">扫码会话由当前公共节点处理。该节点能够接触你的登录会话；本页不会要求账号、密码或短信验证码，也不会把登录会话发送给搜索节点。</p>
+        </section>
+        <section id="netease-playlists-section" class="music-account-card" hidden>
+          <div class="music-account-section-title">我的网易云歌单</div>
+          <div id="netease-playlists-loading" class="music-account-status">正在读取歌单…</div>
+          <div id="netease-playlists-list" class="music-account-playlists"></div>
+        </section>
+        <section class="music-account-card music-account-availability">
+          <div class="music-account-section-title">无需登录也能听</div>
+          <p>网易云、QQ 音乐和酷狗均可直接搜索播放。其他平台只有在公共登录服务真实可用时才会显示登录入口。</p>
+        </section>
+      </div>
     </div>
   </div>
   <div id="cleaned-songs-modal" class="modal">
@@ -9097,8 +9204,9 @@
 </div>
 <div id="gr-settings-modal" class="modal">
     <div class="modal-content" style="height: 85%; background-color: #FAFAF9;">
-        <div class="gr-header" style="background: transparent; padding: 15px;">
+        <div class="gr-header" style="background: transparent; padding: 15px; display: flex; justify-content: space-between; align-items: center;">
             <span class="gr-title" style="color: #1B4F3E;">作品设定</span>
+            <button id="gr-export-txt-btn" style="display: none; background: #1B4F3E; color: white; border: none; border-radius: 4px; padding: 6px 12px; font-size: 13px; cursor: pointer;">导出TXT</button>
         </div>
         <div class="modal-body" style="padding: 0 20px;">
             <div class="gr-form-group">
@@ -9106,12 +9214,59 @@
                 <input type="text" id="gr-story-title" class="gr-input" placeholder="请输入书名">
             </div>
             <div class="gr-form-group">
+                <label>作品简介 / 故事前提</label>
+                <textarea id="gr-story-synopsis" class="gr-input" rows="3" placeholder="这部故事讲什么、核心冲突是什么。留空也可以继续使用原有方式创作。"></textarea>
+            </div>
+            <div class="gr-form-group gr-settings-grid">
+                <div>
+                    <label>题材</label>
+                    <input type="text" id="gr-story-genre" class="gr-input" placeholder="例如：古风、都市、悬疑">
+                </div>
+                <div>
+                    <label>整体基调</label>
+                    <input type="text" id="gr-story-tone" class="gr-input" placeholder="例如：克制、轻松、暗黑">
+                </div>
+            </div>
+            <div class="gr-form-group gr-settings-grid">
+                <div><label>作品状态</label><select id="gr-story-status" class="gr-select"><option value="连载中">连载中</option><option value="已完结">已完结</option><option value="暂停更新">暂停更新</option><option value="草稿">草稿</option></select></div>
+                <div><label>标签</label><input type="text" id="gr-story-tags" class="gr-input" placeholder="用逗号分隔"></div>
+            </div>
+            <div class="gr-form-group gr-settings-grid">
+                <div>
+                    <label>叙事视角</label>
+                    <select id="gr-story-pov" class="gr-select">
+                        <option value="第三人称有限视角">第三人称有限视角</option>
+                        <option value="第三人称全知视角">第三人称全知视角</option>
+                        <option value="第一人称视角">第一人称视角</option>
+                        <option value="多视角叙事">多视角叙事</option>
+                    </select>
+                </div>
+                <div>
+                    <label>叙事节奏</label>
+                    <select id="gr-story-tense" class="gr-select">
+                        <option value="自然叙事">自然叙事</option>
+                        <option value="紧凑推进">紧凑推进</option>
+                        <option value="舒缓细腻">舒缓细腻</option>
+                        <option value="对话驱动">对话驱动</option>
+                    </select>
+                </div>
+            </div>
+            <div class="gr-form-group">
+                <label>结局或长期方向</label>
+                <textarea id="gr-ending-direction" class="gr-input" rows="2" placeholder="可选。用于保持长线方向，不会要求本章立刻完成。"></textarea>
+            </div>
+            <div class="gr-form-group">
+                <label>不要出现的内容 / 表达</label>
+                <textarea id="gr-forbidden-content" class="gr-input" rows="2" placeholder="例如：角色突然降智、现代物品、过度使用某些词句。"></textarea>
+            </div>
+            <div class="gr-form-group">
     <label>宏大世界观 / IF线设定 (Macro World View)</label>
     <textarea id="gr-macro-world-view" class="gr-input" rows="3" placeholder="在此输入核心设定。例如：'民国军阀背景，Char是少帅，User是进步学生'，或者 'ABO设定，Char是Enigma'。此设定优先级最高。"></textarea>
 </div>
             <div class="gr-form-group">
                 <label>指定作者 (文风)</label>
-                <select id="gr-author-select" class="gr-select"></select>
+                <button type="button" id="gr-author-select-trigger" class="gr-select gr-author-select-trigger" aria-haspopup="dialog" aria-expanded="false">请选择作者</button>
+                <select id="gr-author-select" aria-hidden="true" tabindex="-1" hidden></select>
             </div>
 
             <div class="gr-form-group">
@@ -9132,11 +9287,11 @@
             </div>
 
             <div class="gr-form-group">
-                <label>单次生成字数 (Token)</label>
+                <label>单章目标字数（允许自然浮动）</label>
                 <input type="number" id="gr-output-length" class="gr-input" value="500">
             </div>
              <div class="gr-form-group">
-                <label>上下文引用条数 (History)</label>
+                <label>聊天语气参考条数</label>
                 <input type="number" id="gr-context-limit" class="gr-input" value="20">
             </div>
 
@@ -9145,154 +9300,22 @@
                     <span>💬 生成时开启读者评论</span>
                     <input type="checkbox" id="gr-reader-comments-enabled" style="width: 44px; height: 24px; cursor: pointer;">
                 </label>
-                <div style="font-size: 12px; color: #999; margin-top: 5px;">续写或追更时，AI 会在部分段落后生成模拟读者评论，阅读时点击段尾气泡可查看</div>
-            </div>
-
-            <!-- 作者追更功能 -->
-            <div class="gr-form-group" style="border-top: 2px solid #E5E5E5; padding-top: 15px; margin-top: 15px;">
-                <label style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
-                    <span style="font-size: 16px; font-weight: 600; color: #1B4F3E;">
-                        📖 作者追更功能
-                        <span style="font-size: 12px; color: #999; font-weight: normal; display: block; margin-top: 5px;">
-                            开启后，可定时使用指定作者文风或角色视角自动更新章节
-                        </span>
-                    </span>
-                    <input type="checkbox" id="gr-auto-update-enabled" style="width: 44px; height: 24px; cursor: pointer;">
-                </label>
-            </div>
-
-            <div id="gr-auto-update-settings" style="display: none;">
-                <div class="gr-form-group">
-                    <label>追更方式</label>
-                    <select id="gr-auto-update-type" class="gr-select">
-                        <option value="author">使用作者文风</option>
-                        <option value="character">使用角色视角</option>
+                <div style="font-size: 12px; color: #999; margin-top: 5px;">正文完成后会单独调用一次 AI，在值得讨论的段落生成评论；正文不受评论语气影响。阅读时点击段尾气泡可查看。</div>
+                <div class="gr-settings-grid" style="margin-top:10px;">
+                    <select id="gr-reader-comment-density" class="gr-select" aria-label="段评密度">
+                        <option value="sparse">稀疏</option>
+                        <option value="natural" selected>自然</option>
+                        <option value="lively">热闹</option>
+                    </select>
+                    <select id="gr-reader-comment-tone" class="gr-select" aria-label="段评气氛">
+                        <option value="mixed" selected>混合气氛</option>
+                        <option value="gentle">温和</option>
+                        <option value="funny">轻松吐槽</option>
+                        <option value="serious">认真分析</option>
                     </select>
                 </div>
-
-                <div class="gr-form-group" id="gr-update-author-select-group">
-                    <label>选择作者</label>
-                    <select id="gr-update-author-select" class="gr-select"></select>
-                </div>
-
-                <div class="gr-form-group" id="gr-update-character-select-group" style="display: none;">
-                    <label>选择角色</label>
-                    <select id="gr-update-character-select" class="gr-select"></select>
-                </div>
-
-                <div class="gr-form-group">
-                    <label>更新频率</label>
-                    <select id="gr-update-frequency" class="gr-select">
-                        <option value="manual">手动更新（不自动）</option>
-                        <option value="daily">每天一更</option>
-                        <option value="weekly">每周一更</option>
-                        <option value="custom">自定义间隔</option>
-                    </select>
-                </div>
-
-                <!-- 每天一更时间选择 -->
-                <div class="gr-form-group" id="gr-daily-time-group" style="display: none;">
-                    <label>每天更新时间</label>
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <select id="gr-daily-update-hour" class="gr-select" style="flex: 1;">
-                            <option value="0">00:00 (凌晨12点)</option>
-                            <option value="1">01:00 (凌晨1点)</option>
-                            <option value="2">02:00 (凌晨2点)</option>
-                            <option value="3">03:00 (凌晨3点)</option>
-                            <option value="4">04:00 (凌晨4点)</option>
-                            <option value="5">05:00 (凌晨5点)</option>
-                            <option value="6">06:00 (早上6点)</option>
-                            <option value="7">07:00 (早上7点)</option>
-                            <option value="8">08:00 (早上8点)</option>
-                            <option value="9">09:00 (早上9点)</option>
-                            <option value="10">10:00 (上午10点)</option>
-                            <option value="11">11:00 (上午11点)</option>
-                            <option value="12" selected>12:00 (中午12点)</option>
-                            <option value="13">13:00 (下午1点)</option>
-                            <option value="14">14:00 (下午2点)</option>
-                            <option value="15">15:00 (下午3点)</option>
-                            <option value="16">16:00 (下午4点)</option>
-                            <option value="17">17:00 (下午5点)</option>
-                            <option value="18">18:00 (下午6点)</option>
-                            <option value="19">19:00 (晚上7点)</option>
-                            <option value="20">20:00 (晚上8点)</option>
-                            <option value="21">21:00 (晚上9点)</option>
-                            <option value="22">22:00 (晚上10点)</option>
-                            <option value="23">23:00 (晚上11点)</option>
-                        </select>
-                    </div>
-                </div>
-
-                <!-- 每周一更时间选择 -->
-                <div class="gr-form-group" id="gr-weekly-time-group" style="display: none;">
-                    <label>每周更新时间</label>
-                    <div style="display: flex; gap: 10px;">
-                        <select id="gr-weekly-update-day" class="gr-select" style="flex: 1;">
-                            <option value="1" selected>星期一</option>
-                            <option value="2">星期二</option>
-                            <option value="3">星期三</option>
-                            <option value="4">星期四</option>
-                            <option value="5">星期五</option>
-                            <option value="6">星期六</option>
-                            <option value="0">星期日</option>
-                        </select>
-                        <select id="gr-weekly-update-hour" class="gr-select" style="flex: 1;">
-                            <option value="0">00:00</option>
-                            <option value="1">01:00</option>
-                            <option value="2">02:00</option>
-                            <option value="3">03:00</option>
-                            <option value="4">04:00</option>
-                            <option value="5">05:00</option>
-                            <option value="6">06:00</option>
-                            <option value="7">07:00</option>
-                            <option value="8">08:00</option>
-                            <option value="9">09:00</option>
-                            <option value="10">10:00</option>
-                            <option value="11">11:00</option>
-                            <option value="12" selected>12:00</option>
-                            <option value="13">13:00</option>
-                            <option value="14">14:00</option>
-                            <option value="15">15:00</option>
-                            <option value="16">16:00</option>
-                            <option value="17">17:00</option>
-                            <option value="18">18:00</option>
-                            <option value="19">19:00</option>
-                            <option value="20">20:00</option>
-                            <option value="21">21:00</option>
-                            <option value="22">22:00</option>
-                            <option value="23">23:00</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="gr-form-group" id="gr-custom-frequency-group" style="display: none;">
-                    <label>自定义更新间隔（小时）</label>
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <input type="number" id="gr-custom-frequency-hours" class="gr-input" value="24" min="1" max="168" style="flex: 1;">
-                        <span style="font-size: 13px; color: #888;">小时</span>
-                    </div>
-                </div>
-
-                <!-- 上次更新时间显示 -->
-                <div class="gr-form-group" id="gr-last-update-display" style="display: none;">
-                    <div style="background: #f5f5f5; padding: 10px; border-radius: 4px; font-size: 13px; color: #666;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span>上次更新：</span>
-                            <span id="gr-last-update-time" style="color: #333; font-weight: 500;">从未更新</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 5px;">
-                            <span>下次更新：</span>
-                            <span id="gr-next-update-time" style="color: #1B4F3E; font-weight: 500;">--</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="gr-form-group">
-                    <label style="font-size: 12px; color: #666;">
-                        💡 提示：启用追更后，系统将按照设定的频率和时间自动生成新章节。每次更新都会使用选择的作者文风或角色视角。
-                    </label>
-                </div>
             </div>
+
         </div>
         <div class="modal-footer" style="border-top: 1px solid #E5E5E5;">
             <button class="cancel" id="gr-cancel-settings-btn" style="color: #666;">取消</button>
@@ -9300,6 +9323,82 @@
         </div>
     </div>
 </div>
+
+<div id="gr-author-select-modal" class="gr-writing-mode-modal" aria-hidden="true">
+  <div class="gr-writing-mode-dialog" role="dialog" aria-modal="true" aria-labelledby="gr-author-select-title">
+    <div class="gr-writing-mode-dialog-header"><span id="gr-author-select-title">选择作者风格</span><button type="button" id="gr-author-select-close" class="gr-writing-mode-close" aria-label="关闭">×</button></div>
+    <div id="gr-author-select-options" class="gr-writing-mode-options"></div>
+  </div>
+</div>
+
+<div id="gr-chapter-editor-modal" class="modal" style="z-index:10003;">
+  <div class="modal-content gr-chapter-editor-modal-content">
+    <div class="modal-header"><span>编辑章节</span></div>
+    <div class="modal-body">
+      <div class="gr-form-group"><label>章节标题</label><input id="gr-edit-chapter-title" class="gr-input" type="text"></div>
+      <div class="gr-form-group"><label>正文</label><textarea id="gr-edit-chapter-content" class="gr-input gr-chapter-editor-textarea"></textarea></div>
+      <div class="gr-editor-ai-tools" aria-label="选中文本处理">
+        <span>选中文字后：</span>
+        <button type="button" data-gr-transform="polish">自然润色</button>
+        <button type="button" data-gr-transform="deai">去除AI腔</button>
+        <button type="button" data-gr-transform="expand">扩写</button>
+        <button type="button" data-gr-transform="condense">精简</button>
+        <button type="button" data-gr-transform="dialogue">加强对话</button>
+      </div>
+      <div class="gr-form-group"><label>剧情存档</label><textarea id="gr-edit-chapter-summary" class="gr-input" rows="4"></textarea></div>
+      <div id="gr-edit-chapter-hint" class="gr-form-hint">保存前会自动保留当前稿，已有段评会尽量跟随未改变的段落。</div>
+    </div>
+    <div class="modal-footer"><button class="cancel" id="gr-cancel-chapter-edit">取消</button><button class="save" id="gr-save-chapter-edit">保存修改</button></div>
+  </div>
+</div>
+
+<div id="gr-revisions-modal" class="modal" style="z-index:10003;">
+  <div class="modal-content" style="height:70%;">
+    <div class="modal-header"><span>修订记录</span></div>
+    <div class="modal-body" id="gr-revisions-list"></div>
+    <div class="modal-footer"><button class="cancel" id="gr-close-revisions">关闭</button></div>
+  </div>
+</div>
+
+<div id="gr-diagnostics-modal" class="modal" style="z-index:10003;">
+  <div class="modal-content" style="height:auto;max-height:75%;">
+    <div class="modal-header"><span>本章诊断</span></div>
+    <div class="modal-body" id="gr-diagnostics-content"></div>
+    <div class="modal-footer"><button class="cancel" id="gr-close-diagnostics">关闭</button></div>
+  </div>
+</div>
+
+<div id="gr-story-bible-modal" class="modal" style="z-index:10003;">
+  <div class="modal-content" style="height:86%;max-width:760px;">
+    <div class="modal-header"><span>剧情档案</span></div>
+    <div class="modal-body">
+      <div class="gr-form-group"><label>全局故事摘要</label><textarea id="gr-global-story-summary" class="gr-input" rows="5" placeholder="用于跨越很多章节后仍然记住整部故事。"></textarea></div>
+      <div class="gr-form-group"><label>尚未解决的剧情 / 伏笔（每行一条）</label><textarea id="gr-open-threads-input" class="gr-input" rows="5"></textarea></div>
+      <div class="gr-form-group"><label>小说内人物状态</label><div id="gr-story-character-editor"></div></div>
+      <div class="gr-form-group"><label>近期时间线</label><div id="gr-story-timeline" class="gr-story-timeline"></div></div>
+    </div>
+    <div class="modal-footer"><button class="cancel" id="gr-cancel-story-bible">取消</button><button class="save" id="gr-save-story-bible">保存档案</button></div>
+  </div>
+</div>
+<div id="gr-export-txt-modal" class="modal" style="z-index: 10002;">
+  <div class="modal-content" style="height: 70%; width: 350px;">
+    <div class="modal-header">
+      <span>选择导出的章节</span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <select id="gr-export-format" class="gr-select" style="width:auto;padding:6px;"><option value="txt">TXT</option><option value="html">HTML</option></select>
+        <label style="font-size: 14px; font-weight: normal; display: flex; align-items: center; gap: 5px;"><input type="checkbox" id="select-all-gr-export"> 全选</label>
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid #eee;font-size:13px;"><input type="checkbox" id="gr-export-include-comments"> 包含段评</label>
+    <div class="modal-body" id="gr-export-txt-list" style="padding: 0; overflow-y: auto;">
+    </div>
+    <div class="modal-footer">
+      <button class="cancel" id="cancel-gr-export-btn">取消</button>
+      <button class="save" id="confirm-gr-export-btn">确认导出</button>
+    </div>
+  </div>
+</div>
+
 <div id="gr-author-editor-modal" class="modal">
   <div class="modal-content" style="height: auto;">
     <div class="modal-header">

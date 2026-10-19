@@ -1516,6 +1516,7 @@ window.initEventBindingsA = async function(state, db) {
     document.getElementById('transfer-cancel-btn').addEventListener('click', () => document.getElementById('transfer-modal').classList.remove('visible'));
     document.getElementById('transfer-confirm-btn').addEventListener('click', sendUserTransfer);
 
+    document.getElementById('music-sync-btn')?.addEventListener('click', () => window.openMusicSyncSettings?.());
     document.getElementById('listen-together-btn').addEventListener('click', handleListenTogetherClick);
     document.getElementById('music-exit-btn').addEventListener('click', () => endListenTogetherSession(true));
     document.getElementById('music-return-btn').addEventListener('click', returnToChat);
@@ -1528,16 +1529,49 @@ window.initEventBindingsA = async function(state, db) {
       document.getElementById('music-playlist-panel').classList.add('visible');
     });
     document.getElementById('close-playlist-btn').addEventListener('click', () => document.getElementById('music-playlist-panel').classList.remove('visible'));
-    document.getElementById('manage-playlist-btn').addEventListener('click', togglePlaylistManagementMode);
+    document.getElementById('manage-playlist-btn')?.addEventListener('click', togglePlaylistManagementMode);
     document.getElementById('select-all-playlist-checkbox').addEventListener('change', handleSelectAllPlaylistItems);
     document.getElementById('delete-selected-songs-btn').addEventListener('click', executeDeleteSelectedSongs);
     document.getElementById('upload-selected-to-catbox-btn').addEventListener('click', executeBatchUploadToCatbox);
     
-    // 上传按钮 -> 复用通用弹窗
-    document.getElementById('add-song-upload-btn').addEventListener('click', async () => {
-      const choice = await showChoiceModal('选择上传方式', [
-        { text: '📁 本地文件', value: 'local' },
-        { text: '🔗 网络URL', value: 'url' }
+    // 播放列表“更多”操作聚合菜单（无任何 Emoji）
+    document.getElementById('playlist-more-actions-btn')?.addEventListener('click', async () => {
+      const choice = await showChoiceModal('播放列表选项', [
+        { text: '上传/添加歌曲', value: 'upload' },
+        { text: '批量管理', value: 'manage' },
+        { text: '歌单管理', value: 'playlist_mgr' },
+        { text: '音乐账号', value: 'account' },
+        { text: '清理失效歌曲', value: 'cleanup' }
+      ]);
+
+      if (!choice) return;
+
+      if (choice === 'upload') {
+        const uploadChoice = await showChoiceModal('选择添加方式', [
+          { text: '本地音频文件', value: 'local' },
+          { text: '网络音频链接 (URL)', value: 'url' }
+        ]);
+        if (uploadChoice === 'local') {
+          document.getElementById('local-song-upload-input').click();
+        } else if (uploadChoice === 'url') {
+          addSongFromURL();
+        }
+      } else if (choice === 'manage') {
+        togglePlaylistManagementMode();
+      } else if (choice === 'playlist_mgr') {
+        if (typeof openPlaylistManager === 'function') openPlaylistManager();
+      } else if (choice === 'account') {
+        if (typeof openMusicAccountCenter === 'function') openMusicAccountCenter();
+      } else if (choice === 'cleanup') {
+        if (typeof cleanupInvalidSongs === 'function') cleanupInvalidSongs();
+      }
+    });
+
+    // 兼容历史上传按钮引用（无 Emoji）
+    document.getElementById('add-song-upload-btn')?.addEventListener('click', async () => {
+      const choice = await showChoiceModal('选择添加方式', [
+        { text: '本地音频文件', value: 'local' },
+        { text: '网络音频链接 (URL)', value: 'url' }
       ]);
       if (choice === 'local') {
         document.getElementById('local-song-upload-input').click();
@@ -1579,16 +1613,19 @@ window.initEventBindingsA = async function(state, db) {
       // 4. 手动添加一条“自动换歌”的系统提示
       const track = musicState.playlist[musicState.currentIndex];
       if (track && musicState.isActive && musicState.activeChatId) {
-        const chat = state.chats[musicState.activeChatId];
-        if (chat) {
-          const systemMessage = {
-            role: 'system',
-            content: `[系统提示：上一首歌曲播放完毕，已自动为你切换到《${track.name}》 - ${track.artist}]`,
-            timestamp: Date.now(),
-            isHidden: true // 这条消息用户看不见，但AI在下次回复时会读到
-          };
-          chat.history.push(systemMessage);
-          await db.chats.put(chat); // 异步保存到数据库
+        const chatIds = musicState.multiSyncEnabled ? musicState.syncedChatIds : [musicState.activeChatId];
+        for (const chatId of [...new Set(chatIds || [])]) {
+          const chat = state.chats[chatId];
+          if (chat) {
+            const systemMessage = {
+              role: 'system',
+              content: `[系统提示：上一首歌曲播放完毕，已自动为你切换到《${track.name}》 - ${track.artist}]`,
+              timestamp: Date.now(),
+              isHidden: true // 这条消息用户看不见，但AI在下次回复时会读到
+            };
+            chat.history.push(systemMessage);
+            await db.chats.put(chat); // 异步保存到数据库
+          }
         }
       }
     });

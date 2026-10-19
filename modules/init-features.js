@@ -146,130 +146,41 @@ window.initFeatures = function(state, db) {
     bindAppearanceSoundVolume('wait-reply-sound-volume-slider', 'wait-reply-sound-volume-label', 'waitReplySoundVolume');
     bindAppearanceSoundVolume('send-message-sound-volume-slider', 'send-message-sound-volume-label', 'sendMessageSoundVolume');
 
-    document.getElementById('add-song-search-btn').addEventListener('click', addSongFromSearch);
-
-    document.getElementById('cancel-music-search-btn').addEventListener('click', () => {
-      document.getElementById('music-search-results-modal').classList.remove('visible');
-    });
-
-
-    document.getElementById('add-song-search-btn').addEventListener('click', addSongFromSearch);
-
-    document.getElementById('cancel-music-search-btn').addEventListener('click', () => {
-      document.getElementById('music-search-results-modal').classList.remove('visible');
-    });
-
-
-    document.getElementById('select-all-music-search').addEventListener('change', function (e) {
-      document.querySelectorAll('#search-results-list .music-search-checkbox').forEach(cb => {
-        cb.checked = e.target.checked;
-      });
-    });
-
-
-    document.getElementById('search-results-list').addEventListener('click', (e) => {
-      const item = e.target.closest('.search-result-item');
-      if (item) {
-        const checkbox = item.querySelector('.music-search-checkbox');
-        if (checkbox) {
-
-          if (e.target !== checkbox) {
-            checkbox.checked = !checkbox.checked;
-          }
-        }
-      }
-    });
-
-
-    document.getElementById('add-selected-music-btn').addEventListener('click', async () => {
-      const selectedItems = document.querySelectorAll('.music-search-checkbox:checked');
-      if (selectedItems.length === 0) {
-        alert("请先选择要添加的歌曲。");
-        return;
-      }
-
-      // 选择歌单
-      const playlistId = await showPlaylistPicker('添加到哪个歌单？');
-
-      document.getElementById('music-search-results-modal').classList.remove('visible');
-      await showCustomAlert("请稍候...", `正在批量添加 ${selectedItems.length} 首歌曲...`);
-
-      const songDataList = Array.from(selectedItems).map(cb => JSON.parse(cb.closest('.search-result-item').dataset.songJson));
-
-      let successCount = 0;
-      let failedNames = [];
-
-
-      const songDetailPromises = songDataList.map(songData => getPlayableSongDetails(songData));
-      const fullSongObjects = await Promise.all(songDetailPromises);
-
-      fullSongObjects.forEach((songObject, index) => {
-        if (songObject) {
-          songObject.playlistId = playlistId;
-          musicState.playlist.push(songObject);
-          successCount++;
-        } else {
-          failedNames.push(songDataList[index].name);
-        }
-      });
-
-      if (successCount > 0) {
-        await saveGlobalPlaylist();
-        updatePlaylistUI();
-        if (musicState.currentIndex === -1) {
-          musicState.currentIndex = musicState.playlist.length - successCount;
-          updatePlayerUI();
-        }
-      }
-
-      let resultMessage = `添加完成！\n\n成功添加 ${successCount} 首歌曲。`;
-      if (failedNames.length > 0) {
-        resultMessage += `\n\n${failedNames.length} 首歌曲获取失败:\n- ${failedNames.join('\n- ')}`;
-      }
-      await showCustomAlert("操作结果", resultMessage);
-    });
-
-
-
-    document.getElementById('music-visual-container').addEventListener('click', () => {
+    document.getElementById('music-visual-container')?.addEventListener('click', () => {
       document.getElementById('music-visual-container').classList.toggle('lyrics-active');
     });
 
 
 
-    document.getElementById('add-song-search-btn').addEventListener('click', addSongFromSearch);
-    document.getElementById('cancel-music-search-btn').addEventListener('click', () => {
+    document.getElementById('add-song-search-btn')?.addEventListener('click', addSongFromSearch);
+    document.getElementById('music-account-btn')?.addEventListener('click', openMusicAccountCenter);
+    document.getElementById('close-music-account-btn')?.addEventListener('click', closeMusicAccountCenter);
+    document.getElementById('netease-login-btn')?.addEventListener('click', startNeteaseQrLogin);
+    document.getElementById('netease-logout-btn')?.addEventListener('click', logoutNeteaseMusic);
+    document.getElementById('cancel-music-search-btn')?.addEventListener('click', () => {
       document.getElementById('music-search-results-modal').classList.remove('visible');
     });
 
-    document.getElementById('search-results-list').addEventListener('click', (e) => {
-      const item = e.target.closest('.search-result-item');
-      if (item && item.dataset.songJson) {
-        const songData = JSON.parse(item.dataset.songJson);
-        handleSearchResultClick(songData);
-      }
-    });
-
-
-
-    document.getElementById('cleanup-songs-btn').addEventListener('click', cleanupInvalidSongs);
-    document.getElementById('playlist-manager-btn').addEventListener('click', openPlaylistManager);
-    document.getElementById('move-to-playlist-btn').addEventListener('click', executeMoveToPlaylist);
-    document.getElementById('toggle-blur-btn').addEventListener('click', toggleBackgroundBlur);
-    document.getElementById('toggle-fullscreen-btn').addEventListener('click', togglePlayerFullscreen);
-    document.getElementById('show-avatars-btn').addEventListener('click', toggleMusicPlayerAvatars);
+    document.getElementById('cleanup-songs-btn')?.addEventListener('click', cleanupInvalidSongs);
+    document.getElementById('playlist-manager-btn')?.addEventListener('click', openPlaylistManager);
+    document.getElementById('move-to-playlist-btn')?.addEventListener('click', executeMoveToPlaylist);
+    document.getElementById('toggle-blur-btn')?.addEventListener('click', toggleBackgroundBlur);
+    document.getElementById('toggle-fullscreen-btn')?.addEventListener('click', togglePlayerFullscreen);
+    document.getElementById('show-avatars-btn')?.addEventListener('click', toggleMusicPlayerAvatars);
 
     // 被清理歌曲模态框事件
-    document.getElementById('select-all-cleaned-songs').addEventListener('change', (e) => {
+    document.getElementById('select-all-cleaned-songs')?.addEventListener('change', (e) => {
       const checkboxes = document.querySelectorAll('.cleaned-song-checkbox');
       checkboxes.forEach(cb => cb.checked = e.target.checked);
     });
-    document.getElementById('close-cleaned-songs-btn').addEventListener('click', () => {
+    document.getElementById('close-cleaned-songs-btn')?.addEventListener('click', () => {
       document.getElementById('cleaned-songs-modal').classList.remove('visible');
     });
-    document.getElementById('research-selected-songs-btn').addEventListener('click', handleResearchSelectedSongs);
-
-
+    document.getElementById('research-selected-songs-btn')?.addEventListener('click', handleResearchSelectedSongs);
+    document.getElementById('music-account-btn')?.addEventListener('click', () => window.openMusicAccountCenter?.());
+    document.getElementById('close-music-account-btn')?.addEventListener('click', () => window.closeMusicAccountCenter?.());
+    document.getElementById('netease-login-btn')?.addEventListener('click', () => window.startNeteaseQrLogin?.());
+    document.getElementById('netease-logout-btn')?.addEventListener('click', () => window.logoutNeteaseMusic?.());
     document.getElementById('status-bar-toggle-switch').addEventListener('change', () => {
 
       state.globalSettings.showStatusBar = document.getElementById('status-bar-toggle-switch').checked;

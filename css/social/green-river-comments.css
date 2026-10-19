@@ -1,0 +1,332 @@
+/* ========================================== */
+/* ▼▼▼ 绿江 (Green River) 读者评论样式 ▼▼▼ */
+/* ========================================== */
+
+/* 1. 章节段落容器 (带评论的段落) */
+.gr-chapter-segment {
+    position: relative;
+    margin-bottom: 1.5em;
+    line-height: 1.8;
+}
+
+/* 2. 读者评论气泡按钮 */
+.gr-reader-comment-bubble {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #2E7D32 0%, #43A047 100%);
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 12px;
+    margin-left: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 6px rgba(46, 125, 50, 0.25);
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.gr-reader-comment-bubble:hover {
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: 0 4px 12px rgba(46, 125, 50, 0.35);
+    background: linear-gradient(135deg, #388E3C 0%, #4CAF50 100%);
+}
+
+.gr-reader-comment-bubble:active {
+    transform: translateY(0) scale(0.98);
+}
+
+/* 3. 读者评论弹窗容器 */
+#gr-reader-comments-popup {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+/* 弹窗内容卡片 */
+.gr-comments-popup-inner {
+    background: var(--gr-surface);
+    border-radius: 16px;
+    max-width: 500px;
+    width: 100%;
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    animation: popupSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes popupSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* 弹窗头部 */
+.gr-comments-popup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--gr-border);
+    background: linear-gradient(to bottom, #FAFAF9, #FFFFFF);
+}
+
+.gr-comments-popup-title {
+    font-family: "Georgia", "Songti SC", serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--gr-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* HTML中直接使用了 span 和 emoji，所以不需要 ::before */
+
+/* 关闭按钮 */
+.gr-comments-popup-close {
+    background: none;
+    border: none;
+    color: var(--gr-text-sub);
+    font-size: 24px;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s;
+    line-height: 1;
+}
+
+.gr-comments-popup-close:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--gr-text-main);
+}
+
+/* 4. 评论列表容器 */
+.gr-comments-popup-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 24px;
+    background: #FAFAF9;
+}
+
+/* 单条评论项 */
+.gr-comment-item {
+    background: white;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    border: 1px solid var(--gr-border);
+    transition: all 0.2s;
+    animation: commentFadeIn 0.3s ease;
+}
+
+@keyframes commentFadeIn {
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.gr-comment-item:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    transform: translateY(-2px);
+}
+
+.gr-comment-item:last-child {
+    margin-bottom: 0;
+}
+
+/* 评论者昵称 */
+.gr-comment-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gr-primary);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.gr-comment-name::before {
+    content: '👤';
+    font-size: 14px;
+    opacity: 0.7;
+}
+
+/* 评论内容 */
+.gr-comment-content {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--gr-text-main);
+    word-wrap: break-word;
+    white-space: pre-wrap;
+}
+
+.gr-comment-meta {
+    margin-top: 7px;
+    color: var(--gr-text-sub);
+    font-size: 11px;
+}
+
+.gr-comments-composer {
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--gr-border);
+    background: var(--gr-surface);
+}
+
+.gr-comments-composer input {
+    min-width: 0;
+    flex: 1;
+    border: 1px solid var(--gr-border);
+    border-radius: 999px;
+    padding: 9px 12px;
+    background: var(--gr-bg);
+    color: var(--gr-text-main);
+    outline: none;
+}
+
+.gr-comments-composer input:focus { border-color: var(--gr-primary); }
+
+.gr-comments-composer button {
+    border: 0;
+    border-radius: 999px;
+    padding: 8px 13px;
+    background: var(--gr-primary);
+    color: #fff;
+    cursor: pointer;
+}
+
+/* 空状态提示 */
+.gr-comments-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--gr-text-sub);
+    font-size: 14px;
+}
+
+.gr-comments-empty::before {
+    content: '📭';
+    display: block;
+    font-size: 48px;
+    margin-bottom: 12px;
+    opacity: 0.5;
+}
+
+/* 暗黑模式适配 */
+#phone-screen.dark-mode .gr-comments-popup-inner {
+    background: #1C1C1E;
+}
+
+#phone-screen.dark-mode .gr-comments-popup-header {
+    background: linear-gradient(to bottom, #1C1C1E, #2C2C2E);
+    border-bottom-color: #3A3A3C;
+}
+
+#phone-screen.dark-mode .gr-comments-popup-title {
+    color: #FFFFFF;
+}
+
+#phone-screen.dark-mode .gr-comments-popup-close {
+    color: #8E8E93;
+}
+
+#phone-screen.dark-mode .gr-comments-popup-close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #FFFFFF;
+}
+
+#phone-screen.dark-mode .gr-comments-popup-list {
+    background: #000000;
+}
+
+#phone-screen.dark-mode .gr-comment-item {
+    background: #2C2C2E;
+    border-color: #3A3A3C;
+}
+
+#phone-screen.dark-mode .gr-comment-name {
+    color: #FFFFFF;
+}
+
+#phone-screen.dark-mode .gr-comment-content {
+    color: #E0E0E0;
+}
+
+#phone-screen.dark-mode .gr-comments-empty {
+    color: #8E8E93;
+}
+
+/* 响应式优化 */
+@media (max-width: 400px) {
+    #gr-reader-comments-popup {
+        padding: 10px;
+    }
+    
+    .gr-comments-popup-header {
+        padding: 16px 20px;
+    }
+    
+    .gr-comments-popup-list {
+        padding: 12px 16px;
+    }
+    
+    .gr-comment-item {
+        padding: 12px;
+    }
+}
+
+/* 滚动条美化 */
+.gr-comments-popup-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.gr-comments-popup-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.gr-comments-popup-list::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 3px;
+}
+
+.gr-comments-popup-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.3);
+}
+
+#phone-screen.dark-mode .gr-comments-popup-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+#phone-screen.dark-mode .gr-comments-popup-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.3);
+}

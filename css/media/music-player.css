@@ -1,3 +1,100 @@
+/* 一起听内的多人同步设置；不改变播放器原有尺寸。 */
+#music-sync-btn {
+    flex-shrink: 0;
+    max-width: 70px;
+    padding: 4px 6px;
+    border: 1px solid rgba(127, 127, 127, 0.25);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.2);
+    color: inherit;
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: nowrap;
+    cursor: pointer;
+}
+#music-sync-btn.active {
+    color: var(--accent-color, #007aff);
+    border-color: currentColor;
+}
+#music-sync-modal { z-index: 210 !important; }
+#music-sync-modal .music-sync-content {
+    width: calc(100% - 32px);
+    max-width: 320px;
+    max-height: 80%;
+    color: var(--text-color, #222);
+    background: var(--primary-bg, #fff);
+    font-size: 13px;
+    overflow: hidden;
+}
+#music-sync-modal [hidden] { display: none !important; }
+#music-sync-modal .modal-header { justify-content: center; font-size: 14px; }
+#music-sync-modal .modal-body { min-height: 0; }
+.music-sync-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.music-sync-description {
+    margin: 10px 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary, #777);
+}
+.music-sync-selection-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    white-space: nowrap;
+}
+#music-sync-count { flex: 1; min-width: 0; color: var(--text-secondary, #777); font-size: 12px; }
+.music-sync-selection-actions button {
+    border: 0;
+    border-radius: 6px;
+    padding: 5px 7px;
+    background: rgba(127, 127, 127, 0.1);
+    color: var(--accent-color, #007aff);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+#music-sync-role-list { max-height: 32vh; overflow-y: auto; }
+.music-sync-role {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border-color, #eee);
+    cursor: pointer;
+}
+.music-sync-role img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+.music-sync-role span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-sync-role input {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    margin: 0;
+    border: 1px solid var(--border-color, #aaa);
+    border-radius: 5px;
+    background: var(--primary-bg, #fff);
+    display: grid;
+    place-content: center;
+}
+.music-sync-role input:checked { background: var(--accent-color, #007aff); border-color: var(--accent-color, #007aff); }
+.music-sync-role input:checked::after { content: '✓'; color: #fff; font-size: 13px; line-height: 1; }
+#music-sync-modal .toggle-switch:focus-within .slider,
+.music-sync-role input:focus-visible { outline: 2px solid var(--accent-color, #007aff); outline-offset: 2px; }
+#music-sync-status { color: var(--text-secondary, #777); font-size: 12px; line-height: 1.5; }
+#music-sync-status:not(:empty) { margin-top: 8px; }
+#music-sync-modal .modal-footer { gap: 10px; padding: 12px 15px; }
+#music-sync-modal .modal-footer button { flex: 1; width: auto; min-width: 0; font-size: 13px; padding: 8px; }
+#music-sync-modal .modal-footer .cancel { background: var(--primary-bg, #fff); }
+#music-sync-modal button:disabled { opacity: 0.5; cursor: default; }
+
            /* 歌单分组标签栏 */
            .playlist-tabs-container {
                display: flex;
@@ -78,6 +175,165 @@
                color: #ff3b30;
                font-size: 20px;
                padding: 5px;
+           }
+
+           .music-account-content {
+               width: min(92vw, 520px);
+               height: min(82vh, 720px);
+               overflow: hidden;
+           }
+
+           #music-account-modal [hidden] {
+               display: none !important;
+           }
+
+           .music-account-close {
+               border: 0;
+               background: transparent;
+               color: inherit;
+               font-size: 28px;
+               line-height: 1;
+               cursor: pointer;
+               padding: 4px 8px;
+           }
+
+           .music-account-body {
+               display: flex;
+               flex-direction: column;
+               gap: 12px;
+               overflow-y: auto;
+               padding: 14px;
+           }
+
+           .music-account-card {
+               border: 1px solid var(--border-color, rgba(127, 127, 127, 0.22));
+               border-radius: 14px;
+               padding: 14px;
+               background: var(--primary-bg, #fff);
+           }
+
+           .music-account-platform-row,
+           .music-account-profile,
+           .music-account-playlist-item {
+               display: flex;
+               align-items: center;
+               gap: 10px;
+           }
+
+           .music-account-platform-row > div:first-child,
+           .music-account-playlist-info {
+               flex: 1;
+               min-width: 0;
+           }
+
+           .music-account-platform-name,
+           .music-account-section-title {
+               font-weight: 650;
+               color: var(--text-color, #222);
+           }
+
+           .music-account-status,
+           .music-account-safety,
+           .music-account-availability p,
+           .music-account-playlist-count {
+               color: var(--text-secondary, #777);
+               font-size: 12px;
+               line-height: 1.55;
+           }
+
+           .music-account-primary-btn,
+           .music-account-secondary-btn,
+           .music-account-import-btn {
+               border: 0;
+               border-radius: 9px;
+               padding: 8px 12px;
+               cursor: pointer;
+               white-space: nowrap;
+           }
+
+           .music-account-primary-btn,
+           .music-account-import-btn {
+               background: var(--accent-color, #007aff);
+               color: #fff;
+           }
+
+           .music-account-secondary-btn {
+               background: rgba(127, 127, 127, 0.14);
+               color: var(--text-color, #333);
+           }
+
+           .music-account-profile {
+               margin-top: 12px;
+           }
+
+           .music-account-profile img {
+               width: 38px;
+               height: 38px;
+               border-radius: 50%;
+               object-fit: cover;
+           }
+
+           .music-account-qr-area {
+               margin-top: 14px;
+               text-align: center;
+           }
+
+           .music-account-qr-area img {
+               display: block;
+               width: 180px;
+               height: 180px;
+               margin: 0 auto 8px;
+               border-radius: 10px;
+               background: #fff;
+           }
+
+           .music-account-qr-area a {
+               display: inline-block;
+               margin-top: 8px;
+               color: var(--accent-color, #007aff);
+           }
+
+           .music-account-safety {
+               margin: 12px 0 0;
+           }
+
+           .music-account-playlists {
+               display: flex;
+               flex-direction: column;
+               gap: 8px;
+               margin-top: 10px;
+           }
+
+           .music-account-playlist-item {
+               padding: 9px 0;
+               border-top: 1px solid var(--border-color, rgba(127, 127, 127, 0.18));
+           }
+
+           .music-account-playlist-name {
+               overflow: hidden;
+               text-overflow: ellipsis;
+               white-space: nowrap;
+           }
+
+           .music-account-import-btn:disabled,
+           .music-account-primary-btn:disabled {
+               opacity: 0.55;
+               cursor: wait;
+           }
+
+           @media (max-width: 520px) {
+               .music-account-content {
+                   width: 94vw;
+                   height: 86vh;
+               }
+
+               .music-account-platform-row {
+                   flex-wrap: wrap;
+               }
+
+               .music-account-playlist-item {
+                   align-items: flex-start;
+               }
            }
 
            #persona-library-grid {
@@ -254,7 +510,7 @@
            }
 
            #qzone-screen {
-               background-color: #f0f2f5;
+               background-color: #ffffff !important;
            }
 
            .qzone-header {
@@ -263,10 +519,10 @@
                flex-shrink: 0;
                padding: 15px 20px;
                padding-top: 45px;
-               background-color: rgba(247, 247, 247, 0.7);
+               background-color: #ffffff;
                backdrop-filter: blur(10px);
                -webkit-backdrop-filter: blur(10px);
-               border-bottom: 1px solid var(--border-color);
+               border-bottom: 1px solid #f0f0f0;
                display: flex;
                justify-content: space-between;
                align-items: center;
@@ -290,6 +546,7 @@
            .qzone-content {
                flex-grow: 1;
                overflow-y: auto;
+               background-color: #ffffff !important;
            }
 
            .qzone-profile-header {
@@ -414,8 +671,9 @@
                padding: 10px 0;
                margin: 40px 15px 15px 15px;
                background-color: var(--secondary-bg);
+               border: 1px solid rgba(0, 0, 0, 0.06);
                border-radius: 12px;
-               box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+               box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
            }
 
            .action-item {
@@ -449,9 +707,10 @@
 
            .qzone-post-item {
                background-color: var(--secondary-bg);
+               border: 1px solid rgba(0, 0, 0, 0.06);
                border-radius: 12px;
                padding: 15px;
-               box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+               box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
            }
 
            .post-header {
@@ -492,87 +751,149 @@
                word-break: break-word;
            }
 
+           /* ============================================================
+              发布动态弹窗 (#create-post-modal) - iOS 精致纯白风格 (无渐变、无表情符号)
+              ============================================================ */
+           #create-post-modal.modal {
+               background-color: rgba(0, 0, 0, 0.38) !important;
+               backdrop-filter: blur(12px) !important;
+               -webkit-backdrop-filter: blur(12px) !important;
+               z-index: 10150 !important;
+           }
+
+           #create-post-modal .modal-content {
+               background-color: #ffffff !important;
+               border-radius: 20px !important;
+               box-shadow: 0 20px 50px rgba(0, 0, 0, 0.16), 0 4px 16px rgba(0, 0, 0, 0.06) !important;
+               border: 1px solid rgba(0, 0, 0, 0.08) !important;
+               max-width: 400px !important;
+               width: 90% !important;
+               overflow: hidden !important;
+               animation: ios-modal-pop 0.24s cubic-bezier(0.16, 1, 0.3, 1) !important;
+           }
+
+           @keyframes ios-modal-pop {
+               0% {
+                   opacity: 0;
+                   transform: scale(0.95);
+               }
+               100% {
+                   opacity: 1;
+                   transform: scale(1);
+               }
+           }
+
+           #create-post-modal .modal-header {
+               background-color: #ffffff !important;
+               padding: 16px 20px !important;
+               border-bottom: 0.5px solid rgba(60, 60, 67, 0.12) !important;
+               text-align: center !important;
+               justify-content: center !important;
+           }
+
+           #create-post-modal .modal-header span {
+               font-size: 17px !important;
+               font-weight: 600 !important;
+               color: #1c1c1e !important;
+               letter-spacing: -0.2px !important;
+           }
+
+           #create-post-modal .modal-body {
+               background-color: #ffffff !important;
+               padding: 16px 18px !important;
+               max-height: 70vh !important;
+               overflow-y: auto !important;
+           }
+
+           /* 输入框通用 iOS 风格 */
+           #create-post-modal textarea,
+           #create-post-modal input[type="text"] {
+               width: 100% !important;
+               box-sizing: border-box !important;
+               background-color: #f2f2f7 !important;
+               border: 1px solid transparent !important;
+               border-radius: 12px !important;
+               padding: 11px 13px !important;
+               font-size: 15px !important;
+               color: #1c1c1e !important;
+               outline: none !important;
+               transition: background-color 0.15s ease, border-color 0.15s ease !important;
+               font-family: inherit !important;
+               line-height: 1.45 !important;
+           }
+
+           #create-post-modal textarea:focus,
+           #create-post-modal input[type="text"]:focus {
+               background-color: #ffffff !important;
+               border-color: #007aff !important;
+           }
+
+           #create-post-modal textarea::placeholder,
+           #create-post-modal input::placeholder {
+               color: #8e8e93 !important;
+               font-size: 14px !important;
+           }
+
            #post-public-text {
-               min-height: 80px;
-               resize: vertical;
+               min-height: 90px !important;
+               resize: none !important;
            }
 
-           .post-image-preview-container {
-               position: relative;
-               width: 100%;
-               aspect-ratio: 16 / 9;
-               background-color: #f0f2f5;
-               border: 2px dashed var(--border-color);
-               border-radius: 8px;
-               margin-bottom: 15px;
-               display: none;
-               justify-content: center;
-               align-items: center;
+           #post-hidden-text {
+               min-height: 90px !important;
+               resize: none !important;
            }
 
-           .post-image-preview-container.visible {
-               display: flex;
+           /* 表单标签 */
+           #create-post-modal .form-group {
+               margin-bottom: 15px !important;
            }
 
-           #post-image-preview {
-               max-width: 100%;
-               max-height: 100%;
-               object-fit: contain;
-               border-radius: 6px;
+           #create-post-modal .form-group:last-child {
+               margin-bottom: 0 !important;
            }
 
-           #post-remove-image-btn {
-               position: absolute;
-               top: -10px;
-               right: -10px;
-               width: 24px;
-               height: 24px;
-               border-radius: 50%;
-               background-color: #ff3b30;
-               color: white;
-               border: 2px solid white;
-               font-size: 16px;
-               line-height: 20px;
-               text-align: center;
-               cursor: pointer;
-               box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+           #create-post-modal .form-group label {
+               display: block !important;
+               font-size: 13px !important;
+               font-weight: 500 !important;
+               color: #8e8e93 !important;
+               margin-bottom: 8px !important;
+               letter-spacing: -0.1px !important;
            }
 
-           .post-image-upload-options {
-               display: flex;
-               gap: 10px;
-           }
-
-           .post-image-upload-options button {
-               flex: 1;
-               margin-top: 0;
-           }
-
+           /* iOS Segmented Control 分段选择器 */
            .post-mode-switcher {
-               display: flex;
-               margin-bottom: 20px;
-               background-color: #e9ecef;
-               border-radius: 8px;
-               padding: 4px;
+               display: flex !important;
+               margin-bottom: 16px !important;
+               background-color: #efeff4 !important;
+               border-radius: 10px !important;
+               padding: 3px !important;
+               border: none !important;
+               gap: 2px !important;
            }
 
            .mode-btn {
-               flex: 1;
-               padding: 8px;
-               border: none;
-               background-color: transparent;
-               border-radius: 6px;
-               font-size: 14px;
-               font-weight: 500;
-               color: var(--text-secondary);
-               cursor: pointer;
-               transition: all 0.2s ease-in-out;
+               flex: 1 !important;
+               padding: 7px 0 !important;
+               border: none !important;
+               background-color: transparent !important;
+               border-radius: 8px !important;
+               font-size: 13px !important;
+               font-weight: 500 !important;
+               color: #636366 !important;
+               cursor: pointer !important;
+               transition: all 0.18s cubic-bezier(0.2, 0, 0, 1) !important;
+               text-align: center !important;
+               line-height: 1.3 !important;
+               box-shadow: none !important;
            }
 
            .mode-btn.active {
-               background-color: var(--secondary-bg);
-               color: var(--text-primary);
-               box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+               background-color: #ffffff !important;
+               color: #1c1c1e !important;
+               font-weight: 600 !important;
+               box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04) !important;
            }
 
            .post-mode-content {
@@ -583,8 +904,340 @@
                display: block;
            }
 
+           /* 可见范围单选选项 (iOS 风格单选组) */
+           #post-visibility-options {
+               display: flex !important;
+               gap: 12px !important;
+               margin-bottom: 8px !important;
+           }
+
+           #post-visibility-options label {
+               display: inline-flex !important;
+               align-items: center !important;
+               gap: 8px !important;
+               margin-bottom: 0 !important;
+               font-size: 14px !important;
+               font-weight: 500 !important;
+               color: #1c1c1e !important;
+               cursor: pointer !important;
+               padding: 6px 12px !important;
+               background-color: #f2f2f7 !important;
+               border-radius: 10px !important;
+               border: 1px solid transparent !important;
+               transition: all 0.15s ease !important;
+               user-select: none !important;
+               -webkit-user-select: none !important;
+           }
+
+           #post-visibility-options label:has(input[type="radio"]:checked) {
+               background-color: #ffffff !important;
+               border-color: #007aff !important;
+               color: #007aff !important;
+               box-shadow: 0 1px 4px rgba(0, 122, 255, 0.12) !important;
+           }
+
+           #post-visibility-options input[type="radio"] {
+               appearance: none !important;
+               -webkit-appearance: none !important;
+               width: 17px !important;
+               height: 17px !important;
+               border-radius: 50% !important;
+               border: 1.5px solid #c7c7cc !important;
+               outline: none !important;
+               background-color: #ffffff !important;
+               margin: 0 !important;
+               padding: 0 !important;
+               cursor: pointer !important;
+               display: inline-flex !important;
+               align-items: center !important;
+               justify-content: center !important;
+               transition: border-color 0.15s ease, background-color 0.15s ease !important;
+               flex-shrink: 0 !important;
+           }
+
+           #post-visibility-options input[type="radio"]:checked {
+               border-color: #007aff !important;
+               background-color: #ffffff !important;
+               box-shadow: inset 0 0 0 4.5px #007aff !important;
+           }
+
+           /* 可选分组列表卡片 */
+           #post-visibility-groups {
+               background: #f8f8fa !important;
+               border: 1px solid rgba(60, 60, 67, 0.1) !important;
+               border-radius: 12px !important;
+               padding: 10px 12px !important;
+               margin-top: 6px !important;
+               max-height: 120px !important;
+               overflow-y: auto !important;
+           }
+
+           #post-visibility-groups label {
+               display: flex !important;
+               align-items: center !important;
+               gap: 8px !important;
+               padding: 5px 0 !important;
+               font-size: 13px !important;
+               color: #3a3a3c !important;
+               cursor: pointer !important;
+               margin-bottom: 0 !important;
+           }
+
+           #post-visibility-groups input[type="checkbox"] {
+               appearance: none !important;
+               -webkit-appearance: none !important;
+               width: 17px !important;
+               height: 17px !important;
+               border-radius: 5px !important;
+               border: 1.5px solid #c7c7cc !important;
+               background-color: #ffffff !important;
+               outline: none !important;
+               margin: 0 !important;
+               cursor: pointer !important;
+               display: inline-flex !important;
+               align-items: center !important;
+               justify-content: center !important;
+               transition: all 0.15s ease !important;
+           }
+
+           #post-visibility-groups input[type="checkbox"]:checked {
+               background-color: #007aff !important;
+               border-color: #007aff !important;
+               background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='20 6 9 17 4 12'%3e%3c/polyline%3e%3c/svg%3e") !important;
+               background-size: 11px 11px !important;
+               background-position: center !important;
+               background-repeat: no-repeat !important;
+           }
+
+           /* 图片预览框 */
+           .post-image-preview-container {
+               position: relative !important;
+               width: 100% !important;
+               aspect-ratio: 16 / 9 !important;
+               background-color: #f8f8fa !important;
+               border: 1.5px dashed #d1d1d6 !important;
+               border-radius: 14px !important;
+               margin-bottom: 12px !important;
+               display: none;
+               justify-content: center !important;
+               align-items: center !important;
+               overflow: hidden !important;
+               box-sizing: border-box !important;
+           }
+
+           .post-image-preview-container.visible {
+               display: flex !important;
+           }
+
+           #post-image-preview {
+               max-width: 100% !important;
+               max-height: 100% !important;
+               object-fit: contain !important;
+               border-radius: 10px !important;
+           }
+
+           /* 删除图片按钮 (精致深灰半透明圆点，无默认表情) */
+           #post-remove-image-btn {
+               position: absolute !important;
+               top: 8px !important;
+               right: 8px !important;
+               width: 24px !important;
+               height: 24px !important;
+               border-radius: 50% !important;
+               background-color: rgba(28, 28, 30, 0.75) !important;
+               color: #ffffff !important;
+               border: none !important;
+               font-size: 15px !important;
+               font-weight: 400 !important;
+               line-height: 22px !important;
+               text-align: center !important;
+               cursor: pointer !important;
+               box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25) !important;
+               transition: background-color 0.15s ease, transform 0.1s ease !important;
+               padding: 0 !important;
+           }
+
+           #post-remove-image-btn:active {
+               transform: scale(0.92) !important;
+               background-color: #ff3b30 !important;
+           }
+
+           /* 图片上传按钮组 (iOS 浅灰胶囊按钮) */
+           .post-image-upload-options {
+               display: flex !important;
+               gap: 10px !important;
+           }
+
+           .post-image-upload-options button {
+               flex: 1 !important;
+               margin-top: 0 !important;
+               padding: 9px 0 !important;
+               background-color: #f2f2f7 !important;
+               border: none !important;
+               border-radius: 10px !important;
+               color: #007aff !important;
+               font-size: 14px !important;
+               font-weight: 500 !important;
+               cursor: pointer !important;
+               text-align: center !important;
+               transition: background-color 0.15s ease, transform 0.1s ease !important;
+               outline: none !important;
+           }
+
+           .post-image-upload-options button:active {
+               background-color: #e5e5ea !important;
+               transform: scale(0.98) !important;
+           }
+
+           /* 弹窗底部按钮栏 */
+           #create-post-modal .modal-footer {
+               background-color: #ffffff !important;
+               padding: 12px 18px 16px !important;
+               border-top: 0.5px solid rgba(60, 60, 67, 0.12) !important;
+               display: flex !important;
+               justify-content: space-between !important;
+               gap: 12px !important;
+           }
+
+           #create-post-modal .modal-footer button {
+               flex: 1 !important;
+               width: auto !important;
+               padding: 11px 0 !important;
+               border-radius: 12px !important;
+               font-size: 15px !important;
+               font-weight: 600 !important;
+               cursor: pointer !important;
+               text-align: center !important;
+               transition: all 0.15s ease !important;
+               outline: none !important;
+               border: none !important;
+               letter-spacing: -0.1px !important;
+           }
+
+           /* 取消按钮：纯白/浅灰 iOS 风格 */
+           #create-post-modal .modal-footer .cancel {
+               background-color: #f2f2f7 !important;
+               color: #3a3a3c !important;
+           }
+
+           #create-post-modal .modal-footer .cancel:active {
+               background-color: #e5e5ea !important;
+               transform: scale(0.97) !important;
+           }
+
+           /* 发布按钮：iOS 标志性纯蓝（无渐变） */
+           #create-post-modal .modal-footer .save {
+               background-color: #007aff !important;
+               color: #ffffff !important;
+               box-shadow: 0 2px 8px rgba(0, 122, 255, 0.28) !important;
+           }
+
+           #create-post-modal .modal-footer .save:active {
+               background-color: #0062cc !important;
+               transform: scale(0.97) !important;
+               box-shadow: none !important;
+           }
+
+           /* 暗黑模式下发布动态弹窗适配 */
+           #phone-screen.dark-mode #create-post-modal .modal-content {
+               background-color: #1c1c1e !important;
+               border-color: rgba(255, 255, 255, 0.1) !important;
+               box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5) !important;
+           }
+
+           #phone-screen.dark-mode #create-post-modal .modal-header {
+               background-color: #1c1c1e !important;
+               border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+           }
+
+           #phone-screen.dark-mode #create-post-modal .modal-header span {
+               color: #ffffff !important;
+           }
+
+           #phone-screen.dark-mode #create-post-modal .modal-body {
+               background-color: #1c1c1e !important;
+           }
+
+           #phone-screen.dark-mode #create-post-modal textarea,
+           #phone-screen.dark-mode #create-post-modal input[type="text"] {
+               background-color: #2c2c2e !important;
+               color: #ffffff !important;
+           }
+
+           #phone-screen.dark-mode #create-post-modal textarea:focus,
+           #phone-screen.dark-mode #create-post-modal input[type="text"]:focus {
+               background-color: #1c1c1e !important;
+               border-color: #0a84ff !important;
+           }
+
+           #phone-screen.dark-mode #create-post-modal .post-mode-switcher {
+               background-color: #2c2c2e !important;
+           }
+
+           #phone-screen.dark-mode #create-post-modal .mode-btn {
+               color: #8e8e93 !important;
+           }
+
+           #phone-screen.dark-mode #create-post-modal .mode-btn.active {
+               background-color: #3a3a3c !important;
+               color: #ffffff !important;
+           }
+
+           #phone-screen.dark-mode #post-visibility-options label {
+               background-color: #2c2c2e !important;
+               color: #ffffff !important;
+           }
+
+           #phone-screen.dark-mode #post-visibility-options label:has(input[type="radio"]:checked) {
+               background-color: #1c1c1e !important;
+               border-color: #0a84ff !important;
+               color: #0a84ff !important;
+           }
+
+           #phone-screen.dark-mode #post-visibility-options input[type="radio"] {
+               background-color: #2c2c2e !important;
+               border-color: #48484a !important;
+           }
+
+           #phone-screen.dark-mode #post-visibility-options input[type="radio"]:checked {
+               border-color: #0a84ff !important;
+               box-shadow: inset 0 0 0 4.5px #0a84ff !important;
+           }
+
+           #phone-screen.dark-mode #post-visibility-groups {
+               background: #2c2c2e !important;
+               border-color: rgba(255, 255, 255, 0.08) !important;
+           }
+
+           #phone-screen.dark-mode #post-visibility-groups label {
+               color: #ffffff !important;
+           }
+
+           #phone-screen.dark-mode .post-image-upload-options button {
+               background-color: #2c2c2e !important;
+               color: #0a84ff !important;
+           }
+
+           #phone-screen.dark-mode .post-image-upload-options button:active {
+               background-color: #3a3a3c !important;
+           }
+
+           #phone-screen.dark-mode #create-post-modal .modal-footer {
+               background-color: #1c1c1e !important;
+               border-top-color: rgba(255, 255, 255, 0.08) !important;
+           }
+
+           #phone-screen.dark-mode #create-post-modal .modal-footer .cancel {
+               background-color: #2c2c2e !important;
+               color: #ffffff !important;
+           }
+
+           #phone-screen.dark-mode #create-post-modal .modal-footer .save {
+               background-color: #0a84ff !important;
+           }
+
            #album-screen {
-               background-color: #f0f2f5;
+               background-color: #ffffff;
            }
 
            #album-grid-page {
@@ -636,7 +1289,7 @@
            }
 
            #album-photos-screen {
-               background-color: #f0f2f5;
+               background-color: #ffffff;
            }
 
            #photos-grid-page {
@@ -851,8 +1504,8 @@
            .comment-section .comment-input {
                width: 100%;
                padding: 8px 12px;
-               border: none;
-               background-color: #f0f2f5;
+               border: 1px solid #e8e8e8;
+               background-color: #ffffff;
                border-radius: 14px;
                font-size: 16px;
                outline: none;
@@ -977,10 +1630,25 @@
            #favorites-view {
                display: flex;
                flex-direction: column;
+               background-color: #ffffff;
            }
 
-           #favorites-view>.header {
+           #favorites-view > .header {
                flex-shrink: 0;
+               background-color: #ffffff;
+           }
+
+           #favorites-view .header #favorites-edit-btn,
+           #favorites-edit-btn {
+               width: auto !important;
+               min-width: fit-content !important;
+               white-space: nowrap !important;
+               display: inline-flex !important;
+               align-items: center;
+               justify-content: flex-end;
+               font-size: 16px;
+               line-height: 1;
+               padding: 0 4px;
            }
 
            #favorites-list {
@@ -991,6 +1659,7 @@
                display: flex;
                flex-direction: column;
                gap: 15px;
+               background-color: #ffffff;
            }
 
            .favorite-item-card {
@@ -1064,9 +1733,20 @@
 
            .search-bar-container {
                padding: 10px 15px;
-               background-color: #f9f9f9;
+               background-color: #ffffff;
                position: relative;
                flex-shrink: 0;
+           }
+
+           #favorites-view .search-bar-container {
+               background-color: #ffffff;
+           }
+
+           #phone-screen.dark-mode #favorites-view,
+           #phone-screen.dark-mode #favorites-view > .header,
+           #phone-screen.dark-mode #favorites-view .search-bar-container,
+           #phone-screen.dark-mode #favorites-list {
+               background-color: #000000;
            }
 
            #favorites-search-input {
@@ -1245,724 +1925,4 @@
            #settings-preview-area .message-wrapper {
                position: relative;
                z-index: 2;
-           }
-
-           #settings-preview-area .message-bubble .avatar {
-               width: 30px;
-               height: 30px;
-           }
-
-           #settings-preview-area .message-bubble .timestamp {
-               display: none;
-           }
-
-           .existing-group-item {
-               display: flex;
-               justify-content: space-between;
-               align-items: center;
-               padding: 12px;
-               background-color: #f9f9f9;
-               border-radius: 8px;
-               border: 1px solid var(--border-color);
-           }
-
-           .existing-group-item .group-name {
-               font-weight: 500;
-           }
-
-           .existing-group-item .delete-group-btn {
-               color: #ff3b30;
-               font-size: 20px;
-               cursor: pointer;
-               padding: 5px;
-           }
-
-           .chat-group-container {
-               border-bottom: 1px solid var(--border-color);
-           }
-
-           .chat-group-container:first-child {
-               border-top: 1px solid var(--border-color);
-           }
-
-           .chat-group-header {
-               display: flex;
-               align-items: center;
-               padding: 12px 15px;
-               cursor: pointer;
-               background-color: #f7f7f7;
-           }
-
-           .chat-group-header .arrow {
-               font-size: 14px;
-               margin-right: 8px;
-               transition: transform 0.2s ease;
-           }
-
-           .chat-group-header.collapsed .arrow {
-               transform: rotate(-90deg);
-           }
-
-           .chat-group-header .group-name {
-               font-weight: 600;
-               font-size: 15px;
-           }
-
-           .chat-group-content {
-               max-height: 1000px;
-               overflow: hidden;
-               transition: max-height 0.3s ease-in-out;
-           }
-
-           .chat-group-content.collapsed {
-               max-height: 0;
-           }
-
-           .format-helpers {
-               display: flex;
-               gap: 10px;
-               margin-bottom: 15px;
-               flex-wrap: wrap;
-           }
-
-           .format-btn {
-               background-color: #e9ecef;
-               color: var(--text-primary);
-               border: none;
-               padding: 6px 12px;
-               border-radius: 16px;
-               font-size: 13px;
-               font-weight: 500;
-               cursor: pointer;
-               transition: background-color 0.2s;
-           }
-
-           .format-btn:hover {
-               background-color: #dcdfe3;
-           }
-
-           .post-actions-btn {
-               margin-left: auto;
-               padding: 5px 10px;
-               font-size: 20px;
-               font-weight: bold;
-               color: var(--text-secondary);
-               cursor: pointer;
-               border-radius: 50%;
-               line-height: 1;
-           }
-
-           .post-actions-btn:hover {
-               background-color: #f0f0f0;
-           }
-
-           #post-actions-modal .custom-modal-footer button {
-               width: 100%;
-               border: none;
-               border-bottom: 1px solid #dbdbdb;
-               padding: 14px;
-               font-size: 18px;
-           }
-
-           #post-actions-modal .custom-modal-footer button:last-child {
-               border-bottom: none;
-           }
-
-           #post-actions-modal #cancel-post-action-btn {
-               margin-top: 8px;
-               border-radius: 8px;
-               background-color: #f0f0f0;
-           }
-
-           #chat-messages .transfer-card .transfer-title,
-           #chat-messages .transfer-card .transfer-amount,
-           #chat-messages .transfer-card .transfer-note {
-               text-shadow: none !important;
-               color: white !important;
-           }
-
-           #chat-messages .transfer-card .transfer-title {
-               font-size: 16px !important;
-               font-weight: 600 !important;
-           }
-
-           #chat-messages .transfer-card .transfer-amount {
-               font-size: 28px !important;
-               font-weight: bold !important;
-           }
-
-           #chat-messages .transfer-card .transfer-note {
-               font-size: 13px !important;
-               opacity: 0.9 !important;
-           }
-
-           .header>span:nth-child(2),
-           #chat-header-title {
-               position: absolute;
-               left: 50%;
-               transform: translateX(calc(-50% - 2px));
-               max-width: 60%;
-               white-space: nowrap;
-               overflow: hidden;
-               text-overflow: ellipsis;
-           }
-
-           #message-editor-container {
-               display: flex;
-               flex-direction: column;
-               gap: 15px;
-           }
-
-           .message-editor-block {
-               background-color: #f9f9f9;
-               border: 1px solid var(--border-color);
-               border-radius: 8px;
-               padding: 12px;
-           }
-
-           .message-editor-block textarea {
-               width: 100%;
-               min-height: 60px;
-               resize: vertical;
-               border: 1px solid #ccc;
-               border-radius: 6px;
-               padding: 8px;
-               font-size: 16px;
-               box-sizing: border-box;
-           }
-
-           .message-editor-block .format-helpers {
-               margin-top: 8px;
-               margin-bottom: 0;
-           }
-
-           .message-editor-block .delete-block-btn {
-               float: right;
-               margin-top: -5px;
-               background: none;
-               border: none;
-               color: #ff3b30;
-               font-size: 20px;
-               cursor: pointer;
-           }
-
-           .contact-picker-item {
-               display: flex;
-               align-items: center;
-               padding: 10px 15px;
-               cursor: pointer;
-               border-bottom: 1px solid var(--border-color);
-           }
-
-           .contact-picker-item .checkbox {
-               width: 20px;
-               height: 20px;
-               border: 2px solid #ccc;
-               border-radius: 50%;
-               margin-right: 15px;
-               transition: all 0.2s ease;
-           }
-
-           .contact-picker-item.selected .checkbox {
-               background-color: var(--accent-color);
-               border-color: var(--accent-color);
-               content: '✔';
-               color: white;
-               font-size: 14px;
-               text-align: center;
-               line-height: 20px;
-           }
-
-           .contact-picker-item .avatar {
-               width: 40px;
-               height: 40px;
-               border-radius: 50%;
-               margin-right: 12px;
-           }
-
-           .contact-picker-item .name {
-               font-weight: 500;
-           }
-
-           #member-management-list {
-               padding: 0;
-           }
-
-           .member-management-item {
-               display: flex;
-               align-items: center;
-               padding: 12px 15px;
-               border-bottom: 1px solid var(--border-color);
-           }
-
-           .member-management-item .avatar {
-               width: 40px;
-               height: 40px;
-               border-radius: 50%;
-               margin-right: 12px;
-           }
-
-           .member-management-item .name {
-               flex-grow: 1;
-               font-weight: 500;
-           }
-
-           .member-management-item .remove-member-btn {
-               background-color: #ff3b30;
-               color: white;
-               border: none;
-               width: 28px;
-               height: 28px;
-               border-radius: 50%;
-               font-size: 20px;
-               line-height: 28px;
-               text-align: center;
-               cursor: pointer;
-               flex-shrink: 0;
-           }
-
-           #member-management-actions {
-               flex-shrink: 0;
-               padding: 15px;
-               border-top: 1px solid var(--border-color);
-               background-color: #f7f7f7;
-               display: flex;
-               flex-direction: column;
-               gap: 10px;
-           }
-
-           #member-management-actions button {
-               width: 100%;
-               padding: 15px;
-               background-color: var(--accent-color);
-               color: white;
-               border: none;
-               border-radius: 8px;
-               font-size: 16px;
-               font-weight: 600;
-               cursor: pointer;
-           }
-
-           #member-management-actions #create-new-member-btn {
-               background-color: #4cd964;
-           }
-
-           .waimai-card {
-               width: 240px;
-               border-radius: 12px;
-               overflow: hidden;
-               background-color: var(--secondary-bg);
-               box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-           }
-
-           .waimai-header {
-               display: flex;
-               align-items: center;
-               gap: 8px;
-               padding: 10px 12px;
-               border-bottom: 1px solid #f0f0f0;
-           }
-
-           .waimai-header .icon {
-               width: 20px;
-               height: 20px;
-           }
-
-           .waimai-header .title-group {
-               display: flex;
-               align-items: baseline;
-               font-size: 14px;
-               color: #8a8a8a;
-           }
-
-           .waimai-header .title-group .brand {
-               font-weight: 600;
-               color: #555;
-               margin-right: 5px;
-           }
-
-           .waimai-header .title-group .separator {
-               margin: 0 5px;
-           }
-
-           .waimai-catchphrase {
-               font-size: 13px;
-               color: #1f1f1f;
-               padding: 12px;
-           }
-
-           .waimai-main {
-               background-color: #FFD66B;
-               padding: 12px;
-               text-align: center;
-           }
-
-           .waimai-main .request-title {
-               font-size: 12px;
-               color: #856404;
-               margin-bottom: 8px;
-           }
-
-           .waimai-main .payment-box {
-               background-color: var(--secondary-bg);
-               border-radius: 8px;
-               padding: 15px 10px;
-           }
-
-           .waimai-main .payment-label {
-               font-size: 13px;
-               color: #8a8a8a;
-           }
-
-           .waimai-main .amount {
-               font-size: 32px;
-               font-weight: 700;
-               color: #1f1f1f;
-               margin: 4px 0 12px 0;
-           }
-
-           .waimai-main .countdown-label {
-               font-size: 13px;
-               color: #8a8a8a;
-           }
-
-           .waimai-main .countdown-timer {
-               display: inline-flex;
-               align-items: center;
-               gap: 2px;
-               margin-left: 5px;
-           }
-
-           .waimai-main .countdown-timer span {
-               background-color: #333;
-               color: white;
-               padding: 2px 4px;
-               border-radius: 2px;
-               font-weight: bold;
-               font-size: 12px;
-           }
-
-           .waimai-details-btn {
-               width: 100%;
-               padding: 10px 0;
-               margin-top: 15px;
-               border: none;
-               border-radius: 6px;
-               background-color: #FFC33A;
-               color: #49380a;
-               font-size: 14px;
-               font-weight: 600;
-               cursor: pointer;
-           }
-
-           .message-bubble.status-paid .waimai-card {
-               border: 2px solid #28a745;
-           }
-
-           .message-bubble.status-paid .waimai-main .request-title::before {
-               content: '✅  ';
-           }
-
-           .message-bubble.status-paid .waimai-main .request-title {
-               color: #155724;
-               font-weight: 600;
-               content: "我已为您买单，请尽情享用吧～" !important;
-               display: block;
-               margin-bottom: 15px;
-           }
-
-           .message-bubble.status-paid .payment-box {
-               display: none;
-           }
-
-           .message-bubble.status-paid .waimai-details-btn {
-               background-color: #28a745;
-               color: white;
-           }
-
-           .message-bubble.status-rejected .waimai-card {
-               border: 2px solid #dc3545;
-               opacity: 0.8;
-           }
-
-           .message-bubble.status-rejected .waimai-main {
-               background-color: #e9ecef;
-           }
-
-           .message-bubble.status-rejected .waimai-main .request-title::before {
-               content: '❌ ';
-           }
-
-           .message-bubble.status-rejected .waimai-main .request-title {
-               color: #721c24;
-               font-weight: 600;
-               content: "我拒绝了您的代付请求" !important;
-               display: block;
-               margin-bottom: 15px;
-           }
-
-           .message-bubble.status-rejected .payment-box {
-               display: none;
-           }
-
-           .message-bubble.status-rejected .waimai-details-btn {
-               background-color: #6c757d;
-               color: white;
-           }
-
-           .message-bubble[class*="status-"] .request-title {
-               font-size: 0;
-           }
-
-           .message-bubble[class*="status-"] .request-title::after {
-               font-size: 14px;
-           }
-
-           .message-bubble.status-paid .request-title::after {
-               content: "我已为您买单，请尽情享用吧～";
-           }
-
-           .message-bubble.status-rejected .request-title::after {
-               content: "我拒绝了您的代付请求";
-           }
-
-           .waimai-user-actions {
-               display: flex;
-               gap: 10px;
-               padding: 0 12px 12px 12px;
-               background-color: var(--secondary-bg);
-           }
-
-           .waimai-user-actions button {
-               flex: 1;
-               padding: 10px;
-               border-radius: 8px;
-               border: 1.5px solid;
-               font-size: 14px;
-               font-weight: 600;
-               cursor: pointer;
-               transition: all 0.2s ease;
-           }
-
-           .waimai-pay-btn {
-               background-color: #28a745;
-               border-color: #1f7a33;
-               color: white;
-           }
-
-           .waimai-pay-btn:hover {
-               background-color: #218838;
-           }
-
-           .waimai-decline-btn {
-               background-color: #f8f9fa;
-               border-color: #ced4da;
-               color: #495057;
-           }
-
-           .waimai-decline-btn:hover {
-               background-color: #e2e6ea;
-           }
-
-           #api-settings-screen,
-           #font-settings-screen,
-           #wallpaper-screen,
-           #memories-view,
-           #contact-picker-screen,
-           #member-management-screen,
-           #world-book-editor-screen {
-               background-color: var(--secondary-bg);
-           }
-
-           #api-settings-screen .form-container,
-           #font-settings-screen .form-container,
-           #wallpaper-screen .form-container {
-               padding-top: 100px;
-               margin-top: -80px;
-               background-color: var(--secondary-bg);
-           }
-
-           #wallpaper-screen .form-container {
-               align-items: center;
-           }
-
-           #incoming-call-modal .incoming-call-content {
-               background-color: rgba(40, 40, 40, 0.85);
-               backdrop-filter: blur(20px);
-               -webkit-backdrop-filter: blur(20px);
-               border-radius: 20px;
-               width: 280px;
-               padding: 30px 20px;
-               text-align: center;
-               color: white;
-               box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-           }
-
-           .caller-avatar {
-               width: 80px;
-               height: 80px;
-               border-radius: 50%;
-               object-fit: cover;
-               margin-bottom: 12px;
-               border: 3px solid rgba(255, 255, 255, 0.5);
-           }
-
-           .caller-name {
-               font-size: 20px;
-               font-weight: 600;
-               margin-bottom: 5px;
-           }
-
-           .caller-text {
-               font-size: 14px;
-               color: #ccc;
-               margin-bottom: 30px;
-           }
-
-           .incoming-call-actions {
-               display: flex;
-               justify-content: space-around;
-               align-items: center;
-           }
-
-           .action-button-wrapper {
-               display: flex;
-               flex-direction: column;
-               align-items: center;
-               gap: 8px;
-               font-size: 13px;
-               color: #e0e0e0;
-           }
-
-           .call-action-btn {
-               width: 60px;
-               height: 60px;
-               border-radius: 50%;
-               border: none;
-               cursor: pointer;
-               background-size: 50%;
-               background-repeat: no-repeat;
-               background-position: center;
-               transition: transform 0.2s, box-shadow 0.2s;
-               box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-           }
-
-           .call-action-btn:active {
-               transform: scale(0.9);
-           }
-
-           .call-action-btn.decline {
-               background-color: #ff3b30;
-               background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 16.5L3 6m18 6l-5.6-5.6a1.2 1.2 0 0 0-1.7 0L3 18.2a1.2 1.2 0 0 0-.3 1.2l1.2 3.6a1.2 1.2 0 0 0 1.2.9h15.6a1.2 1.2 0 0 0 1.2-1.2V7.7a1.2 1.2 0 0 0-.3-1.1z"/></svg>');
-           }
-
-           .call-action-btn.accept {
-               background-color: #4cd964;
-               background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>');
-               animation: pulse 1.5s infinite;
-           }
-
-           @keyframes pulse {
-               0% {
-                   box-shadow: 0 0 0 0 rgba(76, 217, 100, 0.7);
-               }
-
-               70% {
-                   box-shadow: 0 0 0 15px rgba(76, 217, 100, 0);
-               }
-
-               100% {
-                   box-shadow: 0 0 0 0 rgba(76, 217, 100, 0);
-               }
-           }
-
-           #video-call-screen {
-               background-color: #1c1c1e;
-               color: white;
-               display: flex;
-               flex-direction: column;
-               overflow: hidden;
-           }
-
-           .video-call-top-bar {
-               position: absolute;
-               top: 0;
-               left: 0;
-               width: 100%;
-               padding: 15px 20px;
-               padding-top: 50px;
-               background: linear-gradient(to bottom, rgba(0, 0, 0, 0.5), transparent);
-               z-index: 100;
-               text-align: center;
-               box-sizing: border-box;
-               pointer-events: none;
-           }
-
-           #call-timer {
-               font-size: 16px;
-               font-weight: 500;
-               letter-spacing: 1px;
-           }
-
-           .video-call-controls {
-               position: absolute;
-               bottom: 0;
-               left: 0;
-               width: 100%;
-               display: flex;
-               justify-content: space-around;
-               align-items: center;
-               padding: 20px;
-               padding-bottom: 40px;
-               background: linear-gradient(to top, rgba(0, 0, 0, 0.5), transparent);
-               z-index: 100;
-               box-sizing: border-box;
-           }
-
-           .video-call-avatar-area {
-               flex-grow: 1;
-               display: flex;
-               justify-content: center;
-               align-items: center;
-               padding: 20px;
-               padding-top: 80px;
-               box-sizing: border-box;
-               overflow-y: auto;
-           }
-
-           #participant-avatars-grid {
-               display: flex;
-               flex-wrap: wrap;
-               justify-content: center;
-               align-items: center;
-               gap: 15px;
-               max-width: 100%;
-           }
-
-           .participant-avatar-wrapper {
-               position: relative;
-               text-align: center;
-               flex-shrink: 0;
-           }
-
-           .participant-avatar {
-               width: 70px;
-               height: 70px;
-               border-radius: 50%;
-               object-fit: cover;
-               border: 3px solid rgba(255, 255, 255, 0.2);
-               transition: all 0.3s ease;
-           }
-
-           .participant-name {
-               margin-top: 8px;
-               font-size: 12px;
-               color: #ccc;
-           }
-
-           .participant-avatar.speaking {
-               border-color: #4cd964;
-               box-shadow: 0 0 20px rgba(76, 217, 100, 0.6);
-               transform: scale(1.05);
            }

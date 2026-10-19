@@ -5,7 +5,7 @@
 //       applyLyricsBarPosition、getLrcContent、togglePlaylistManagementMode、
 //       handlePlaylistSelection 等）
 // 功能：一起听、播放器 UI、歌单管理、播放控制、歌词解析/渲染、
-//       音乐搜索（网易云/腾讯/Toubiec）、添加歌曲、删除歌曲
+//       多平台音乐搜索、添加歌曲、删除歌曲与账户歌单导入
 // ============================================================
 
 (function () {
@@ -154,27 +154,173 @@
   }
 
   // 来源：script.js 第 32842~32868 行
-  async function addMusicActionSystemMessage(actionText) {
+  function getMusicAwareChatIds() {
+    if (!musicState.isActive) return [];
+    const ids = musicState.multiSyncEnabled ? (musicState.syncedChatIds || []) : [musicState.activeChatId];
+    return [...new Set(ids)].filter(id => !!state.chats[id]);
+  }
 
-    if (!musicState.isActive || !musicState.activeChatId) return;
-    const chat = state.chats[musicState.activeChatId];
-    if (!chat) return;
+  function isMusicAwareChat(chatId) {
+    return getMusicAwareChatIds().includes(chatId);
+  }
 
+  function getMusicElapsedTime(chatId) {
+    if (chatId === musicState.activeChatId) return musicState.totalElapsedTime;
+    return musicState.syncedElapsedTimes?.[chatId] ?? state.chats[chatId]?.musicData?.totalTime ?? 0;
+  }
 
-    const myNickname = chat.isGroup ? (chat.settings.myNickname || '我') : '我';
-    const fullMessage = `[系统提示：用户 (${myNickname}) ${actionText}]`;
+  async function saveMusicSyncTimes() {
+    for (const id of getMusicAwareChatIds()) {
+      if (id === musicState.activeChatId) continue;
+      const chat = state.chats[id];
+      chat.musicData = chat.musicData || { totalTime: 0 };
+      chat.musicData.totalTime = getMusicElapsedTime(id);
+      await db.chats.put(chat);
+    }
+  }
 
+  let musicSyncDraft = null;
 
-    const systemMessage = {
-      role: 'system',
-      content: fullMessage,
-      timestamp: Date.now(),
-      isHidden: true
+  function closeMusicSyncSettings() {
+    const modal = document.getElementById('music-sync-modal');
+    if (!modal) return;
+    modal.classList.remove('visible');
+    musicSyncDraft = null;
+    document.getElementById('music-sync-btn')?.focus();
+  }
+
+  function renderMusicSyncSettings() {
+    if (!musicSyncDraft) return;
+    const enabled = musicSyncDraft.enabled;
+    document.getElementById('music-sync-enabled').checked = enabled;
+    document.getElementById('music-sync-options').hidden = !enabled;
+    const list = document.getElementById('music-sync-role-list');
+    list.replaceChildren();
+    const chats = Object.values(state.chats).filter(chat => !chat.isGroup || chat.id === musicState.activeChatId);
+    for (const chat of chats) {
+      const row = document.createElement('label');
+      row.className = 'music-sync-role';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.value = chat.id;
+      input.checked = musicSyncDraft.ids.has(chat.id);
+      const avatar = document.createElement('img');
+      avatar.src = chat.settings?.aiAvatar || defaultAvatar;
+      avatar.alt = '';
+      const name = document.createElement('span');
+      name.textContent = chat.name || chat.originalName || '角色';
+      name.title = name.textContent;
+      row.append(input, avatar, name);
+      list.appendChild(row);
+    }
+    document.getElementById('music-sync-count').textContent = `已选 ${chats.filter(chat => musicSyncDraft.ids.has(chat.id)).length} 位`;
+    document.getElementById('music-sync-status').textContent = '';
+  }
+
+  async function applyMusicSyncSettings() {
+    if (!musicSyncDraft || !musicState.isActive) return;
+    const ids = [...musicSyncDraft.ids].filter(id => !!state.chats[id]);
+    if (musicSyncDraft.enabled && !ids.length) {
+      document.getElementById('music-sync-status').textContent = '请至少选择一个角色';
+      return;
+    }
+    const ownerId = musicState.activeChatId;
+    const draft = musicSyncDraft;
+    const enabled = draft.enabled;
+    const controls = document.getElementById('music-sync-modal').querySelectorAll('input, button');
+    controls.forEach(control => { control.disabled = true; });
+    try {
+      if (musicState.multiSyncEnabled) await saveMusicSyncTimes();
+      if (!musicState.isActive || musicState.activeChatId !== ownerId || musicSyncDraft !== draft) return;
+      const elapsedTimes = musicState.syncedElapsedTimes || {};
+      for (const id of ids) {
+        if (id !== ownerId && elapsedTimes[id] === undefined) {
+          elapsedTimes[id] = state.chats[id].musicData?.totalTime || 0;
+        }
+      }
+      musicState.syncedElapsedTimes = elapsedTimes;
+      musicState.syncedChatIds = ids;
+      musicState.multiSyncEnabled = enabled;
+      const syncBtn = document.getElementById('music-sync-btn');
+      syncBtn.classList.toggle('active', enabled);
+      syncBtn.setAttribute('aria-pressed', String(enabled));
+      syncBtn.title = enabled ? `多人同步：${ids.length} 位角色` : '多人同步';
+      updatePlayerUI();
+      closeMusicSyncSettings();
+    } catch (error) {
+      console.error('[音乐同步] 保存失败:', error);
+      document.getElementById('music-sync-status').textContent = '保存失败，请重试';
+    } finally {
+      controls.forEach(control => { control.disabled = false; });
+    }
+  }
+
+  function openMusicSyncSettings() {
+    if (!musicState.isActive) return;
+    const modal = document.getElementById('music-sync-modal');
+    if (!modal) return;
+    if (!modal.dataset.bound) {
+      modal.dataset.bound = 'true';
+      document.getElementById('music-sync-enabled').addEventListener('change', e => {
+        if (!musicSyncDraft) return;
+        musicSyncDraft.enabled = e.target.checked;
+        renderMusicSyncSettings();
+      });
+      document.getElementById('music-sync-role-list').addEventListener('change', e => {
+        if (!musicSyncDraft || e.target.type !== 'checkbox') return;
+        if (e.target.checked) musicSyncDraft.ids.add(e.target.value);
+        else musicSyncDraft.ids.delete(e.target.value);
+        document.getElementById('music-sync-count').textContent = `已选 ${[...musicSyncDraft.ids].filter(id => !!state.chats[id]).length} 位`;
+        document.getElementById('music-sync-status').textContent = '';
+      });
+      document.getElementById('music-sync-select-all').addEventListener('click', () => {
+        if (!musicSyncDraft?.enabled) return;
+        musicSyncDraft.ids = new Set(Object.values(state.chats)
+          .filter(chat => !chat.isGroup || chat.id === musicState.activeChatId).map(chat => chat.id));
+        renderMusicSyncSettings();
+      });
+      document.getElementById('music-sync-clear-all').addEventListener('click', () => {
+        if (!musicSyncDraft?.enabled) return;
+        musicSyncDraft.ids.clear();
+        renderMusicSyncSettings();
+      });
+      document.getElementById('music-sync-cancel-btn').addEventListener('click', closeMusicSyncSettings);
+      document.getElementById('music-sync-apply-btn').addEventListener('click', applyMusicSyncSettings);
+      modal.addEventListener('click', e => { if (e.target === modal) closeMusicSyncSettings(); });
+      modal.addEventListener('keydown', e => {
+        if (e.key === 'Escape') { e.preventDefault(); closeMusicSyncSettings(); }
+      });
+    }
+    musicSyncDraft = {
+      enabled: !!musicState.multiSyncEnabled,
+      ids: new Set(musicState.syncedChatIds || [musicState.activeChatId])
     };
+    renderMusicSyncSettings();
+    modal.classList.add('visible');
+    document.getElementById('music-sync-enabled').focus();
+  }
+
+  async function addMusicActionSystemMessage(actionText, isUserAction = true) {
+
+    for (const chatId of getMusicAwareChatIds()) {
+      const chat = state.chats[chatId];
 
 
-    chat.history.push(systemMessage);
-    await db.chats.put(chat);
+      const myNickname = chat.isGroup ? (chat.settings.myNickname || '我') : '我';
+      const fullMessage = isUserAction ? `[系统提示：用户 (${myNickname}) ${actionText}]` : `[系统提示：${actionText}]`;
+
+
+      const systemMessage = {
+        role: 'system',
+        content: fullMessage,
+        timestamp: Date.now(),
+        isHidden: true
+      };
+
+
+      chat.history.push(systemMessage);
+      await db.chats.put(chat);
+    }
   }
 
   // ========== 主要音乐播放器功能（来自 script.js 第 19473~20210 行） ==========
@@ -186,7 +332,7 @@
       startListenTogetherSession(targetChatId);
       return;
     }
-    if (musicState.activeChatId === targetChatId) {
+    if (musicState.activeChatId === targetChatId || isMusicAwareChat(targetChatId)) {
       document.getElementById('music-player-overlay').classList.add('visible');
     } else {
       const oldChatName = state.chats[musicState.activeChatId]?.name || '未知';
@@ -208,6 +354,15 @@
     musicState.totalElapsedTime = chat.musicData.totalTime || 0;
     musicState.isActive = true;
     musicState.activeChatId = chatId;
+    musicState.multiSyncEnabled = false;
+    musicState.syncedChatIds = [chatId];
+    musicState.syncedElapsedTimes = {};
+    const syncBtn = document.getElementById('music-sync-btn');
+    if (syncBtn) {
+      syncBtn.classList.remove('active');
+      syncBtn.setAttribute('aria-pressed', 'false');
+      syncBtn.title = '多人同步';
+    }
     if (musicState.playlist.length > 0) {
       musicState.currentIndex = 0;
     } else {
@@ -216,7 +371,11 @@
     if (musicState.timerId) clearInterval(musicState.timerId);
     musicState.timerId = setInterval(() => {
       if (musicState.isPlaying) {
-        musicState.totalElapsedTime++;
+        const awareIds = getMusicAwareChatIds();
+        if (awareIds.includes(chatId)) musicState.totalElapsedTime++;
+        for (const id of awareIds) {
+          if (id !== chatId) musicState.syncedElapsedTimes[id] = getMusicElapsedTime(id) + 1;
+        }
         updateElapsedTimeDisplay();
       }
     }, 1000);
@@ -227,20 +386,26 @@
 
   async function endListenTogetherSession(saveState = true) {
     if (!musicState.isActive) return;
+    if (document.getElementById('music-sync-modal')?.classList.contains('visible')) closeMusicSyncSettings();
     const oldChatId = musicState.activeChatId;
     document.getElementById('global-lyrics-bar').classList.remove('visible');
     const cleanupLogic = async () => {
       if (musicState.timerId) clearInterval(musicState.timerId);
       if (musicState.isPlaying) audioPlayer.pause();
+      if (saveState && musicState.multiSyncEnabled) await saveMusicSyncTimes();
       if (saveState && oldChatId && state.chats[oldChatId]) {
         const chat = state.chats[oldChatId];
         chat.musicData.totalTime = musicState.totalElapsedTime;
         await db.chats.put(chat);
       }
       musicState.isActive = false;
+      musicState.multiSyncEnabled = false;
+      musicState.syncedChatIds = [];
+      musicState.syncedElapsedTimes = {};
       musicState.activeChatId = null;
       musicState.totalElapsedTime = 0;
       musicState.timerId = null;
+      clearMusicMediaSession();
       updateListenTogetherIcon(oldChatId, true);
     };
     closeMusicPlayerWithAnimation(cleanupLogic);
@@ -253,7 +418,7 @@
   function updateListenTogetherIcon(chatId, forceReset = false) {
     const iconImg = document.querySelector('#listen-together-btn img');
     if (!iconImg) return;
-    if (forceReset || !musicState.isActive || musicState.activeChatId !== chatId) {
+    if (forceReset || !isMusicAwareChat(chatId)) {
       iconImg.src = 'https://i.postimg.cc/8kYShvrJ/90-UI-2.png';
       iconImg.className = '';
       return;
@@ -266,7 +431,7 @@
   window.updateListenTogetherIconProxy = updateListenTogetherIcon;
 
   function updatePlayerUI() {
-    updateListenTogetherIcon(musicState.activeChatId);
+    updateListenTogetherIcon(musicState.multiSyncEnabled ? state.activeChatId : musicState.activeChatId);
     updateElapsedTimeDisplay();
     const titleEl = document.getElementById('music-player-song-title');
     const artistEl = document.getElementById('music-player-artist');
@@ -279,12 +444,41 @@
       titleEl.textContent = '请添加歌曲';
       artistEl.textContent = '...';
     }
-    playPauseBtn.textContent = musicState.isPlaying ? '❚❚' : '▶';
+    if (playPauseBtn) {
+      playPauseBtn.textContent = musicState.isPlaying ? '❚❚' : '▶';
+    }
   }
 
   function updateElapsedTimeDisplay() {
     const hours = (musicState.totalElapsedTime / 3600).toFixed(1);
     document.getElementById('music-time-counter').textContent = `已经一起听了${hours}小时`;
+  }
+
+  function updateMusicMediaSession(track) {
+    if (!('mediaSession' in navigator) || typeof MediaMetadata === 'undefined') return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: track.name || '未知歌曲',
+        artist: track.artist || '未知歌手',
+        artwork: track.cover ? [{ src: String(track.cover).replace(/^http:\/\//i, 'https://') }] : []
+      });
+      navigator.mediaSession.setActionHandler('play', () => togglePlayPause());
+      navigator.mediaSession.setActionHandler('pause', () => audioPlayer.pause());
+      navigator.mediaSession.setActionHandler('previoustrack', () => playPrev());
+      navigator.mediaSession.setActionHandler('nexttrack', () => playNext(true));
+    } catch (error) {
+      console.warn('[音乐播放] 系统媒体控制不可用:', error.message);
+    }
+  }
+
+  function clearMusicMediaSession() {
+    if (!('mediaSession' in navigator)) return;
+    try {
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.playbackState = 'none';
+    } catch (_) {
+      // Some browsers expose an incomplete Media Session implementation.
+    }
   }
 
   function updatePlaylistUI() {
@@ -316,8 +510,8 @@
       item.innerHTML = `
         <input type="checkbox" class="playlist-item-checkbox" style="display: ${checkboxDisplay};" data-index="${originalIndex}">
         <div class="playlist-item-info">
-            <div class="title">${track.name}</div>
-            <div class="artist">${track.artist}</div>
+            <div class="title">${escapeMusicHtml(track.name)}</div>
+            <div class="artist">${escapeMusicHtml(track.artist)}</div>
         </div>
         <div class="playlist-item-actions">
             <span class="playlist-action-btn album-art-btn" data-index="${originalIndex}">专辑</span>
@@ -536,7 +730,12 @@
     let nextIndex;
     switch (musicState.playMode) {
       case 'random':
-        nextIndex = indices[Math.floor(Math.random() * indices.length)];
+        if (indices.length === 1) {
+          nextIndex = indices[0];
+        } else {
+          const candidates = indices.filter(trackIndex => trackIndex !== musicState.currentIndex);
+          nextIndex = candidates[Math.floor(Math.random() * candidates.length)];
+        }
         break;
       case 'single':
         playSong(musicState.currentIndex, isAutomatic);
@@ -570,39 +769,184 @@
     const modes = ['order', 'random', 'single'];
     const currentModeIndex = modes.indexOf(musicState.playMode);
     musicState.playMode = modes[(currentModeIndex + 1) % modes.length];
-    document.getElementById('music-mode-btn').textContent = {
-      'order': '顺序',
-      'random': '随机',
-      'single': '单曲'
-    }[musicState.playMode];
+    updatePlayModeUI();
+  }
+
+  function updatePlayModeUI() {
+    const modeBtn = document.getElementById('music-mode-btn');
+    if (!modeBtn) return;
+    const mode = musicState.playMode || 'order';
+    
+    if (mode === 'random') {
+      modeBtn.title = '播放模式: 随机播放';
+      modeBtn.innerHTML = `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="16 3 21 3 21 8"></polyline>
+          <line x1="4" y1="20" x2="21" y2="3"></line>
+          <polyline points="21 16 21 21 16 21"></polyline>
+          <line x1="15" y1="15" x2="21" y2="21"></line>
+          <line x1="4" y1="4" x2="9" y2="9"></line>
+        </svg>`;
+    } else if (mode === 'single') {
+      modeBtn.title = '播放模式: 单曲循环';
+      modeBtn.innerHTML = `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m17 2 4 4-4 4"></path>
+          <path d="M3 11v-1a4 4 0 0 1 4-4h14"></path>
+          <path d="m7 22-4-4 4-4"></path>
+          <path d="M21 13v1a4 4 0 0 1-4 4H3"></path>
+          <text x="12" y="15" font-size="9" font-weight="700" text-anchor="middle" fill="currentColor" stroke="none">1</text>
+        </svg>`;
+    } else {
+      modeBtn.title = '播放模式: 顺序播放';
+      modeBtn.innerHTML = `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m17 2 4 4-4 4"></path>
+          <path d="M3 11v-1a4 4 0 0 1 4-4h14"></path>
+          <path d="m7 22-4-4 4-4"></path>
+          <path d="M21 13v1a4 4 0 0 1-4 4H3"></path>
+        </svg>`;
+    }
+  }
+
+  function parseFileNameToSongInfo(fileName) {
+    let cleanName = fileName.replace(/\.[^/.]+$/, "").trim();
+    let name = cleanName;
+    let artist = "未知歌手";
+
+    if (cleanName.includes(' - ')) {
+      const parts = cleanName.split(' - ');
+      if (parts.length >= 2) {
+        artist = parts[0].trim();
+        name = parts.slice(1).join(' - ').trim();
+      }
+    } else if (cleanName.includes('-')) {
+      const parts = cleanName.split('-');
+      if (parts.length >= 2) {
+        artist = parts[0].trim();
+        name = parts.slice(1).join('-').trim();
+      }
+    }
+    return { name: name || cleanName || '未知歌曲', artist: artist || '未知歌手' };
   }
 
   async function addSongFromURL() {
-    const url = await showCustomPrompt("添加网络歌曲", "请输入歌曲的URL", "", "url");
-    if (!url) return;
-    const name = await showCustomPrompt("歌曲信息", "请输入歌名");
-    if (!name) return;
-    const artist = await showCustomPrompt("歌曲信息", "请输入歌手名");
-    if (!artist) return;
-    // 选择歌单
-    const playlistId = await showPlaylistPicker('添加到哪个歌单？');
-    musicState.playlist.push({
-      name,
-      artist,
-      src: url,
-      isLocal: false,
-      playlistId: playlistId
-    });
-    await saveGlobalPlaylist();
-    updatePlaylistUI();
-    if (musicState.currentIndex === -1) {
-      musicState.currentIndex = musicState.playlist.length - 1;
-      updatePlayerUI();
+    const modeChoice = await showChoiceModal("添加网络音频", [
+      { text: "单首添加", value: "single" },
+      { text: "批量导入 (支持多行/链接列表)", value: "batch" }
+    ]);
+
+    if (!modeChoice) return;
+
+    if (modeChoice === "single") {
+      const url = await showCustomPrompt("添加网络歌曲", "请输入歌曲的URL", "", "url");
+      if (!url || !url.trim()) return;
+      const name = await showCustomPrompt("歌曲信息", "请输入歌名");
+      if (!name || !name.trim()) return;
+      const artist = await showCustomPrompt("歌曲信息", "请输入歌手名", "未知歌手");
+      if (artist === null) return;
+      // 选择歌单
+      const playlistId = await showPlaylistPicker('添加到哪个歌单？');
+      musicState.playlist.push({
+        name: name.trim(),
+        artist: (artist && artist.trim()) || "未知歌手",
+        src: url.trim(),
+        isLocal: false,
+        cover: 'https://s3plus.meituan.net/opapisdk/op_ticket_885190757_1757748720126_qdqqd_1jt5sv.jpeg',
+        playlistId: playlistId
+      });
+      await saveGlobalPlaylist();
+      updatePlaylistUI();
+      if (musicState.currentIndex === -1) {
+        musicState.currentIndex = musicState.playlist.length - 1;
+        updatePlayerUI();
+      }
+      showToast('歌曲已添加', 'success');
+    } else if (modeChoice === "batch") {
+      const batchText = await showCustomPrompt(
+        "批量添加网络音频",
+        "每行输入一首歌曲，支持以下格式：\n1. 音频URL\n2. 歌名, 歌手, 音频URL\n3. 歌手 - 歌名, 音频URL",
+        "",
+        "textarea"
+      );
+      if (!batchText || !batchText.trim()) return;
+
+      const lines = batchText.split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length === 0) return;
+
+      const playlistId = await showPlaylistPicker('添加到哪个歌单？');
+      let count = 0;
+
+      for (const line of lines) {
+        let name = "网络音频";
+        let artist = "未知歌手";
+        let src = "";
+
+        if (line.includes(',')) {
+          const parts = line.split(',').map(p => p.trim());
+          if (parts.length === 2) {
+            name = parts[0] || "网络音频";
+            src = parts[1];
+          } else if (parts.length >= 3) {
+            name = parts[0] || "网络音频";
+            artist = parts[1] || "未知歌手";
+            src = parts[2];
+          }
+        } else if (line.includes('，')) {
+          const parts = line.split('，').map(p => p.trim());
+          if (parts.length === 2) {
+            name = parts[0] || "网络音频";
+            src = parts[1];
+          } else if (parts.length >= 3) {
+            name = parts[0] || "网络音频";
+            artist = parts[1] || "未知歌手";
+            src = parts[2];
+          }
+        } else {
+          src = line;
+          // 尝试从 URL 路径获取文件名作为歌名
+          try {
+            const urlObj = new URL(src);
+            const pathName = decodeURIComponent(urlObj.pathname.split('/').pop() || '');
+            if (pathName) {
+              const parsed = parseFileNameToSongInfo(pathName);
+              name = parsed.name;
+              artist = parsed.artist;
+            }
+          } catch (_) {
+            name = `网络歌曲 ${count + 1}`;
+          }
+        }
+
+        if (src && (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:'))) {
+          musicState.playlist.push({
+            name: name,
+            artist: artist,
+            src: src,
+            isLocal: false,
+            cover: 'https://s3plus.meituan.net/opapisdk/op_ticket_885190757_1757748720126_qdqqd_1jt5sv.jpeg',
+            playlistId: playlistId
+          });
+          count++;
+        }
+      }
+
+      if (count > 0) {
+        await saveGlobalPlaylist();
+        updatePlaylistUI();
+        if (musicState.currentIndex === -1 && musicState.playlist.length > 0) {
+          musicState.currentIndex = 0;
+          updatePlayerUI();
+        }
+        await showCustomAlert("批量导入成功", `成功批量添加了 ${count} 首网络歌曲！`);
+      } else {
+        await showCustomAlert("导入失败", "未识别到有效的音频链接，请检查格式后重试。");
+      }
     }
   }
 
 
-  async function playSong(index, isAutomatic = false) {
+  async function playSong(index, isAutomatic = false, changeSource = 'user') {
     if (index < 0 || index >= musicState.playlist.length) return;
 
     // 自动切换到该歌曲所在的歌单
@@ -621,6 +965,29 @@
     musicState.currentIndex = index;
     const track = musicState.playlist[index];
     const chat = state.chats[musicState.activeChatId];
+
+    if (track.onlineSource && !track.src) {
+      try {
+        const resolved = await getOnlineMusicServices().resolveSong(track, {
+          forceRefresh: true,
+          allowCrossPlatform: true
+        });
+        if (!resolved?.url) throw new Error('没有可用播放地址');
+        track.src = resolved.url;
+        track.onlineResolvedAt = Date.now();
+        track.onlineSource = getOnlineMusicServices().toPlaylistTrack(resolved.identity, resolved.url).onlineSource;
+        if (!track.lrcContent) {
+          track.lrcContent = await getOnlineMusicServices().loadLyrics(resolved.identity) || '';
+        }
+        await saveGlobalPlaylist();
+      } catch (error) {
+        console.error('[音乐播放] 刷新播放地址失败:', error);
+        await showCustomAlert('暂时无法播放', `《${track.name}》当前没有可用音源，请稍后重试或重新搜索。`);
+        updatePlaylistUI();
+        updatePlayerUI();
+        return;
+      }
+    }
 
 
     const avatarDisplay = document.getElementById('music-player-avatar-display');
@@ -668,9 +1035,6 @@
       coverEl.src = track.cover || 'https://s3plus.meituan.net/opapisdk/op_ticket_885190757_1757748720126_qdqqd_1jt5sv.jpeg';
     }
 
-    if (!isAutomatic) {
-      await addMusicActionSystemMessage(`将歌曲切换为了《${track.name}》`);
-    }
     musicState.parsedLyrics = parseLRC(track.lrcContent || "");
 
     renderLyrics();
@@ -693,7 +1057,7 @@
     } else if (!track.isLocal) {
       // 直接使用音频URL，不使用代理
       // 音频文件通常已经支持CORS，不需要像图片那样使用代理
-      audioPlayer.src = track.src;
+      audioPlayer.src = String(track.src || '').replace(/^http:\/\//i, 'https://');
       console.log(`[音乐播放] 加载音频: ${track.name}, URL: ${track.src}`);
     } else {
       console.error('本地歌曲源错误:', track);
@@ -702,21 +1066,22 @@
 
     // 重新加载音频资源
     audioPlayer.load();
-
-    // 强制重新加载音频源
-    audioPlayer.load();
-
     const playPromise = audioPlayer.play();
+    updateMusicMediaSession(track);
     if (playPromise !== undefined) {
       playPromise.catch(error => {
         if (error.name === 'NotAllowedError') {
           console.warn('Autoplay was prevented by the browser.');
           audioPlayer.pause();
-
+          showCustomAlert('可以播放了', '浏览器需要你再次点击播放按钮来开始这首歌。');
         } else if (error.name !== 'AbortError') {
           console.error('Playback error:', error);
         }
       });
+    }
+    if (!isAutomatic) {
+      if (changeSource === 'character') addMusicActionSystemMessage(`歌曲已切换为《${track.name}》 - ${track.artist}`, false);
+      else addMusicActionSystemMessage(`将歌曲切换为了《${track.name}》`);
     }
     updatePlaylistUI();
     updatePlayerUI();
@@ -819,60 +1184,72 @@
 
   async function addSongFromLocal(event) {
     const files = event.target.files;
-    if (!files.length) return;
+    if (!files || !files.length) return;
 
     // 先选择歌单
     const playlistId = await showPlaylistPicker('添加到哪个歌单？');
+    const isBatch = files.length > 1;
 
     let uploadedCount = 0;
-    for (const file of files) {
-      let name = file.name.replace(/\.[^/.]+$/, "");
-      name = await showCustomPrompt("歌曲信息", "请输入歌名", name);
-      if (name === null) continue;
 
-      const artist = await showCustomPrompt("歌曲信息", "请输入歌手名", "未知歌手");
-      if (artist === null) continue;
+    if (isBatch) {
+      showToast(`正在批量导入 ${files.length} 首歌曲...`, 'info');
+    }
 
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const parsedInfo = parseFileNameToSongInfo(file.name);
+      let name = parsedInfo.name;
+      let artist = parsedInfo.artist;
       let lrcContent = "";
-      const wantLrc = await showCustomConfirm("导入歌词", `要为《${name}》添加歌词吗？`);
-      if (wantLrc) {
-        lrcContent = await getLrcContent() || "";
-      }
 
+      if (!isBatch) {
+        // 单个文件允许手动确认歌名、歌手和歌词
+        const customName = await showCustomPrompt("歌曲信息", "请输入歌名", name);
+        if (customName === null) continue;
+        if (customName.trim()) name = customName.trim();
+
+        const customArtist = await showCustomPrompt("歌曲信息", "请输入歌手名", artist);
+        if (customArtist === null) continue;
+        if (customArtist.trim()) artist = customArtist.trim();
+
+        const wantLrc = await showCustomConfirm("导入歌词", `要为《${name}》添加歌词吗？`);
+        if (wantLrc) {
+          lrcContent = await getLrcContent() || "";
+        }
+      }
 
       let songSrc = null;
       let isLocal = true;
 
-      try {
-        // 尝试上传到 Catbox
-        const catboxUrl = await uploadFileToCatbox(file); // 'file' 是现成的 File 对象
-
-        if (catboxUrl) {
-          // 上传成功
-          songSrc = catboxUrl;
-          isLocal = false; // 这是一个网络 URL
-          await showCustomAlert("上传成功", `歌曲 "${file.name}" 已成功上传并保存到您的 Catbox 账户！`);
-        } else {
-
-          console.log("Catbox 未配置，将歌曲保存为本地 ArrayBuffer。");
+      // 如果开启了 Catbox 配置，尝试上传到 Catbox
+      const hasCatbox = state.apiConfig && state.apiConfig.catboxEnable && state.apiConfig.catboxUserHash;
+      if (hasCatbox) {
+        try {
+          const catboxUrl = await uploadFileToCatbox(file);
+          if (catboxUrl) {
+            songSrc = catboxUrl;
+            isLocal = false;
+          } else {
+            songSrc = await file.arrayBuffer();
+            isLocal = true;
+          }
+        } catch (uploadError) {
+          console.warn(`[本地音频] 上传Catbox失败，降级为本地保存: ${file.name}`, uploadError);
           songSrc = await file.arrayBuffer();
           isLocal = true;
         }
-      } catch (uploadError) {
-
-        console.error("Catbox 上传失败:", uploadError);
-        await showCustomAlert("上传失败", `歌曲上传到 Catbox 失败: ${uploadError.message}\n\n将改为本地保存。`);
+      } else {
         songSrc = await file.arrayBuffer();
         isLocal = true;
       }
 
-
       musicState.playlist.push({
         name,
         artist,
-        src: songSrc,       // <-- 修改
-        fileType: file.type,
-        isLocal: isLocal,     // <-- 修改
+        src: songSrc,
+        fileType: file.type || 'audio/mpeg',
+        isLocal: isLocal,
         lrcContent: lrcContent,
         cover: 'https://s3plus.meituan.net/opapisdk/op_ticket_885190757_1757748720126_qdqqd_1jt5sv.jpeg',
         playlistId: playlistId
@@ -886,6 +1263,11 @@
       if (musicState.currentIndex === -1 && musicState.playlist.length > 0) {
         musicState.currentIndex = 0;
         updatePlayerUI();
+      }
+      if (isBatch) {
+        await showCustomAlert("批量添加成功", `已成功添加 ${uploadedCount} 首本地歌曲！`);
+      } else {
+        showToast("歌曲已添加", "success");
       }
     }
     event.target.value = null;
@@ -1180,214 +1562,116 @@
     return await Http_Get_External(url);
   }
 
-  function checkAudioAvailability(url) {
+  function checkAudioAvailability(url, timeoutMs = 8000) {
     return new Promise(resolve => {
+      if (!url) {
+        resolve(false);
+        return;
+      }
       const tester = new Audio();
-      tester.addEventListener('loadedmetadata', () => resolve(true), {
-        once: true
-      });
-      tester.addEventListener('error', () => resolve(false), {
-        once: true
-      });
-      tester.src = url;
+      let settled = false;
+      const finish = (available) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        tester.removeAttribute('src');
+        tester.load();
+        resolve(available);
+      };
+      const timer = setTimeout(() => finish(false), timeoutMs);
+      tester.addEventListener('loadedmetadata', () => finish(true), { once: true });
+      tester.addEventListener('error', () => finish(false), { once: true });
+      tester.preload = 'metadata';
+      tester.src = String(url).replace(/^http:\/\//i, 'https://');
     });
   }
 
+  let onlineRetryInProgress = false;
+  async function retryOnlineTrackPlayback() {
+    const track = musicState.playlist[musicState.currentIndex];
+    if (!track?.onlineSource || onlineRetryInProgress) return false;
+    if (Date.now() - (track.onlineRetryAt || 0) < 5000) return true;
+
+    onlineRetryInProgress = true;
+    track.onlineRetryAt = Date.now();
+    try {
+      const resolved = await getOnlineMusicServices().resolveSong(track, { preferAlternative: true });
+      if (!resolved?.url) throw new Error('没有找到备用音源');
+      track.src = resolved.url;
+      track.onlineResolvedAt = Date.now();
+      track.onlineSource = getOnlineMusicServices().toPlaylistTrack(resolved.identity, resolved.url).onlineSource;
+      const refreshedLyrics = await getOnlineMusicServices().loadLyrics(resolved.identity);
+      if (refreshedLyrics) track.lrcContent = refreshedLyrics;
+      await saveGlobalPlaylist();
+      audioPlayer.src = resolved.url;
+      audioPlayer.load();
+      await audioPlayer.play();
+      return true;
+    } catch (error) {
+      console.error('[音乐播放] 自动切换备用音源失败:', error);
+      if (error?.name === 'NotAllowedError') {
+        await showCustomAlert('可以播放了', '备用音源已经准备好，请再次点击播放按钮。');
+      } else {
+        await showCustomAlert('播放失败', `《${track.name}》的当前来源和备用来源都暂时不可用。`);
+      }
+      return true;
+    } finally {
+      onlineRetryInProgress = false;
+    }
+  }
+  function getOnlineMusicServices() {
+    if (!window.MusicOnlineServices) throw new Error('音乐服务尚未加载');
+    return window.MusicOnlineServices;
+  }
+
+  function escapeMusicHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
 
   async function searchNeteaseMusic(name, singer) {
+    const query = `${name || ''} ${singer || ''}`.trim();
     try {
-      let searchTerm = name.replace(/\s/g, "");
-      if (singer) {
-        searchTerm += ` ${singer.replace(/\s/g, "")}`;
-      }
-
-      const apiUrl = `https://api.vkeys.cn/v2/music/netease?word=${encodeURIComponent(searchTerm)}`;
-
-      console.log("正在请求网易云音乐API:", apiUrl);
-
-      const response = await fetch(apiUrl);
-
-      if (!response.ok) {
-        throw new Error(`API 请求失败，状态码: ${response.status}`);
-      }
-
-      const result = await response.json();
-
-      if (result.code !== 200 || !result.data || result.data.length === 0) {
-        console.log("网易云音乐API未返回有效结果:", result);
-        return [];
-      }
-
-
-      return result.data.map(song => ({
-        name: song.song,
-        artist: song.singer,
-        id: song.id,
-        cover: song.cover || 'https://i.postimg.cc/pT2xKzPz/album-cover-placeholder.png',
-        source: 'netease'
-      })).slice(0, 30);
-
-    } catch (e) {
-      console.error("网易云音乐搜索失败:", e);
-
+      return await getOnlineMusicServices().searchPlatform('netease', query, 30);
+    } catch (error) {
+      console.error('网易云音乐搜索失败:', error);
       return [];
     }
   }
-  // --- Toubiec API 核心逻辑 (修复版) ---
-  const TOUBIEC_BASE_URL = 'https://wyapi-1.toubiec.cn/api/music';
 
-  async function fetchToubiec(endpoint, bodyData) {
+  async function searchPublicMusic(keyword) {
     try {
-      const response = await fetch(`${TOUBIEC_BASE_URL}/${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bodyData)
-      });
-      const result = await response.json();
-      return result;
+      return await getOnlineMusicServices().searchAll(keyword, 20);
     } catch (error) {
-      console.error(`Toubiec API Error [${endpoint}]:`, error);
-      return null;
+      console.error('多平台音乐搜索失败:', error);
+      return [];
     }
   }
 
-  // 1. 搜索功能 (修复了数据结构解析)
-  // 1. 搜索功能 (修复字段映射)
-  // 1. 搜索功能 (修复字段映射：适配 picimg 和 singer)
-  async function searchToubiec(keyword) {
-    const res = await fetchToubiec('search', { keywords: keyword, page: 1 });
-
-    // 兼容处理：数据可能在 data, data.list, data.songs 中
-    let songList = [];
-    if (res) {
-      if (Array.isArray(res)) {
-        songList = res;
-      } else if (res.data) {
-        if (Array.isArray(res.data)) {
-          songList = res.data;
-        } else if (Array.isArray(res.data.list)) {
-          songList = res.data.list;
-        } else if (Array.isArray(res.data.songs)) {
-          songList = res.data.songs;
-        }
-        // 针对你提供的JSON结构：直接返回了 data 对象的情况（虽不少见但为了保险）
-        else if (typeof res.data === 'object') {
-          songList = [res.data];
-        }
-      }
+  async function getPublicPlaylist(playlistId) {
+    try {
+      return await getOnlineMusicServices().getPlaylist(String(playlistId));
+    } catch (error) {
+      console.error('歌单解析失败:', error);
+      return [];
     }
-
-    if (songList.length === 0) return [];
-
-    return songList.map(song => ({
-      name: song.name,
-      // 【修复】优先读取 singer (你的API返回字段)，其次 artists
-      artist: song.singer || song.artists || (Array.isArray(song.ar) ? song.ar.map(a => a.name).join('/') : (song.artist || '未知歌手')),
-      id: String(song.id),
-      // 【修复】优先读取 picimg (你的API返回字段)
-      cover: song.picimg || song.cover || song.al?.picUrl || 'https://s3plus.meituan.net/opapisdk/op_ticket_885190757_1757748720126_qdqqd_1jt5sv.jpeg',
-      source: 'toubiec',
-      albumId: song.al?.id
-    }));
   }
 
-  // 2. 解析歌单 (输入歌单ID)
-  async function getToubiecPlaylist(playlistId) {
-    const res = await fetchToubiec('playlist', { id: String(playlistId) });
-    if (!res || !res.data || !res.data.tracks) return [];
-
-    return res.data.tracks.map(song => ({
-      name: song.name,
-      artist: Array.isArray(song.ar) ? song.ar.map(a => a.name).join('/') : (song.artist || '未知歌手'),
-      id: String(song.id),
-      cover: song.al?.picUrl || song.cover || 'https://s3plus.meituan.net/opapisdk/op_ticket_885190757_1757748720126_qdqqd_1jt5sv.jpeg',
-      source: 'toubiec'
-    }));
-  }
-
-  // 3. 解析专辑 (输入专辑ID)
-  async function getToubiecAlbum(albumId) {
-    const res = await fetchToubiec('album', { id: String(albumId) });
-    if (!res || !res.data || !res.data.songs) return [];
-
-    return res.data.songs.map(song => ({
-      name: song.name,
-      artist: Array.isArray(song.ar) ? song.ar.map(a => a.name).join('/') : '未知歌手',
-      id: String(song.id),
-      cover: song.al?.picUrl || res.data.album?.picUrl, // 优先用单曲封面，没有则用专辑封面
-      source: 'toubiec'
-    }));
-  }
-  // 6. [新增] 获取歌曲详情 (用于修复封面和歌手信息)
-  async function getToubiecDetail(id) {
-    // 调用 detail 接口
-    const res = await fetchToubiec('detail', { id: String(id) });
-    if (res && res.code === 200 && res.data) {
-      return res.data; // 返回包含 picimg, singer 等信息的对象
+  async function getPublicAlbum(albumId) {
+    try {
+      return await getOnlineMusicServices().getAlbum(String(albumId));
+    } catch (error) {
+      console.error('专辑解析失败:', error);
+      return [];
     }
-    return null;
   }
-  // 4. 获取高音质播放链接 (修复版：适配 data 为数组的情况)
-  async function getToubiecUrl(id, preferredLevel = 'exhigh') {
-    // 定义音质降级链
-    const qualityLadder = ['jymaster', 'dolby', 'sky', 'jyeffect', 'hires', 'lossless', 'exhigh', 'standard'];
-
-    let startIndex = qualityLadder.indexOf(preferredLevel);
-    if (startIndex === -1) startIndex = 5;
-
-    for (let i = startIndex; i < qualityLadder.length; i++) {
-      const level = qualityLadder[i];
-      const res = await fetchToubiec('url', { id: String(id), level: level });
-
-      if (res && res.code === 200 && res.data) {
-        let url = null;
-
-        // 【核心修复】你提供的JSON显示 data 是一个数组 [{id:..., url:...}]
-        if (Array.isArray(res.data) && res.data.length > 0) {
-          // 取数组第一个元素的 url 字段
-          url = res.data[0].url;
-        }
-        // 兼容 data 是对象的情况
-        else if (!Array.isArray(res.data) && res.data.url) {
-          url = res.data.url;
-        }
-
-        if (url) {
-          console.log(`[Toubiec] 成功获取链接 (${level}): ${url}`);
-          // 确保 HTTPS，防止混合内容报错
-          return url.replace(/^http:\/\//i, 'https://');
-        }
-      }
-    }
-    console.warn(`[Toubiec] 未能获取任何音质的链接: ID ${id}`);
-    return null;
-  }
-
-  // 5. 获取歌词
-  async function getToubiecLyric(id) {
-    const res = await fetchToubiec('lyric', { id: String(id) });
-    if (res && res.data) {
-      // 组合原词(lrc)和翻译(tlyric)
-      const lrc = res.data.lrc || "";
-      const tlyric = res.data.tlyric || "";
-      return lrc + "\n" + tlyric;
-    }
-    return "";
-  }
-  // --- Toubiec API 集成结束 ---
-
   async function searchTencentMusic(name) {
     try {
-      name = name.replace(/\s/g, "");
-      const result = await Http_Get(`https://api.vkeys.cn/v2/music/tencent?word=${encodeURIComponent(name)}`);
-      if (!result?.data?.length) return [];
-      return result.data.map(song => ({
-        name: song.song,
-        artist: song.singer,
-        id: song.id,
-        cover: song.cover || 'https://s3plus.meituan.net/opapisdk/op_ticket_885190757_1757748720126_qdqqd_1jt5sv.jpeg',
-        source: 'tencent'
-      })).slice(0, 30);
+      return await getOnlineMusicServices().searchPlatform('tencent', name, 30);
     } catch (e) {
       console.error("QQ音乐搜索API失败:", e);
       return [];
@@ -1440,16 +1724,16 @@
     // 4. 执行搜索/解析 (保持原逻辑不变)
     try {
       if (modeChoice === 'search_new') {
-        searchResults = await searchToubiec(query);
+        searchResults = await searchPublicMusic(query);
       }
       else if (modeChoice === 'playlist_new') {
-        searchResults = await getToubiecPlaylist(query);
+        searchResults = await getPublicPlaylist(query);
         if (searchResults.length > 0) {
           await showCustomAlert("解析成功", `成功解析歌单，共 ${searchResults.length} 首歌曲。`);
         }
       }
       else if (modeChoice === 'album_new') {
-        searchResults = await getToubiecAlbum(query);
+        searchResults = await getPublicAlbum(query);
         if (searchResults.length > 0) {
           await showCustomAlert("解析成功", `成功解析专辑，共 ${searchResults.length} 首歌曲。`);
         }
@@ -1498,15 +1782,15 @@
 
       // 显示来源标签 (去除了 Emoji)
       let sourceTag = '';
-      if (song.source === 'toubiec') {
-        // 显示具体的音质标签
+      if (modeChoice.includes('_new')) {
         const qualityLabels = {
           'lossless': '无损', 'hires': 'Hi-Res', 'jymaster': '母带',
           'dolby': '杜比', 'exhigh': '极高', 'standard': '标准',
           'sky': '全景', 'jyeffect': '空间'
         };
         const qLabel = qualityLabels[selectedQuality] || 'Pro';
-        sourceTag = `<span class="source" style="color:#ff3b30; border-color:#ff3b30;">${qLabel}</span>`;
+        const platformLabel = { netease: '网易云', tencent: 'QQ音乐', kugou: '酷狗' }[song.source] || '在线';
+        sourceTag = `<span class="source" style="color:#ff3b30; border-color:#ff3b30;">${platformLabel} · ${qLabel}</span>`;
       } else if (song.source === 'netease') {
         sourceTag = '<span class="source" style="color:#c20c0c; border-color:#c20c0c;">网易云</span>';
       } else {
@@ -1516,8 +1800,8 @@
       item.innerHTML = `
             <input type="checkbox" class="music-search-checkbox" style="margin-right: 15px;">
             <div class="search-result-info">
-                <div class="title">${song.name}</div>
-                <div class="artist">${song.artist} ${sourceTag}</div>
+                <div class="title">${escapeMusicHtml(song.name)}</div>
+                <div class="artist">${escapeMusicHtml(song.artist)} ${sourceTag}</div>
             </div>
         `;
       listEl.appendChild(item);
@@ -1527,95 +1811,29 @@
   }
 
 
-  // --- 2. 修改详情获取逻辑 (修复版：增加 detail 解析以获取封面) ---
   async function getPlayableSongDetails(songData) {
-    let playableResult = null;
-    let finalSource = songData.source;
-
-    // --- 处理 Toubiec 源 ---
-    if (songData.source === 'toubiec') {
-      const quality = songData.preferredQuality || 'exhigh';
-
-      // 1. 获取播放链接
-      const url = await getToubiecUrl(songData.id, quality);
-
-      // 2. 【核心修复】获取歌曲详情 (为了拿到 picimg 封面)
-      try {
-        const detail = await getToubiecDetail(songData.id);
-        if (detail) {
-          // 如果API返回了封面，强制更新
-          if (detail.picimg) {
-            console.log(`[Toubiec] 获取到封面: ${detail.picimg}`);
-            songData.cover = detail.picimg;
-          }
-          // 同步更新歌手名
-          if (detail.singer) {
-            songData.artist = detail.singer;
-          }
-        }
-      } catch (e) {
-        console.warn("[Toubiec] 获取详情失败，将使用默认封面", e);
+    try {
+      const services = getOnlineMusicServices();
+      let resolved = await services.resolveSong(songData, { allowCrossPlatform: true });
+      if (!resolved?.url) return null;
+      if (!await checkAudioAvailability(resolved.url, 7000)) {
+        resolved = await services.resolveSong(songData, { preferAlternative: true });
+        if (!resolved?.url || !await checkAudioAvailability(resolved.url, 7000)) return null;
       }
-
-      if (url) {
-        playableResult = {
-          url: url.replace(/^http:\/\//i, 'https://'), // 强制 HTTPS
-          id: songData.id,
-          source: 'toubiec'
-        };
-      }
+      const track = services.toPlaylistTrack(resolved.identity || songData, resolved.url);
+      track.name = songData.name || track.name;
+      track.artist = songData.artist || track.artist;
+      track.cover = songData.cover || track.cover;
+      track.preferredQuality = songData.preferredQuality || 'exhigh';
+      track.lrcContent = await services.loadLyrics(resolved.identity || songData) || '';
+      return track;
+    } catch (error) {
+      console.error(`无法获取《${songData.name || '未知歌曲'}》的播放信息:`, error);
+      return null;
     }
-    // --- 原有逻辑 (网易/腾讯) ---
-    else if (songData.source === 'netease') {
-      const primaryApiUrl = `https://api.vkeys.cn/v2/music/netease?id=${songData.id}`;
-      let primaryResult = await Http_Get(primaryApiUrl);
-      if (primaryResult?.data?.url) {
-        playableResult = { url: primaryResult.data.url, id: songData.id, source: songData.source };
-      }
-    } else {
-      const primaryApiUrl = `https://api.vkeys.cn/v2/music/tencent?id=${songData.id}`;
-      let primaryResult = await Http_Get(primaryApiUrl);
-      if (primaryResult?.data?.url) {
-        playableResult = { url: primaryResult.data.url, id: songData.id, source: songData.source };
-      }
-    }
-
-    // --- 统一返回处理 ---
-    if (playableResult) {
-      let lrcContent = "";
-      // 获取歌词
-      if (finalSource === 'toubiec') {
-        lrcContent = await getToubiecLyric(playableResult.id);
-      } else {
-        lrcContent = await getLyricsForSong(playableResult.id, finalSource) || "";
-      }
-
-      return {
-        name: songData.name,
-        artist: songData.artist,
-        src: playableResult.url,
-        cover: songData.cover, // 这里现在已经是更新过的封面了
-        isLocal: false,
-        lrcContent: lrcContent
-      };
-    }
-
-    return null;
   }
-
-
   async function getLyricsForSong(songId, source) {
-    const url = source === 'netease' ?
-      `https://api.vkeys.cn/v2/music/netease/lyric?id=${songId}` :
-      `https://api.vkeys.cn/v2/music/tencent/lyric?id=${songId}`;
-
-    const response = await Http_Get(url);
-    if (response?.data) {
-      const lrc = response.data.lrc || response.data.lyric || "";
-      const tlyric = response.data.trans || response.data.tlyric || "";
-      return lrc + "\n" + tlyric;
-    }
-    return "";
+    return getOnlineMusicServices().loadLyrics({ id: songId, source });
   }
 
   async function handleManualLrcImport(trackIndex) {
@@ -1721,7 +1939,7 @@
 
   async function cleanupInvalidSongs() {
     if (musicState.playlist.length === 0) {
-      alert("播放列表是空的，无需清理。");
+      showToast("播放列表是空的，无需清理。");
       return;
     }
 
@@ -1737,34 +1955,53 @@
     await showCustomAlert("请稍候...", `正在检查 ${musicState.playlist.length} 首歌曲，这可能需要一些时间...`);
 
     const originalCount = musicState.playlist.length;
-    const validPlaylist = [];
-    const invalidSongs = [];
-
-    const checkPromises = musicState.playlist.map(async (track) => {
+    const checkPromises = musicState.playlist.map(async (track, originalIndex) => {
       if (track.isLocal) {
-        validPlaylist.push(track);
-        return;
+        return { track, originalIndex, available: true };
       }
-
-      const isAvailable = await checkAudioAvailability(track.src);
-      if (isAvailable) {
-        validPlaylist.push(track);
-      } else {
-        invalidSongs.push({
-          name: track.name,
-          artist: track.artist || '未知歌手'
-        });
+      let candidateUrl = track.src;
+      if (track.onlineSource) {
+        const resolved = await getOnlineMusicServices().resolveSong(track, {
+          forceRefresh: true,
+          allowCrossPlatform: true
+        }).catch(() => null);
+        if (resolved?.url) {
+          candidateUrl = resolved.url;
+          track.src = resolved.url;
+          track.onlineResolvedAt = Date.now();
+          track.onlineSource = getOnlineMusicServices().toPlaylistTrack(resolved.identity, resolved.url).onlineSource;
+        }
+      }
+      let isAvailable = await checkAudioAvailability(candidateUrl);
+      if (!isAvailable && track.onlineSource) {
+        const alternative = await getOnlineMusicServices().resolveSong(track, { preferAlternative: true }).catch(() => null);
+        if (alternative?.url && await checkAudioAvailability(alternative.url)) {
+          candidateUrl = alternative.url;
+          track.src = alternative.url;
+          track.onlineResolvedAt = Date.now();
+          track.onlineSource = getOnlineMusicServices().toPlaylistTrack(alternative.identity, alternative.url).onlineSource;
+          isAvailable = true;
+        }
+      }
+      if (!isAvailable) {
         console.warn(`无效链接: ${track.name} - ${track.src}`);
       }
+      return { track, originalIndex, available: isAvailable };
     });
 
-    await Promise.all(checkPromises);
+    const checkResults = await Promise.all(checkPromises);
+    const validPlaylist = checkResults.filter(result => result.available).map(result => result.track);
+    const invalidSongs = checkResults.filter(result => !result.available).map(result => ({
+      name: result.track.name,
+      artist: result.track.artist || '未知歌手',
+      originalIndex: result.originalIndex
+    }));
 
     const removedCount = originalCount - validPlaylist.length;
 
     if (removedCount > 0) {
       const currentPlayingTrack = musicState.playlist[musicState.currentIndex];
-      const isCurrentTrackRemoved = invalidSongs.some(s => s.name === currentPlayingTrack?.name);
+      const isCurrentTrackRemoved = invalidSongs.some(song => song.originalIndex === musicState.currentIndex);
 
       musicState.playlist = validPlaylist;
       await saveGlobalPlaylist();
@@ -1775,7 +2012,7 @@
         musicState.currentIndex = musicState.playlist.length > 0 ? 0 : -1;
         musicState.isPlaying = false;
       } else if (currentPlayingTrack) {
-        musicState.currentIndex = musicState.playlist.findIndex(t => t.src === currentPlayingTrack.src);
+        musicState.currentIndex = musicState.playlist.indexOf(currentPlayingTrack);
       }
 
       updatePlaylistUI();
@@ -1803,8 +2040,8 @@
       item.innerHTML = `
         <input type="checkbox" class="cleaned-song-checkbox" style="margin-right: 15px;">
         <div class="search-result-info">
-          <div class="title">${song.name}</div>
-          <div class="artist">${song.artist}</div>
+          <div class="title">${escapeMusicHtml(song.name)}</div>
+          <div class="artist">${escapeMusicHtml(song.artist)}</div>
         </div>
       `;
       listEl.appendChild(item);
@@ -1871,7 +2108,7 @@
 
         try {
           // 使用默认的 exhigh 音质搜索
-          const searchResults = await searchToubiec(searchQuery);
+          const searchResults = await searchPublicMusic(searchQuery);
 
           if (searchResults.length === 0) {
             // 未找到结果，询问是否重新输入关键词
@@ -1963,19 +2200,19 @@
         item.style.cursor = 'pointer';
 
         let sourceTag = '';
-        if (song.source === 'toubiec') {
-          sourceTag = '<span class="source" style="color:#ff3b30; border-color:#ff3b30;">极高</span>';
-        } else if (song.source === 'netease') {
+        if (song.source === 'netease') {
           sourceTag = '<span class="source" style="color:#c20c0c; border-color:#c20c0c;">网易云</span>';
-        } else {
+        } else if (song.source === 'tencent') {
           sourceTag = '<span class="source" style="color:#00e09e; border-color:#00e09e;">QQ音乐</span>';
+        } else {
+          sourceTag = '<span class="source" style="color:#3f9f46; border-color:#3f9f46;">酷狗</span>';
         }
 
         item.innerHTML = `
           <input type="radio" name="song-selection-radio" class="music-search-radio" style="margin-right: 15px;">
           <div class="search-result-info">
-            <div class="title">${song.name}</div>
-            <div class="artist">${song.artist} ${sourceTag}</div>
+            <div class="title">${escapeMusicHtml(song.name)}</div>
+            <div class="artist">${escapeMusicHtml(song.artist)} ${sourceTag}</div>
           </div>
         `;
 
@@ -2292,11 +2529,257 @@
     updatePlaylistUI();
   }
 
+  let neteaseQrPollTimer = null;
+  let activeNeteaseQrKey = null;
+
+  function stopNeteaseQrPolling() {
+    if (neteaseQrPollTimer) clearInterval(neteaseQrPollTimer);
+    neteaseQrPollTimer = null;
+    activeNeteaseQrKey = null;
+  }
+
+  function closeMusicAccountCenter() {
+    stopNeteaseQrPolling();
+    document.getElementById('music-account-modal')?.classList.remove('visible');
+  }
+
+  function setNeteaseAccountStatus(message) {
+    const status = document.getElementById('netease-account-status');
+    if (status) status.textContent = message;
+  }
+
+  function showNeteaseProfile(profile) {
+    const profileEl = document.getElementById('netease-profile');
+    const avatar = document.getElementById('netease-profile-avatar');
+    const name = document.getElementById('netease-profile-name');
+    const loginBtn = document.getElementById('netease-login-btn');
+    const logoutBtn = document.getElementById('netease-logout-btn');
+    const qrArea = document.getElementById('netease-qr-area');
+
+    if (profile) {
+      profileEl.hidden = false;
+      avatar.src = String(profile.avatarUrl || getOnlineMusicServices().PLACEHOLDER_COVER).replace(/^http:\/\//i, 'https://');
+      name.textContent = profile.nickname || `用户 ${profile.userId}`;
+      loginBtn.hidden = true;
+      logoutBtn.hidden = false;
+      qrArea.hidden = true;
+      setNeteaseAccountStatus('已登录');
+    } else {
+      profileEl.hidden = true;
+      loginBtn.hidden = false;
+      loginBtn.disabled = false;
+      logoutBtn.hidden = true;
+      setNeteaseAccountStatus('未登录，不影响搜索和播放');
+    }
+  }
+
+  async function renderNeteasePlaylists() {
+    const section = document.getElementById('netease-playlists-section');
+    const loading = document.getElementById('netease-playlists-loading');
+    const list = document.getElementById('netease-playlists-list');
+    section.hidden = false;
+    loading.hidden = false;
+    loading.textContent = '正在读取歌单…';
+    list.innerHTML = '';
+
+    try {
+      const playlists = await getOnlineMusicServices().account.getUserPlaylists();
+      loading.hidden = playlists.length > 0;
+      if (playlists.length === 0) loading.textContent = '账号中没有可导入的歌单';
+
+      playlists.forEach(playlist => {
+        const item = document.createElement('div');
+        item.className = 'music-account-playlist-item';
+
+        const info = document.createElement('div');
+        info.className = 'music-account-playlist-info';
+        const title = document.createElement('div');
+        title.className = 'music-account-playlist-name';
+        title.textContent = playlist.name || '未命名歌单';
+        const count = document.createElement('div');
+        count.className = 'music-account-playlist-count';
+        count.textContent = `${playlist.trackCount || 0} 首`;
+        info.append(title, count);
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'music-account-import-btn';
+        button.textContent = '导入';
+        button.addEventListener('click', () => importNeteasePlaylist(playlist, button));
+        item.append(info, button);
+        list.appendChild(item);
+      });
+    } catch (error) {
+      console.error('[音乐账号] 读取网易云歌单失败:', error);
+      loading.hidden = false;
+      loading.textContent = error.message || '歌单读取失败，请稍后重试';
+    }
+  }
+
+  async function refreshNeteaseAccountView() {
+    const account = getOnlineMusicServices().account;
+    const session = account.loadSession();
+    document.getElementById('netease-playlists-section').hidden = true;
+    document.getElementById('netease-qr-area').hidden = true;
+    if (!session) {
+      showNeteaseProfile(null);
+      return;
+    }
+
+    setNeteaseAccountStatus('正在验证登录状态…');
+    try {
+      const profile = await account.getLoginStatus(session);
+      if (!profile) {
+        account.clearSession();
+        showNeteaseProfile(null);
+        setNeteaseAccountStatus('登录已失效，请重新扫码');
+        return;
+      }
+      showNeteaseProfile(profile);
+      await renderNeteasePlaylists();
+    } catch (error) {
+      console.error('[音乐账号] 登录状态检查失败:', error);
+      showNeteaseProfile(session.profile || null);
+      setNeteaseAccountStatus('公共登录节点暂时无法连接');
+    }
+  }
+
+  async function openMusicAccountCenter() {
+    document.getElementById('music-account-modal')?.classList.add('visible');
+    await refreshNeteaseAccountView();
+  }
+
+  async function pollNeteaseQrLogin() {
+    if (!activeNeteaseQrKey || document.hidden) return;
+    const qrMessage = document.getElementById('netease-qr-message');
+    try {
+      const result = await getOnlineMusicServices().account.checkQrLogin(activeNeteaseQrKey);
+      if (result?.code === 801) {
+        qrMessage.textContent = '等待扫码…';
+      } else if (result?.code === 802) {
+        qrMessage.textContent = '已扫码，请在网易云音乐中确认';
+      } else if (result?.code === 803) {
+        stopNeteaseQrPolling();
+        qrMessage.textContent = '登录成功';
+        showNeteaseProfile(result.profile);
+        await renderNeteasePlaylists();
+      } else if (result?.code === 800) {
+        stopNeteaseQrPolling();
+        qrMessage.textContent = '二维码已过期，请重新生成';
+        document.getElementById('netease-login-btn').disabled = false;
+      }
+    } catch (error) {
+      console.warn('[音乐账号] 二维码状态检查失败:', error.message);
+      qrMessage.textContent = '网络波动，正在继续等待…';
+    }
+  }
+
+  async function startNeteaseQrLogin() {
+    const confirmed = await showCustomConfirm(
+      '使用公共节点扫码登录',
+      '登录由第三方公共节点处理，该节点能够接触你的网易云登录会话。请勿在任何页面输入账号、密码或短信验证码。是否继续？',
+      { confirmText: '生成二维码' }
+    );
+    if (!confirmed) return;
+
+    const loginBtn = document.getElementById('netease-login-btn');
+    const qrArea = document.getElementById('netease-qr-area');
+    const qrImage = document.getElementById('netease-qr-image');
+    const qrMessage = document.getElementById('netease-qr-message');
+    const qrLink = document.getElementById('netease-qr-link');
+    loginBtn.disabled = true;
+    setNeteaseAccountStatus('正在生成二维码…');
+    stopNeteaseQrPolling();
+
+    try {
+      const qr = await getOnlineMusicServices().account.createQrLogin();
+      activeNeteaseQrKey = qr.key;
+      qrImage.src = qr.qrimg;
+      qrLink.href = qr.qrurl;
+      qrMessage.textContent = '请使用网易云音乐 App 扫码并确认';
+      qrArea.hidden = false;
+      setNeteaseAccountStatus('等待扫码登录');
+      neteaseQrPollTimer = setInterval(pollNeteaseQrLogin, 3000);
+      await pollNeteaseQrLogin();
+    } catch (error) {
+      console.error('[音乐账号] 创建二维码失败:', error);
+      loginBtn.disabled = false;
+      qrArea.hidden = true;
+      setNeteaseAccountStatus('公共登录节点暂时不可用，请稍后再试');
+    }
+  }
+
+  async function logoutNeteaseMusic() {
+    stopNeteaseQrPolling();
+    getOnlineMusicServices().account.clearSession();
+    showNeteaseProfile(null);
+    document.getElementById('netease-playlists-section').hidden = true;
+    document.getElementById('netease-qr-area').hidden = true;
+  }
+
+  async function importNeteasePlaylist(remotePlaylist, button) {
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = '导入中…';
+    try {
+      const songs = await getOnlineMusicServices().account.getUserPlaylistTracks(remotePlaylist.id);
+      if (songs.length === 0) throw new Error('这个歌单中没有可导入的歌曲');
+
+      const playlistId = `netease_${remotePlaylist.id}`;
+      let localPlaylist = musicState.playlists.find(playlist => playlist.id === playlistId);
+      if (!localPlaylist) {
+        localPlaylist = {
+          id: playlistId,
+          name: remotePlaylist.name || '网易云歌单',
+          createdAt: Date.now(),
+          remoteSource: 'netease',
+          remoteId: String(remotePlaylist.id)
+        };
+        musicState.playlists.push(localPlaylist);
+      }
+
+      const existingIds = new Set(musicState.playlist
+        .filter(track => (track.playlistId || 'default') === playlistId)
+        .map(track => `${track.onlineSource?.platform || ''}:${track.onlineSource?.id || ''}`));
+      let addedCount = 0;
+      songs.forEach(song => {
+        const key = `netease:${song.id}`;
+        if (existingIds.has(key)) return;
+        const track = getOnlineMusicServices().toPlaylistTrack(song);
+        track.playlistId = playlistId;
+        musicState.playlist.push(track);
+        existingIds.add(key);
+        addedCount++;
+      });
+
+      musicState.activePlaylistId = playlistId;
+      if (musicState.currentIndex === -1 && musicState.playlist.length > 0) {
+        musicState.currentIndex = musicState.playlist.findIndex(track => track.playlistId === playlistId);
+      }
+      await saveGlobalPlaylist();
+      updatePlaylistUI();
+      updatePlayerUI();
+      button.textContent = addedCount > 0 ? `已导入 ${addedCount}` : '已是最新';
+      await showCustomAlert('导入完成', addedCount > 0
+        ? `已将「${remotePlaylist.name}」中的 ${addedCount} 首歌曲加入一起听。`
+        : `「${remotePlaylist.name}」中的歌曲已经全部存在。`);
+    } catch (error) {
+      console.error('[音乐账号] 导入歌单失败:', error);
+      button.textContent = originalText;
+      await showCustomAlert('导入失败', error.message || '歌单暂时无法导入，请稍后重试');
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   // ========== 导出到全局作用域 ==========
   window.applyLyricsBarPosition = applyLyricsBarPosition;
   window.getLrcContent = getLrcContent;
   window.saveGlobalPlaylist = saveGlobalPlaylist;
   window.addMusicActionSystemMessage = addMusicActionSystemMessage;
+  window.isMusicAwareChat = isMusicAwareChat;
+  window.getMusicElapsedTime = getMusicElapsedTime;
+  window.openMusicSyncSettings = openMusicSyncSettings;
   window.handleListenTogetherClick = handleListenTogetherClick;
   window.startListenTogetherSession = startListenTogetherSession;
   window.endListenTogetherSession = endListenTogetherSession;
@@ -2315,6 +2798,7 @@
   window.playNext = playNext;
   window.playPrev = playPrev;
   window.changePlayMode = changePlayMode;
+  window.updatePlayModeUI = updatePlayModeUI;
   window.addSongFromURL = addSongFromURL;
   window.playSong = playSong;
   window.handleChangeBackground = handleChangeBackground;
@@ -2333,17 +2817,24 @@
   window.Http_Get = Http_Get;
   window.checkAudioAvailability = checkAudioAvailability;
   window.searchNeteaseMusic = searchNeteaseMusic;
-  window.fetchToubiec = fetchToubiec;
-  window.searchToubiec = searchToubiec;
-  window.getToubiecPlaylist = getToubiecPlaylist;
-  window.getToubiecAlbum = getToubiecAlbum;
-  window.getToubiecDetail = getToubiecDetail;
-  window.getToubiecUrl = getToubiecUrl;
-  window.getToubiecLyric = getToubiecLyric;
+  // Public extension compatibility aliases.
+  window.fetchToubiec = async (endpoint, data = {}) => {
+    if (endpoint === 'search') return { data: await searchPublicMusic(data.keywords || '') };
+    if (endpoint === 'playlist') return { data: await getPublicPlaylist(data.id) };
+    if (endpoint === 'album') return { data: await getPublicAlbum(data.id) };
+    return null;
+  };
+  window.searchToubiec = searchPublicMusic;
+  window.getToubiecPlaylist = getPublicPlaylist;
+  window.getToubiecAlbum = getPublicAlbum;
+  window.getToubiecDetail = async () => null;
+  window.getToubiecUrl = async id => (await getOnlineMusicServices().resolveSong({ id, source: 'netease' }))?.url || null;
+  window.getToubiecLyric = id => getLyricsForSong(id, 'netease');
   window.searchTencentMusic = searchTencentMusic;
   window.addSongFromSearch = addSongFromSearch;
   window.getPlayableSongDetails = getPlayableSongDetails;
   window.getLyricsForSong = getLyricsForSong;
+  window.retryOnlineTrackPlayback = retryOnlineTrackPlayback;
   window.handleManualLrcImport = handleManualLrcImport;
   window.toggleBackgroundBlur = toggleBackgroundBlur;
   window.toggleMusicPlayerAvatars = toggleMusicPlayerAvatars;
@@ -2358,5 +2849,9 @@
   window.handleSelectAllPlaylistItems = handleSelectAllPlaylistItems;
   window.executeDeleteSelectedSongs = executeDeleteSelectedSongs;
   window.executeMoveToPlaylist = executeMoveToPlaylist;
+  window.openMusicAccountCenter = openMusicAccountCenter;
+  window.closeMusicAccountCenter = closeMusicAccountCenter;
+  window.startNeteaseQrLogin = startNeteaseQrLogin;
+  window.logoutNeteaseMusic = logoutNeteaseMusic;
   window.executeBatchUploadToCatbox = executeBatchUploadToCatbox;
 })();
