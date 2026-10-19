@@ -4853,6 +4853,10 @@ ${getActiveThoughtsPrompt()}
 
           systemPrompt = processPromptWithSettings(systemPrompt, 'single');
 
+          if (!chat.isGroup && window.RemarkNames) {
+            systemPrompt += window.RemarkNames.buildContext(chat, filteredHistory);
+          }
+
           // 自定义/旧提示词若缺少情侣空间占位符，仍确保已授权内容能够生效。
           if (coupleSpaceContext && !systemPrompt.includes('# 情侣空间')) {
             systemPrompt += '\n\n' + coupleSpaceContext;
@@ -4887,6 +4891,8 @@ ${getActiveThoughtsPrompt()}
           }
 
           messagesPayload = filteredHistory.map(msg => {
+            // 备注修改事件由 buildContext 汇总，历史里的系统通知不再重复注入。
+            if (window.RemarkNames?.getEvent(msg, chat)) return null;
             // 处理系统消息（旁白和系统通知）
             if (msg.role === 'system' && !msg.isHidden) {
               if (msg.type === 'narration') {
@@ -6785,40 +6791,13 @@ ${getActiveThoughtsPrompt()}
             continue;
           case 'change_remark_name':
             if (!chat.isGroup && msgData.new_name) {
-              const oldName = chat.name;
-              const newName = msgData.new_name.trim();
-
-              if (newName && newName !== oldName) {
-                if (!chat.nameHistory) {
-                  chat.nameHistory = [];
-                }
-                if (!chat.nameHistory.includes(oldName)) {
-                  chat.nameHistory.push(oldName);
-                }
-
-                chat.name = newName;
-
-                const systemMessage = {
-                  role: 'system',
-                  type: 'pat_message',
-                  content: `“${chat.originalName}” 将备注修改为 “${newName}”`,
-                  timestamp: messageTimestamp++
-                };
-                chat.history.push(systemMessage);
-
-                const hiddenMemoryMessage = {
-                  role: 'system',
-                  content: `[系统提示：你刚刚成功将自己的备注名修改为了“${newName}”。请自然地接受这个新名字，不要对此感到惊讶。]`,
-                  timestamp: messageTimestamp++,
-                  isHidden: true
-                };
-                chat.history.push(hiddenMemoryMessage);
-
+              // 备注修改统一记录为可追溯的系统事实，明确记录是角色自己改的。
+              const remarkMessage = window.RemarkNames?.recordChange(chat, msgData.new_name, 'character', messageTimestamp++);
+              if (remarkMessage) {
                 if (isViewingThisChat) {
-                  appendMessage(systemMessage, chat);
-                  document.getElementById('chat-header-title').textContent = newName;
+                  appendMessage(remarkMessage, chat);
+                  document.getElementById('chat-header-title').textContent = chat.name;
                 }
-
                 await syncCharacterNameInGroups(chat);
               }
             }
@@ -7848,40 +7827,13 @@ ${getActiveThoughtsPrompt()}
             continue;
           case 'change_remark_name':
             if (!chat.isGroup && msgData.new_name) {
-              const oldName = chat.name;
-              const newName = msgData.new_name.trim();
-
-              if (newName && newName !== oldName) {
-                if (!chat.nameHistory) {
-                  chat.nameHistory = [];
-                }
-                if (!chat.nameHistory.includes(oldName)) {
-                  chat.nameHistory.push(oldName);
-                }
-
-                chat.name = newName;
-
-                const systemMessage = {
-                  role: 'system',
-                  type: 'pat_message',
-                  content: `“${chat.originalName}” 将备注修改为 “${newName}”`,
-                  timestamp: messageTimestamp++
-                };
-                chat.history.push(systemMessage);
-
-                const hiddenMemoryMessage = {
-                  role: 'system',
-                  content: `[系统提示：你刚刚成功将自己的备注名修改为了“${newName}”。请自然地接受这个新名字，不要对此感到惊讶。]`,
-                  timestamp: messageTimestamp++,
-                  isHidden: true
-                };
-                chat.history.push(hiddenMemoryMessage);
-
+              // 备注修改统一记录为可追溯的系统事实，明确记录是角色自己改的。
+              const remarkMessage = window.RemarkNames?.recordChange(chat, msgData.new_name, 'character', messageTimestamp++);
+              if (remarkMessage) {
                 if (isViewingThisChat) {
-                  appendMessage(systemMessage, chat);
-                  document.getElementById('chat-header-title').textContent = newName;
+                  appendMessage(remarkMessage, chat);
+                  document.getElementById('chat-header-title').textContent = chat.name;
                 }
-
                 await syncCharacterNameInGroups(chat);
               }
             }
@@ -8975,6 +8927,10 @@ ${linkedContents}
 
       systemPrompt = processPromptWithSettings(systemPrompt, chat.isGroup && chat.settings.isOfflineMode ? 'group_offline' : 'single');
 
+      if (!chat.isGroup && window.RemarkNames) {
+        systemPrompt += window.RemarkNames.buildContext(chat, filteredHistory);
+      }
+
       if (window.getPeriodPromptForChat && chat?.id) {
         const periodPrompt = await window.getPeriodPromptForChat(chat.id);
         if (periodPrompt) {
@@ -9003,7 +8959,7 @@ ${linkedContents}
         }
       }
 
-      const messagesForApi = historySlice.map(msg => ({
+      const messagesForApi = historySlice.filter(msg => !window.RemarkNames?.getEvent(msg, chat)).map(msg => ({
         role: msg.role,
         content: String(msg.content)
       }));

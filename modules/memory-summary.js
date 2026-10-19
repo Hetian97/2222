@@ -4749,6 +4749,9 @@ async function triggerAutoSummary(chatId, force = false, customRange = null) {
     }
     if (msg.isHidden) return null; // 过滤掉其他隐藏消息
 
+    const remarkEvent = window.RemarkNames?.formatMemoryEvent(msg, chat);
+    if (remarkEvent) return remarkEvent;
+
     let sender;
     if (msg.role === 'user') {
       sender = userNickname;

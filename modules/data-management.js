@@ -992,6 +992,7 @@ async function cleanupRedundantData() {
                     if (Array.isArray(chat.nameHistory)) {
                       chat.nameHistory = [];
                     }
+                    delete chat.lastRemarkChange;
                     if (chat.settings) {
                       chat.settings.myNickname = '我';
                     }

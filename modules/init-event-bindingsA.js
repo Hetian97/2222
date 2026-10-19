@@ -4078,11 +4078,16 @@ window.initEventBindingsA = async function(state, db) {
 
       const newName = document.getElementById('chat-name-input').value.trim();
       if (!newName) return alert('备注名/群名不能为空！');
-      if (!chat.isGroup && newName !== chat.name) {
-        if (!chat.nameHistory) chat.nameHistory = [];
-        if (!chat.nameHistory.includes(chat.name)) chat.nameHistory.push(chat.name);
+      if (!chat.isGroup && window.RemarkNames) {
+        // 用户修改备注同样写入系统事实，供提示词与记忆总结区分修改来源。
+        window.RemarkNames.recordChange(chat, newName, 'user', Date.now());
+      } else {
+        if (!chat.isGroup && newName !== chat.name) {
+          if (!chat.nameHistory) chat.nameHistory = [];
+          if (!chat.nameHistory.includes(chat.name)) chat.nameHistory.push(chat.name);
+        }
+        chat.name = newName;
       }
-      chat.name = newName;
 
       // 保存角色国籍
       const selectedCountry = document.getElementById('character-country-select').value;
