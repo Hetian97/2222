@@ -457,3 +457,6 @@ function bindFontSettingsEvents() {
   bind('font-back-btn', 'click', () => void leaveFontSettings());
   fontBound = true;
 }
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bindFontSettingsEvents);
+else bindFontSettingsEvents();

@@ -2804,12 +2804,20 @@ async function cleanupRedundantData() {
     const isChecked = entry.enabled !== false ? 'checked' : '';
 
     block.innerHTML = `
-                <div style="display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-bottom: 5px;">
-                    <label class="toggle-switch" title="启用/禁用此条目">
-                        <input type="checkbox" class="entry-enabled-switch" ${isChecked}>
-                        <span class="slider"></span>
-                    </label>
-                    <button class="delete-block-btn" title="删除此条目">×</button>
+                <div class="entry-header-actions" style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 4px;">
+                    <div class="entry-badge-title" style="font-size: 13px; font-weight: 600; color: var(--text-secondary); letter-spacing: -0.1px;">词条配置</div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <label class="ios-toggle-container" style="transform: scale(0.85);" title="启用/禁用此条目">
+                            <input type="checkbox" class="entry-enabled-switch" ${isChecked}>
+                            <span class="ios-toggle-track"></span>
+                        </label>
+                        <button class="delete-block-btn" title="删除此条目">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
                 <div class="form-group" style="margin-bottom: 10px;">
                     <label style="font-size: 0.8em;">备注 (可选)</label>
