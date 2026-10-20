@@ -203,6 +203,74 @@
     }
   }
 
+  function cleanImportedBookTitle(value) {
+    return String(value || '')
+      .replace(/^\uFEFF/, '')
+      .replace(/\.txt$/i, '')
+      .replace(/[\u0000-\u001F\u007F]/g, '')
+      .trim();
+  }
+
+  function isTemporaryBookFilename(title) {
+    const normalized = cleanImportedBookTitle(title)
+      .replace(/^[{(]|[})]$/g, '')
+      .replace(/\s*\(\d+\)$/, '');
+
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(normalized)
+      || /^[0-9a-f]{32}$/i.test(normalized);
+  }
+
+  function inferBookTitleFromText(textContent) {
+    const lines = String(textContent || '')
+      .replace(/^\uFEFF/, '')
+      .split(/\r\n?|\n/)
+      .slice(0, 20)
+      .map(line => line.trim())
+      .filter(Boolean);
+
+    for (const line of lines) {
+      const labeledTitle = line.match(/^(?:【\s*)?(?:书名|小说名|作品名|标题)(?:\s*】)?\s*[：:]\s*(.+)$/i);
+      if (labeledTitle) return cleanImportedBookTitle(labeledTitle[1]).replace(/^《|》$/g, '').trim();
+
+      const bracketedTitle = line.match(/^《([^》]{1,80})》(?:\s|$)/);
+      if (bracketedTitle) return cleanImportedBookTitle(bracketedTitle[1]);
+    }
+
+    const firstLine = lines[0] || '';
+    const looksLikeMetadata = /^(?:作者|简介|内容简介|文案|版权|来源|网址|URL)\s*[：:]/i.test(firstLine);
+    const looksLikeChapter = /^(?:第\s*[0-9一二三四五六七八九十百千万零〇两]+\s*[章节卷回部篇]|chapter\s+\d+)/i.test(firstLine);
+    const looksLikeSeparator = /^[-_=*#·]{3,}$/.test(firstLine);
+    const looksLikeUrl = /^(?:https?:\/\/|www\.)/i.test(firstLine);
+
+    if (firstLine.length <= 80 && !looksLikeMetadata && !looksLikeChapter && !looksLikeSeparator && !looksLikeUrl) {
+      return cleanImportedBookTitle(firstLine).replace(/^《|》$/g, '').trim();
+    }
+
+    return '';
+  }
+
+  async function resolveImportedBookTitle(fileName, textContent) {
+    const fileTitle = cleanImportedBookTitle(fileName);
+    if (fileTitle && !isTemporaryBookFilename(fileTitle)) return fileTitle;
+
+    const inferredTitle = inferBookTitleFromText(textContent);
+    if (inferredTitle) return inferredTitle;
+
+    const enteredTitle = await showCustomPrompt(
+      '填写书名',
+      '文件选择器没有提供原始书名，请输入这本书的名称。',
+      ''
+    );
+    if (enteredTitle === null) return null;
+
+    const cleanedTitle = cleanImportedBookTitle(enteredTitle);
+    if (!cleanedTitle) {
+      await showCustomAlert('无法导入', '书名不能为空。');
+      return null;
+    }
+    return cleanedTitle;
+  }
+
   async function handleBookFileUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -213,7 +281,8 @@
 
       const textContent = await decodeTextFile(arrayBuffer);
 
-      const title = file.name.replace(/\.txt$/i, '');
+      const title = await resolveImportedBookTitle(file.name, textContent);
+      if (!title) return;
 
       const newBookId = await db.readingLibrary.add({
         title: title,

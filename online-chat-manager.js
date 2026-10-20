@@ -530,6 +530,7 @@ class OnlineChatManager {
             case 'friend_request': this.onFriendRequest(data); break;
             case 'friend_request_accepted': this.onFriendRequestAccepted(data); break;
             case 'friend_request_rejected': this.onFriendRequestRejected(data); break;
+            case 'sync_snapshot': this.onSyncSnapshot(data); break;
             case 'receive_message': this.onReceiveMessage(data); break;
             case 'receive_group_message': this.onReceiveGroupMessage(data); break;
             case 'receive_group_created': this.onReceiveGroupMessage(data); break;
@@ -777,6 +778,102 @@ class OnlineChatManager {
             this.chats[chatId].avatar = friend.avatar || this.chats[chatId].avatar;
         }
         this.saveChats();
+    }
+
+    onSyncSnapshot(data) {
+        this.onlineFriends = data.friends || [];
+        this.friendRequests = data.requests || [];
+        const previous = this.chats;
+        this.chats = {};
+        this.onlineFriends.forEach(friend => this.addFriendChat(friend));
+        Object.entries(data.direct || {}).forEach(([key, messages]) => {
+            const friendId = key.split(':').find(id => id !== this.userId);
+            if (!friendId) return;
+            const friend = this.onlineFriends.find(f => f.userId === friendId);
+            const chatId = `online_${friendId}`;
+            const chat = this.chats[chatId] || {
+                id: chatId, name: friend?.nickname || previous[chatId]?.name || '联机好友',
+                avatar: friend?.avatar || previous[chatId]?.avatar || '', isGroup: false, unread: 0
+            };
+            chat.history = messages.map(m => ({
+                id: m.id, role: m.fromUserId === this.userId ? 'user' : 'ai',
+                content: m.message, timestamp: m.timestamp, status: 'sent'
+            }));
+            const last = messages[messages.length - 1];
+            chat.lastMessage = last?.message || chat.lastMessage;
+            chat.timestamp = last?.timestamp || chat.timestamp;
+            this.chats[chatId] = chat;
+        });
+        this.aiCharactersInGroup = {};
+        (data.groups || []).forEach(group => this.onGroupState(group, false));
+        Object.entries(previous).forEach(([id, oldChat]) => {
+            const current = this.chats[id];
+            if (!current) return;
+            if (oldChat.muted) current.muted = true;
+            (oldChat.history || []).filter(m => m.status === 'sending' || m.status === 'failed')
+                .forEach(m => {
+                    if (!current.history.some(existing => existing.id === m.id)) {
+                        current.history.push({ ...m, status: 'failed' });
+                    }
+                });
+            current.history.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        });
+        this.saveOnlineFriends();
+        this.saveFriendRequests();
+        this.saveAiCharacters();
+        this.saveChats();
+        this.updateFriendRequestBadge();
+        this.renderChatList();
+        if (this.activeChatId && this.chats[this.activeChatId]) {
+            this.renderMessages(this.chats[this.activeChatId]);
+            this.updateAiCallButton();
+        } else if (this.activeChatId) {
+            this.activeChatId = null;
+            this.showView('online-app-list-view');
+        }
+    }
+
+    onGroupState(group, render = true) {
+        if (!group?.id) return;
+        const previous = this.chats[group.id];
+        const characters = group.characters || [];
+        this.aiCharactersInGroup[group.id] = characters.map(c => ({
+            ...c, mainChatId: c.sourceId
+        }));
+        const members = [...(group.members || []), ...characters.map(c => ({
+            userId: c.characterId, nickname: c.originalName, avatar: c.avatar,
+            isAiCharacter: true, ownerUserId: c.ownerUserId
+        }))];
+        const history = (group.messages || []).map(m => ({
+            id: m.id, seq: m.seq,
+            role: m.system ? 'system' : m.isAiCharacter ? 'ai' :
+                m.fromUserId === this.userId ? 'user' : 'ai',
+            content: m.message, timestamp: m.timestamp,
+            senderUserId: m.fromUserId, senderNickname: m.fromNickname,
+            senderAvatar: m.fromAvatar, isAiCharacter: !!m.isAiCharacter, status: 'sent'
+        }));
+        const last = history[history.length - 1];
+        this.chats[group.id] = {
+            id: group.id, name: group.name, avatar: previous?.avatar || null,
+            lastMessage: last ? (last.role === 'system' ? last.content :
+                `${last.senderNickname}: ${last.content}`) : '群聊已创建',
+            timestamp: last?.timestamp || previous?.timestamp || Date.now(),
+            unread: previous?.unread || 0, isGroup: true, members, history,
+            creatorId: group.creatorId, groupSettings: group.settings || {},
+            aiContextSize: group.settings?.aiContextSize || 20,
+            muted: previous?.muted || false
+        };
+        this.saveAiCharacters();
+        this.saveChats();
+        if (render) {
+            this.renderChatList();
+            if (this.activeChatId === group.id) {
+                this.renderMessages(this.chats[group.id]);
+                this.updateAiCallButton();
+                if (document.getElementById('group-info-modal')?.classList.contains('visible'))
+                    this.openGroupInfoModal();
+            }
+        }
     }
 
     // ==================== 收发消息 (独立，不碰QQ) ====================
