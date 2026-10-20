@@ -1227,12 +1227,18 @@
 
     if (worldBookEntries) {
       const structuredEntries = worldBookEntries
-        .filter(entry => entry.enabled && entry.content)
+        .filter(entry => entry && typeof entry.content === 'string')
         .map(entry => ({
           keys: entry.keys || [],
           comment: entry.comment || '',
-          content: entry.content.replace(/<memory>|<\/memory>/g, '').trim()
-        }));
+          content: entry.content.replace(/<memory>|<\/memory>/g, '').trim(),
+          // 关闭的条目也必须导入，只是不参与上下文注入。
+          // enabled 缺省时按开启处理，并兼容使用 disable 的旧格式。
+          enabled: typeof entry.enabled === 'boolean'
+            ? entry.enabled
+            : entry.disable !== true
+        }))
+        .filter(entry => entry.content);
 
       if (structuredEntries.length > 0) {
         const newWorldBook = {
