@@ -1,0 +1,677 @@
+           #world-book-screen,
+           #world-book-editor-screen {
+               background-color: #ffffff !important;
+               display: flex;
+               flex-direction: column;
+           }
+
+           #phone-screen.dark-mode #world-book-screen,
+           #phone-screen.dark-mode #world-book-editor-screen {
+               background-color: #000000 !important;
+           }
+
+           /* 顶栏全白一体化设计：去除生硬投影与色差，极细精致分割线 */
+           #world-book-screen > .header,
+           #world-book-editor-screen > .header {
+               background-color: #ffffff !important;
+               border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
+               box-shadow: none !important;
+               z-index: 20;
+               flex-shrink: 0;
+           }
+
+           /* 返回键使用独立布局基线，避免全局美化 CSS 的边距/定位令其视觉下沉 */
+           #world-book-screen > .worldbook-header,
+           #world-book-editor-screen > .worldbook-header {
+               box-sizing: border-box;
+               align-items: center;
+           }
+
+           #world-book-screen .worldbook-back-btn,
+           #world-book-editor-screen .worldbook-back-btn {
+               position: relative !important;
+               top: auto !important;
+               right: auto !important;
+               bottom: auto !important;
+               left: auto !important;
+               align-self: center !important;
+               flex: 0 0 36px;
+               box-sizing: border-box;
+               margin: 0 !important;
+               padding: 0 !important;
+               line-height: 0;
+               translate: none !important;
+               transform: none !important;
+               vertical-align: middle;
+           }
+
+           #world-book-screen .worldbook-back-btn svg,
+           #world-book-editor-screen .worldbook-back-btn svg {
+               display: block;
+               flex: none;
+               margin: auto;
+           }
+
+           #world-book-screen .worldbook-back-btn:active,
+           #world-book-editor-screen .worldbook-back-btn:active {
+               transform: scale(0.92) !important;
+           }
+
+           #phone-screen.dark-mode #world-book-screen > .header,
+           #phone-screen.dark-mode #world-book-editor-screen > .header {
+               background-color: #1c1c1e !important;
+               border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+               box-shadow: none !important;
+           }
+
+           /* 顶栏操作按钮：纯白卡片式质感，柔和微描边与轻触反馈 */
+           #world-book-screen .header .back-btn,
+           #world-book-screen .header .action-btn,
+           #world-book-editor-screen .header .back-btn {
+               width: 36px;
+               height: 36px;
+               border-radius: 9999px;
+               background-color: #ffffff;
+               border: 1px solid rgba(0, 0, 0, 0.08) !important;
+               box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+               display: flex;
+               align-items: center;
+               justify-content: center;
+               cursor: pointer;
+               color: var(--text-primary);
+               transition: all 0.2s ease;
+           }
+
+           #world-book-screen .header .back-btn:active,
+           #world-book-screen .header .action-btn:active,
+           #world-book-editor-screen .header .back-btn:active {
+               transform: scale(0.92);
+               background-color: #f7f7f9;
+           }
+
+           #world-book-screen .header #add-world-book-btn {
+               background-color: var(--accent-color);
+               color: #ffffff;
+               border-color: var(--accent-color) !important;
+               box-shadow: 0 2px 8px rgba(0, 122, 255, 0.25);
+           }
+
+           #world-book-screen .header #add-world-book-btn:active {
+               background-color: #0062cc;
+               transform: scale(0.92);
+           }
+
+           /* 世界书顶栏下拉菜单 */
+           .worldbook-dropdown-container {
+               position: relative;
+               display: inline-flex;
+               align-items: center;
+           }
+
+           .worldbook-dropdown-menu {
+               display: none;
+               position: absolute;
+               right: 0;
+               top: calc(100% + 8px);
+               background-color: #ffffff;
+               min-width: 150px;
+               box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+               border-radius: 12px;
+               z-index: 100;
+               padding: 6px;
+               border: 1px solid rgba(0, 0, 0, 0.08);
+               box-sizing: border-box;
+               animation: wbDropdownFadeIn 0.18s ease-out;
+           }
+
+           @keyframes wbDropdownFadeIn {
+               from {
+                   opacity: 0;
+                   transform: translateY(-6px) scale(0.96);
+               }
+               to {
+                   opacity: 1;
+                   transform: translateY(0) scale(1);
+               }
+           }
+
+           .worldbook-dropdown-menu.show {
+               display: flex;
+               flex-direction: column;
+               gap: 2px;
+           }
+
+           .worldbook-dropdown-item {
+               display: flex !important;
+               align-items: center;
+               gap: 10px;
+               width: 100% !important;
+               box-sizing: border-box;
+               padding: 9px 12px !important;
+               text-align: left !important;
+               border: none !important;
+               background: transparent !important;
+               color: var(--text-primary) !important;
+               font-size: 14px !important;
+               font-weight: 500 !important;
+               border-radius: 8px !important;
+               cursor: pointer;
+               transition: background-color 0.15s ease;
+               white-space: nowrap;
+           }
+
+           .worldbook-dropdown-item svg {
+               flex-shrink: 0;
+               color: var(--text-secondary);
+               transition: color 0.15s ease;
+           }
+
+           .worldbook-dropdown-item:hover,
+           .worldbook-dropdown-item:active {
+               background-color: rgba(0, 0, 0, 0.05) !important;
+               color: var(--accent-color) !important;
+           }
+
+           .worldbook-dropdown-item:hover svg,
+           .worldbook-dropdown-item:active svg {
+               color: var(--accent-color);
+           }
+
+           #phone-screen.dark-mode .worldbook-dropdown-menu {
+               background-color: #1c1c1e;
+               border: 1px solid rgba(255, 255, 255, 0.12);
+               box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+           }
+
+           #phone-screen.dark-mode .worldbook-dropdown-item {
+               color: #f2f2f7 !important;
+           }
+
+           #phone-screen.dark-mode .worldbook-dropdown-item svg {
+               color: #8e8e93;
+           }
+
+           #phone-screen.dark-mode .worldbook-dropdown-item:hover,
+           #phone-screen.dark-mode .worldbook-dropdown-item:active {
+               background-color: rgba(255, 255, 255, 0.08) !important;
+               color: #0a84ff !important;
+           }
+
+           #phone-screen.dark-mode .worldbook-dropdown-item:hover svg,
+           #phone-screen.dark-mode .worldbook-dropdown-item:active svg {
+               color: #0a84ff;
+           }
+
+           #world-book-editor-screen .header .save-btn {
+               font-size: 14px;
+               font-weight: 600;
+               color: #ffffff;
+               cursor: pointer;
+               padding: 7px 16px;
+               border-radius: 9999px;
+               background-color: var(--accent-color);
+               border: none !important;
+               box-shadow: 0 2px 8px rgba(0, 122, 255, 0.25);
+               transition: all 0.2s ease;
+           }
+
+           #world-book-editor-screen .header .save-btn:active {
+               opacity: 0.8;
+               transform: scale(0.94);
+           }
+
+           #phone-screen.dark-mode #world-book-screen .header .back-btn,
+           #phone-screen.dark-mode #world-book-screen .header .action-btn,
+           #phone-screen.dark-mode #world-book-editor-screen .header .back-btn {
+               background-color: #2c2c2e;
+               border: 1px solid rgba(255, 255, 255, 0.1) !important;
+               color: #ffffff;
+           }
+
+           /* 分类栏：全白背景，清爽纯白胶囊分段条 */
+           #world-book-tabs {
+               display: flex;
+               gap: 8px;
+               overflow-x: auto;
+               padding: 12px 16px 10px 16px;
+               flex-shrink: 0;
+               border-bottom: 1px solid rgba(0, 0, 0, 0.05) !important;
+               background-color: #ffffff !important;
+               -ms-overflow-style: none;
+               scrollbar-width: none;
+           }
+
+           #phone-screen.dark-mode #world-book-tabs {
+               background-color: #1c1c1e !important;
+               border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+           }
+
+           #world-book-tabs::-webkit-scrollbar {
+               display: none;
+           }
+
+           .world-book-tab {
+               padding: 6px 15px;
+               cursor: pointer;
+               border: 1px solid rgba(0, 0, 0, 0.08) !important;
+               border-radius: 9999px;
+               background-color: #ffffff;
+               font-size: 13px;
+               font-weight: 500;
+               color: var(--text-secondary);
+               margin-bottom: 0;
+               transition: all 0.2s ease;
+               white-space: nowrap;
+           }
+
+           #phone-screen.dark-mode .world-book-tab {
+               background-color: #2c2c2e;
+               border: 1px solid rgba(255, 255, 255, 0.1) !important;
+               color: #8e8e93;
+           }
+
+           .world-book-tab.active {
+               background-color: var(--accent-color) !important;
+               border-color: var(--accent-color) !important;
+               color: #ffffff !important;
+               font-weight: 600;
+               box-shadow: 0 2px 8px rgba(0, 122, 255, 0.25);
+           }
+
+           #world-book-content-container {
+               flex-grow: 1;
+               overflow-y: auto;
+               padding: 16px;
+               background-color: #ffffff !important;
+               scrollbar-width: none;
+           }
+
+           #phone-screen.dark-mode #world-book-content-container {
+               background-color: #000000 !important;
+           }
+
+           #world-book-content-container::-webkit-scrollbar {
+               display: none;
+           }
+
+           .world-book-category-pane {
+               display: none;
+               grid-template-columns: repeat(2, 1fr);
+               gap: 12px;
+           }
+
+           .world-book-category-pane.active {
+               display: grid;
+           }
+
+           /* 卡片：全白清爽微边框卡片 */
+           .world-book-card {
+               background-color: #ffffff !important;
+               border-radius: 14px;
+               padding: 15px;
+               border: 1px solid rgba(0, 0, 0, 0.08) !important;
+               box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+               cursor: pointer;
+               transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.2s ease;
+               display: flex;
+               flex-direction: column;
+               gap: 8px;
+               min-width: 0;
+               word-break: break-all;
+           }
+
+           .world-book-card:hover {
+               border-color: rgba(0, 122, 255, 0.3) !important;
+               box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+           }
+
+           .world-book-card:active {
+               transform: scale(0.98);
+               box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+           }
+
+           #phone-screen.dark-mode .world-book-card {
+               background-color: #1c1c1e !important;
+               border: 1px solid rgba(255, 255, 255, 0.1) !important;
+               box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+           }
+
+           .world-book-card .card-title {
+               font-weight: 600;
+               font-size: 15px;
+               color: var(--text-primary);
+               white-space: nowrap;
+               overflow: hidden;
+               text-overflow: ellipsis;
+               letter-spacing: -0.2px;
+           }
+
+           .world-book-card .card-content-preview {
+               font-size: 13px;
+               color: var(--text-secondary);
+               line-height: 1.45;
+               display: -webkit-box;
+               -webkit-line-clamp: 3;
+               -webkit-box-orient: vertical;
+               overflow: hidden;
+           }
+
+           /* =========================================================
+              编辑器表单区 (全白一体化表单)
+              ========================================================= */
+           #world-book-editor-screen .form-container {
+               padding: 16px;
+               display: flex;
+               flex-direction: column;
+               gap: 14px;
+               background-color: #ffffff !important;
+               scrollbar-width: none;
+           }
+
+           #phone-screen.dark-mode #world-book-editor-screen .form-container {
+               background-color: #000000 !important;
+           }
+
+           #world-book-editor-screen .form-container::-webkit-scrollbar {
+               display: none;
+           }
+
+           #world-book-editor-screen .form-group {
+               background-color: #ffffff !important;
+               border-radius: 14px;
+               padding: 14px 16px;
+               box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+               border: 1px solid rgba(0, 0, 0, 0.07) !important;
+               margin-bottom: 0;
+               display: flex;
+               flex-direction: column;
+               gap: 8px;
+           }
+
+           #phone-screen.dark-mode #world-book-editor-screen .form-group {
+               background-color: #1c1c1e !important;
+               border: 1px solid rgba(255, 255, 255, 0.1) !important;
+               box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+           }
+
+           #world-book-editor-screen .form-group label {
+               font-size: 13px;
+               font-weight: 600;
+               color: var(--text-secondary);
+               letter-spacing: -0.1px;
+               margin-bottom: 0;
+           }
+
+           /* 输入框纯白底色，配合精致轻柔边框，彻底杜绝脏灰凹槽 */
+           #world-book-editor-screen input[type="text"],
+           #world-book-editor-screen .entry-comment-input,
+           #world-book-editor-screen .entry-keys-input {
+               background-color: #ffffff !important;
+               border: 1px solid rgba(0, 0, 0, 0.1) !important;
+               border-radius: 10px;
+               padding: 10px 12px;
+               font-size: 14px;
+               color: var(--text-primary);
+               font-family: inherit;
+               width: 100%;
+               box-sizing: border-box;
+               transition: border-color 0.2s ease, box-shadow 0.2s ease;
+           }
+
+           #phone-screen.dark-mode #world-book-editor-screen input[type="text"],
+           #phone-screen.dark-mode #world-book-editor-screen .entry-comment-input,
+           #phone-screen.dark-mode #world-book-editor-screen .entry-keys-input {
+               background-color: #2c2c2e !important;
+               border: 1px solid rgba(255, 255, 255, 0.12) !important;
+               color: #ffffff;
+           }
+
+           #world-book-editor-screen input[type="text"]:focus,
+           #world-book-editor-screen .entry-comment-input:focus,
+           #world-book-editor-screen .entry-keys-input:focus {
+               background-color: #ffffff !important;
+               border-color: var(--accent-color) !important;
+               box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
+               outline: none;
+           }
+
+           #phone-screen.dark-mode #world-book-editor-screen input[type="text"]:focus,
+           #phone-screen.dark-mode #world-book-editor-screen .entry-comment-input:focus,
+           #phone-screen.dark-mode #world-book-editor-screen .entry-keys-input:focus {
+               background-color: #38383a !important;
+               border-color: #0a84ff !important;
+           }
+
+           /* iOS 下拉框定制：纯白通透 */
+           #world-book-editor-screen .custom-select-wrapper {
+               position: relative;
+           }
+
+           #world-book-editor-screen select {
+               width: 100%;
+               background-color: #ffffff !important;
+               border: 1px solid rgba(0, 0, 0, 0.1) !important;
+               border-radius: 10px;
+               padding: 10px 36px 10px 12px;
+               font-size: 14px;
+               color: var(--text-primary);
+               font-family: inherit;
+               -webkit-appearance: none;
+               -moz-appearance: none;
+               appearance: none;
+               cursor: pointer;
+               transition: border-color 0.2s ease;
+           }
+
+           #world-book-editor-screen select:focus {
+               border-color: var(--accent-color) !important;
+               outline: none;
+           }
+
+           #phone-screen.dark-mode #world-book-editor-screen select {
+               background-color: #2c2c2e !important;
+               border: 1px solid rgba(255, 255, 255, 0.12) !important;
+               color: #ffffff;
+           }
+
+           #world-book-editor-screen .custom-select-arrow {
+               position: absolute;
+               right: 12px;
+               top: 50%;
+               transform: translateY(-50%);
+               pointer-events: none;
+               color: var(--text-secondary);
+               display: flex;
+           }
+
+           /* 开关左右对齐 */
+           #world-book-editor-screen .switch-row {
+               display: flex;
+               align-items: center;
+               justify-content: space-between;
+               gap: 12px;
+           }
+
+           /* iOS 流体开关组件 */
+           .ios-toggle-container {
+               position: relative;
+               display: inline-block;
+               width: 51px;
+               height: 31px;
+               flex-shrink: 0;
+           }
+
+           .ios-toggle-container input[type="checkbox"] {
+               opacity: 0;
+               width: 0;
+               height: 0;
+               position: absolute;
+           }
+
+           .ios-toggle-track {
+               position: absolute;
+               cursor: pointer;
+               top: 0;
+               left: 0;
+               right: 0;
+               bottom: 0;
+               background-color: #e9e9ea;
+               transition: background-color 0.25s ease;
+               border-radius: 31px;
+           }
+
+           #phone-screen.dark-mode .ios-toggle-track {
+               background-color: #38383a;
+           }
+
+           .ios-toggle-track::before {
+               position: absolute;
+               content: "";
+               height: 27px;
+               width: 27px;
+               left: 2px;
+               bottom: 2px;
+               background-color: #ffffff;
+               transition: transform 0.25s cubic-bezier(0.2, 0.85, 0.32, 1.2);
+               border-radius: 50%;
+               box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+           }
+
+           .ios-toggle-container input:checked + .ios-toggle-track {
+               background-color: #34c759;
+           }
+
+           .ios-toggle-container input:checked + .ios-toggle-track::before {
+               transform: translateX(20px);
+           }
+
+           /* 条目块 (.message-editor-block) 美化：全白一体 */
+           #world-book-editor-screen .message-editor-block {
+               background-color: #ffffff !important;
+               border-radius: 14px;
+               padding: 14px 16px;
+               box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+               border: 1px solid rgba(0, 0, 0, 0.08) !important;
+               display: flex;
+               flex-direction: column;
+               gap: 10px;
+           }
+
+           #phone-screen.dark-mode #world-book-editor-screen .message-editor-block {
+               background-color: #1c1c1e !important;
+               border: 1px solid rgba(255, 255, 255, 0.1) !important;
+               box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+           }
+
+           #world-book-editor-screen .delete-block-btn {
+               width: 28px;
+               height: 28px;
+               border-radius: 9999px;
+               background-color: rgba(255, 59, 48, 0.08);
+               color: #ff3b30;
+               border: 1px solid rgba(255, 59, 48, 0.2) !important;
+               display: flex;
+               align-items: center;
+               justify-content: center;
+               cursor: pointer;
+               transition: transform 0.15s ease, background-color 0.2s;
+           }
+
+           #world-book-editor-screen .delete-block-btn:active {
+               transform: scale(0.9);
+               background-color: rgba(255, 59, 48, 0.18);
+           }
+
+           #world-book-editor-screen .entry-content-textarea {
+               background-color: #ffffff !important;
+               border: 1px solid rgba(0, 0, 0, 0.1) !important;
+               border-radius: 10px;
+               padding: 10px 12px;
+               font-size: 14px;
+               line-height: 1.5;
+               color: var(--text-primary);
+               font-family: inherit;
+               resize: none;
+               width: 100%;
+               box-sizing: border-box;
+               min-height: 90px;
+               transition: border-color 0.2s ease, box-shadow 0.2s ease;
+           }
+
+           #phone-screen.dark-mode #world-book-editor-screen .entry-content-textarea {
+               background-color: #2c2c2e !important;
+               border: 1px solid rgba(255, 255, 255, 0.12) !important;
+               color: #ffffff;
+           }
+
+           #world-book-editor-screen .entry-content-textarea:focus {
+               background-color: #ffffff !important;
+               border-color: var(--accent-color) !important;
+               box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
+               outline: none;
+           }
+
+           #phone-screen.dark-mode #world-book-editor-screen .entry-content-textarea:focus {
+               background-color: #38383a !important;
+               border-color: #0a84ff !important;
+           }
+
+           /* 添加条目大胶囊按钮：纯白卡片式质感 */
+           #world-book-editor-screen #add-world-book-entry-btn {
+               width: 100%;
+               padding: 13px;
+               background-color: #ffffff !important;
+               color: var(--accent-color);
+               font-size: 14px;
+               font-weight: 600;
+               border-radius: 14px;
+               box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+               border: 1px dashed rgba(0, 122, 255, 0.4) !important;
+               cursor: pointer;
+               display: flex;
+               align-items: center;
+               justify-content: center;
+               gap: 6px;
+               margin-top: 4px;
+               transition: transform 0.15s ease, background-color 0.2s, border-color 0.2s;
+           }
+
+           #world-book-editor-screen #add-world-book-entry-btn:hover {
+               border-color: var(--accent-color) !important;
+               background-color: rgba(0, 122, 255, 0.02) !important;
+           }
+
+           #phone-screen.dark-mode #world-book-editor-screen #add-world-book-entry-btn {
+               background-color: #1c1c1e !important;
+               border-color: rgba(10, 132, 255, 0.4) !important;
+               color: #0a84ff;
+           }
+
+           #world-book-editor-screen #add-world-book-entry-btn:active {
+               transform: scale(0.98);
+               background-color: rgba(0, 122, 255, 0.08) !important;
+           }
+
+           /* 世界书相关弹窗全白美化 */
+           #world-book-category-manager-modal .modal-content,
+           #delete-world-books-modal .modal-content {
+               background-color: #ffffff !important;
+           }
+
+           #world-book-category-manager-modal .existing-group-item {
+               background-color: #ffffff !important;
+               border: 1px solid rgba(0, 0, 0, 0.08) !important;
+               border-radius: 10px;
+           }
+
+           #world-book-category-manager-modal #new-category-name-input {
+               background-color: #ffffff !important;
+               border: 1px solid rgba(0, 0, 0, 0.1) !important;
+               border-radius: 8px;
+           }
+
+           #phone-screen.dark-mode #world-book-category-manager-modal .modal-content,
+           #phone-screen.dark-mode #delete-world-books-modal .modal-content {
+               background-color: #1c1c1e !important;
+           }
+

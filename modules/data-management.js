@@ -502,7 +502,7 @@ async function cleanupRedundantData() {
   // ========== 自定义字体管理 ==========
 
   // 字体范围 → CSS 选择器映射
-  const FONT_SCOPE_SELECTORS = {
+  const LEGACY_FONT_SCOPE_SELECTORS = {
     homeScreen: '#home-screen',
     qq: '#chat-list-screen, #chat-interface-screen',
     cphone: '#character-phone-screen, #character-selection-screen',
@@ -551,9 +551,9 @@ async function cleanupRedundantData() {
       if (scope.all) {
         dynamicFontStyle.innerHTML = `${newStyle}\nbody { font-family: ${fontFamily}; ${fontSizeCss} }`;
       } else {
-        const selectors = Object.keys(FONT_SCOPE_SELECTORS)
+        const selectors = Object.keys(LEGACY_FONT_SCOPE_SELECTORS)
           .filter(key => scope[key])
-          .map(key => FONT_SCOPE_SELECTORS[key])
+          .map(key => LEGACY_FONT_SCOPE_SELECTORS[key])
           .join(', ');
         if (selectors) {
           dynamicFontStyle.innerHTML = `${newStyle}\n${selectors} { font-family: ${fontFamily}; ${fontSizeCss} }`;

@@ -1,558 +1,1064 @@
-           /* 本地字体上传按钮 */
-           #font-local-upload-btn {
-               background-color: #4a90d9 !important;
-               color: #fff !important;
-               border: 1px solid #3a7bc8 !important;
-               border-radius: 8px !important;
-               padding: 8px 18px !important;
-               font-size: 13px !important;
-               font-weight: 500 !important;
-               cursor: pointer;
-               transition: background-color 0.2s ease, box-shadow 0.2s ease;
-               box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-               letter-spacing: 0.3px;
-           }
-
-           #font-local-upload-btn:active {
-               background-color: #3a7bc8 !important;
-               box-shadow: 0 0 0 2px rgba(74,144,217,0.3);
-               transform: scale(0.97);
-           }
-
-           /* 清除本地字体按钮 */
-           #font-local-clear-btn {
-               border-radius: 8px !important;
-               padding: 7px 16px !important;
-               font-size: 13px !important;
-               font-weight: 500 !important;
-               cursor: pointer;
-               transition: background-color 0.2s ease;
-           }
-
-           #font-local-clear-btn:active {
-               background-color: #ffcdd2 !important;
-               transform: scale(0.97);
-           }
-
-           #phone-screen.dark-mode #font-local-upload-btn {
-               background-color: #3a7bc8 !important;
-               border-color: #2e6ab3 !important;
-               color: #fff !important;
-           }
-
-           #phone-screen.dark-mode #font-local-upload-btn:active {
-               background-color: #2e6ab3 !important;
-           }
-
-           #phone-screen.dark-mode #font-local-clear-btn {
-               background-color: #4a2020 !important;
-               color: #ff8a80 !important;
-               border-color: #5a2a2a !important;
-           }
-
-           #phone-screen.dark-mode #font-local-clear-btn:active {
-               background-color: #5a2a2a !important;
-           }
-
-           #phone-screen.dark-mode #font-preview {
-               background-color: #1c1c1e;
-               border-color: #38383a;
-           }
-
-           #phone-screen.dark-mode #font-preview p {
-               color: #ffffff;
-           }
-
-           #phone-screen.dark-mode .qzone-post-item .post-nickname,
-           #phone-screen.dark-mode .qzone-post-item .post-content {
-               color: #f0f0f0;
-           }
-
-           #phone-screen.dark-mode .favorite-item-card .fav-card-header .name,
-           #phone-screen.dark-mode .favorite-item-card .fav-card-content {
-               color: #f0f0f0;
-           }
-
-           #phone-screen.dark-mode .favorite-item-card .fav-card-header .source {
-               color: #8d8d92;
-           }
-
-           #phone-screen.dark-mode .search-bar-container {
-               background-color: #000000;
-           }
-
-           #phone-screen.dark-mode #favorites-search-input {
-               background-color: #1c1c1e;
-               border-color: #38383a;
-               color: #ffffff;
-           }
-
-           #phone-screen.dark-mode #favorites-search-input::placeholder {
-               color: #8d8d92;
-           }
-
-           .toggle-switch {
-               position: relative;
-               display: inline-block;
-               width: 51px;
-               height: 31px;
-           }
-
-           .toggle-switch input {
-               opacity: 0;
-               width: 0;
-               height: 0;
-           }
-
-           .slider {
-               position: absolute;
-               cursor: pointer;
-               top: 0;
-               left: 0;
-               right: 0;
-               bottom: 0;
-               background-color: #e9e9eb;
-               transition: .4s;
-               border-radius: 34px;
-           }
-
-           .slider:before {
-               position: absolute;
-               content: "";
-               height: 27px;
-               width: 27px;
-               left: 2px;
-               bottom: 2px;
-               background-color: white;
-               transition: .4s;
-               border-radius: 50%;
-               box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-           }
-
-           input:checked+.slider {
-               background-color: #34c759;
-           }
-
-           input:checked+.slider:before {
-               transform: translateX(20px);
-           }
-
-           #reply-preview-bar {
-               display: none;
-               padding: 8px 12px;
-               margin: 0 8px 8px 8px;
-               background-color: rgba(0, 0, 0, 0.05);
-               border-left: 3px solid var(--accent-color);
-               border-radius: 6px;
-               position: relative;
-               font-size: 13px;
-               color: var(--text-secondary);
-           }
-
-           #phone-screen.dark-mode #reply-preview-bar {
-               background-color: rgba(255, 255, 255, 0.1);
-           }
-
-           .reply-preview-content .sender {
-               font-weight: 600;
-               color: var(--text-primary);
-           }
-
-           .reply-preview-content .text {
-               white-space: nowrap;
-               overflow: hidden;
-               text-overflow: ellipsis;
-               display: block;
-               max-width: 95%;
-           }
-
-           #cancel-reply-btn {
-               position: absolute;
-               top: 50%;
-               right: 8px;
-               transform: translateY(-50%);
-               width: 20px;
-               height: 20px;
-               line-height: 20px;
-               text-align: center;
-               border-radius: 50%;
-               background-color: rgba(0, 0, 0, 0.1);
-               cursor: pointer;
-               font-size: 14px;
-           }
-
-           .quoted-message {
-               padding: 6px 10px;
-               margin-bottom: 6px;
-               background-color: rgba(0, 0, 0, 0.04);
-               border-left: 2px solid var(--accent-color);
-               border-radius: 4px;
-               font-size: 0.9em;
-               opacity: 0.8;
-           }
-
-           #phone-screen.dark-mode .quoted-message {
-               background-color: rgba(255, 255, 255, 0.08);
-               border-left-color: #a0cff1;
-           }
-
-           .quoted-message .quoted-sender {
-               font-weight: 600;
-               color: var(--accent-color);
-           }
-
-           #phone-screen.dark-mode .quoted-message .quoted-sender {
-               color: #a0cff1;
-           }
-
-           .quoted-message .quoted-content {
-               color: var(--text-secondary);
-               white-space: normal;
-               word-break: break-word;
-               display: block;
-           }
-
-           #font-preview {
-               padding: 20px;
-               border: 1px solid var(--border-color);
-               border-radius: 8px;
-               background-color: #f9f9f9;
-               transition: background-color 0.3s, border-color 0.3s;
-           }
-
-           #font-preview p {
-               color: var(--text-primary);
-           }
-
-           #phone-screen.dark-mode #font-preview {
-               background-color: #1c1c1e;
-               border-color: #38383a;
-           }
-
-           #phone-screen.dark-mode #font-preview p {
-               color: #ffffff;
-           }
-
-           /* 字体应用范围 */
-           .font-scope-container {
-               display: flex;
-               flex-direction: column;
-               gap: 8px;
-           }
-
-           .font-scope-item {
-               display: flex;
-               align-items: center;
-               gap: 10px;
-               padding: 10px 12px;
-               border-radius: 8px;
-               background: var(--secondary-bg, #f5f5f5);
-               cursor: pointer;
-               transition: background 0.2s;
-               user-select: none;
-           }
-
-           .font-scope-item:active {
-               background: var(--border-color, #e0e0e0);
-           }
-
-           .font-scope-item input[type="checkbox"] {
-               width: 18px;
-               height: 18px;
-               accent-color: #007aff;
-               flex-shrink: 0;
-           }
-
-           .font-scope-item span {
-               font-size: 14px;
-               color: var(--text-primary);
-           }
-
-           .font-scope-all {
-               border-bottom: 1px solid var(--border-color, #eee);
-               padding-bottom: 12px;
-               margin-bottom: 4px;
-               border-radius: 8px 8px 0 0;
-           }
-
-           .font-scope-list {
-               display: flex;
-               flex-direction: column;
-               gap: 6px;
-               padding-left: 8px;
-           }
-
-           #phone-screen.dark-mode .font-scope-item {
-               background: #2c2c2e;
-           }
-
-           #phone-screen.dark-mode .font-scope-item:active {
-               background: #3a3a3c;
-           }
-
-           .transfer-actions-content {
-               background-color: #fff0f5;
-               border-radius: 20px;
-               width: 290px;
-               padding: 20px;
-               box-shadow: 0 5px 25px rgba(255, 105, 180, 0.3);
-               text-align: center;
-               position: relative;
-               border: 1px solid #ffcce0;
-               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-           }
-
-           .transfer-actions-header {
-               font-size: 20px;
-               font-weight: bold;
-               color: #a35c7b;
-               margin-bottom: 15px;
-           }
-
-           .transfer-actions-body p {
-               font-size: 15px;
-               color: #555;
-               margin: 0 0 25px 0;
-               line-height: 1.5;
-           }
-
-           .transfer-actions-footer {
-               display: flex;
-               justify-content: space-between;
-               gap: 15px;
-           }
-
-           .transfer-actions-footer .action-btn {
-               flex: 1;
-               padding: 12px;
-               border: none;
-               border-radius: 12px;
-               font-size: 16px;
-               font-weight: 600;
-               cursor: pointer;
-               transition: transform 0.2s, box-shadow 0.2s;
-               color: white;
-           }
-
-           .transfer-actions-footer .action-btn:active {
-               transform: scale(0.95);
-           }
-
-           .transfer-actions-footer .action-btn.accept {
-               background: linear-gradient(135deg, #ff85b3, #ff69b4);
-               box-shadow: 0 4px 10px rgba(255, 105, 180, 0.4);
-           }
-
-           .transfer-actions-footer .action-btn.decline {
-               background: linear-gradient(135deg, #c2c2c2, #a0a0a0);
-               box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-           }
-
-           .transfer-actions-content .cancel-btn {
-               position: absolute;
-               top: 10px;
-               right: 10px;
-               width: 28px;
-               height: 28px;
-               border-radius: 50%;
-               border: none;
-               background-color: rgba(0, 0, 0, 0.1);
-               color: #a35c7b;
-               font-size: 20px;
-               line-height: 28px;
-               cursor: pointer;
-           }
-
-           .unread-count-wrapper {
-               flex-shrink: 0;
-               width: 40px;
-               display: flex;
-               justify-content: center;
-               align-items: flex-start;
-               padding-top: 20px;
-           }
-
-           .unread-count {
-               min-width: 20px;
-               height: 20px;
-               padding: 0 6px;
-               background-color: #ff3b30;
-               color: white;
-               font-size: 13px;
-               font-weight: 500;
-               line-height: 20px;
-               text-align: center;
-               border-radius: 10px;
-               box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
-               display: none;
-               justify-content: center;
-               align-items: center;
-           }
-
-           #call-history-screen {
-               background-color: #f0f2f5;
-           }
-
-           .call-record-card {
-               background-color: var(--secondary-bg);
-               border-radius: 12px;
-               padding: 15px;
-               box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-               cursor: pointer;
-               transition: transform 0.2s ease, box-shadow 0.2s ease;
-               border-left: 5px solid var(--accent-color);
-           }
-
-           .call-record-card:hover {
-               transform: translateY(-3px);
-               box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
-           }
-
-           .call-record-card .card-header {
-               display: flex;
-               justify-content: space-between;
-               align-items: center;
-               font-size: 13px;
-               color: var(--text-secondary);
-               margin-bottom: 12px;
-               padding-bottom: 8px;
-               border-bottom: 1px solid var(--border-color);
-           }
-
-           .call-record-card .card-header .duration {
-               font-weight: 500;
-               color: var(--text-primary);
-           }
-
-           .call-record-card .card-body {
-               display: flex;
-               align-items: center;
-           }
-
-           .call-record-card .participants-avatars {
-               display: flex;
-               align-items: center;
-           }
-
-           .call-record-card .participant-avatar {
-               width: 36px;
-               height: 36px;
-               border-radius: 50%;
-               object-fit: cover;
-               border: 2px solid white;
-               box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-           }
-
-           .call-record-card .participant-avatar:not(:first-child) {
-               margin-left: -12px;
-           }
-
-           .call-record-card .participants-names {
-               margin-left: 12px;
-               font-weight: 600;
-               color: var(--text-primary);
-               font-size: 15px;
-           }
-
-           #transcript-modal-body {
-               display: flex;
-               flex-direction: column;
-               gap: 12px;
-               padding: 15px;
-           }
-
-           .transcript-entry {
-               padding: 8px 12px;
-               border-radius: 10px;
-               max-width: 85%;
-               line-height: 1.5;
-               word-break: break-word;
-           }
-
-           .transcript-entry.user {
-               background-color: #dcf8c6;
-               align-self: flex-end;
-           }
-
-           .transcript-entry.assistant {
-               background-color: #ffffff;
-               align-self: flex-start;
-           }
-
-           #chat-list-title {
-               cursor: pointer;
-           }
-
-           .call-record-card .card-body {
-               display: flex;
-               flex-direction: column;
-               gap: 8px;
-           }
-
-           .call-record-card .custom-title {
-               font-size: 16px;
-               font-weight: 600;
-               color: var(--text-primary);
-               padding-bottom: 8px;
-               border-bottom: 1px solid var(--border-color);
-               margin-bottom: 4px;
-           }
-
-           .call-record-card .participants-info {
-               display: flex;
-               align-items: center;
-           }
-
-           .call-record-card .participants-names {
-               margin-left: 12px;
-               font-weight: 500;
-               font-size: 14px;
-               color: var(--text-secondary);
-           }
-
-           .voice-transcript {
-               font-size: 14px;
-               line-height: 1.6;
-               color: var(--text-secondary);
-               padding: 8px 12px;
-               margin-top: 6px;
-               background-color: rgba(0, 0, 0, 0.04);
-               border-radius: 6px;
-               word-break: break-word;
-               display: none;
-           }
-
-           #phone-screen.dark-mode .voice-transcript {
-               background-color: rgba(255, 255, 255, 0.1);
-           }
-
-           /* 双语翻译气泡（外部模式） */
-           .translation-bubble {
-               font-size: 14px;
-               line-height: 1.6;
-               color: var(--text-secondary);
-               padding: 8px 12px;
-               margin-top: 4px;
-               background-color: rgba(0, 0, 0, 0.04);
-               border-radius: 6px;
-               word-break: break-word;
-               box-sizing: border-box;
-               max-width: 100%;
-               width: fit-content; /* 根据内容自适应宽度 */
-           }
-
-           #phone-screen.dark-mode .translation-bubble {
-               background-color: rgba(255, 255, 255, 0.1);
-           }
-
-           /* AI消息的翻译气泡左对齐，考虑头像宽度 */
-           .message-wrapper.ai .translation-bubble {
-               margin-left: 50px; /* 与消息内容对齐（头像42px + gap 8px） */
-               align-self: flex-start;
-           }
-
-           /* 用户消息的翻译气泡右对齐 */
-           .message-wrapper.user .translation-bubble {
-               align-self: flex-end;
-           }
-
+/* ==========================================================================
+   iOS 风格现代字体设置屏幕样式 (iOS Inset Grouped Settings)
+   ========================================================================== */
+
+#font-settings-screen {
+    background-color: #ffffff;
+    color: var(--text-primary, #000000);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+}
+
+#phone-screen.dark-mode #font-settings-screen {
+    background-color: #000000;
+    color: #ffffff;
+}
+
+/* 1. 顶部导航栏 (纯白清爽) */
+#font-settings-screen .font-ios-header {
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: max(45px, calc(15px + var(--screen-top-inset, 0px))) 16px 0;
+    background: #ffffff;
+    border-bottom: 0.5px solid rgba(0, 0, 0, 0.08);
+    z-index: 20;
+    flex-shrink: 0;
+}
+
+#phone-screen.dark-mode #font-settings-screen .font-ios-header {
+    background: #121212;
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+#font-settings-screen .font-nav-back {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    color: var(--accent-color, #007aff);
+    font-size: 16px;
+    font-weight: 400;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 6px 4px;
+    transition: opacity 0.15s ease;
+}
+
+#font-settings-screen .font-nav-back:active {
+    opacity: 0.6;
+}
+
+#font-settings-screen .font-nav-back svg {
+    width: 20px;
+    height: 20px;
+}
+
+#font-settings-screen .font-nav-title {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    color: var(--text-primary, #000000);
+}
+
+#phone-screen.dark-mode #font-settings-screen .font-nav-title {
+    color: #ffffff;
+}
+
+/* 顶栏保存按钮 (原生极简纯文字风格，无胶囊无圆角) */
+#font-settings-screen .font-header-save-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 8px;
+    border-radius: 0 !important;
+    background: transparent !important;
+    color: var(--accent-color, #007aff) !important;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+    border: none !important;
+    cursor: pointer;
+    box-shadow: none !important;
+    transition: opacity 0.15s ease;
+}
+
+#font-settings-screen .font-header-save-btn:hover {
+    box-shadow: none !important;
+    transform: none !important;
+    opacity: 0.8;
+}
+
+#font-settings-screen .font-header-save-btn:active {
+    transform: none !important;
+    opacity: 0.5;
+    box-shadow: none !important;
+}
+
+#phone-screen.dark-mode #font-settings-screen .font-header-save-btn {
+    background: transparent !important;
+    color: #0a84ff !important;
+    box-shadow: none !important;
+}
+
+/* 2. 主体滚动容器 */
+#font-settings-screen .font-scroll-container {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 14px 16px calc(40px + var(--safe-bottom, 0px)) 16px;
+    -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+#font-settings-screen .font-scroll-container::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
+/* 3. 实时预览舱 (折叠式与微信风格气泡) */
+#font-settings-screen .font-preview-group {
+    margin-bottom: 0;
+}
+
+#font-settings-screen .font-preview-collapsible {
+    border-top: 0.5px solid rgba(60, 60, 67, 0.1);
+    transition: all 0.25s ease;
+}
+
+#font-settings-screen .font-preview-stage {
+    background: #f6f7f9;
+    padding: 18px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+#phone-screen.dark-mode #font-settings-screen .font-preview-stage {
+    background: #18181a;
+}
+
+/* 挂载容器保持 #font-preview */
+#font-preview {
+    transition: font-size 0.15s ease, font-family 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+}
+
+/* 微信气泡拟真质感与经典小尖角 */
+.wechat-style-bubbles {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    width: 100%;
+    padding: 4px 6px;
+    box-sizing: border-box;
+}
+
+.preview-msg-wrap {
+    display: flex;
+    width: 100%;
+    align-items: flex-start;
+}
+
+.preview-msg-left {
+    justify-content: flex-start;
+    padding-left: 10px;
+}
+
+.preview-msg-right {
+    justify-content: flex-end;
+    padding-right: 10px;
+}
+
+/* 气泡本体 */
+.wechat-style-bubbles .preview-msg {
+    position: relative;
+    max-width: 84%;
+    padding: 9px 12px;
+    border-radius: 4px;
+    font-size: 0.95em;
+    line-height: 1.45;
+    word-break: break-word;
+    box-sizing: border-box;
+}
+
+/* 左侧气泡：微信纯白底色 + 灰色边框 + 尖角 */
+.wechat-style-bubbles .preview-msg.ai {
+    background: #ffffff;
+    color: #191919;
+    border: 0.5px solid #dfdfdf;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+/* 左尖角 (边框三角 + 背景色遮罩三角) */
+.wechat-style-bubbles .preview-msg.ai::before {
+    content: "";
+    position: absolute;
+    top: 11px;
+    left: -6px;
+    width: 0;
+    height: 0;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    border-right: 6px solid #dfdfdf;
+}
+
+.wechat-style-bubbles .preview-msg.ai::after {
+    content: "";
+    position: absolute;
+    top: 11px;
+    left: -5px;
+    width: 0;
+    height: 0;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    border-right: 6px solid #ffffff;
+}
+
+/* 右侧气泡：灰色底色 + 灰色边框 + 尖角 */
+.wechat-style-bubbles .preview-msg.user {
+    background: #e9eaec;
+    color: #191919;
+    border: 0.5px solid #dcdde0;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+/* 右尖角 (边框三角 + 背景色遮罩三角) */
+.wechat-style-bubbles .preview-msg.user::before {
+    content: "";
+    position: absolute;
+    top: 11px;
+    right: -6px;
+    width: 0;
+    height: 0;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    border-left: 6px solid #dcdde0;
+}
+
+.wechat-style-bubbles .preview-msg.user::after {
+    content: "";
+    position: absolute;
+    top: 11px;
+    right: -5px;
+    width: 0;
+    height: 0;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    border-left: 6px solid #e9eaec;
+}
+
+/* 暗色模式下的气泡 */
+#phone-screen.dark-mode .wechat-style-bubbles .preview-msg.ai {
+    background: #232326;
+    color: #ffffff;
+    border-color: #38383a;
+}
+#phone-screen.dark-mode .wechat-style-bubbles .preview-msg.ai::before {
+    border-right-color: #38383a;
+}
+#phone-screen.dark-mode .wechat-style-bubbles .preview-msg.ai::after {
+    border-right-color: #232326;
+}
+
+#phone-screen.dark-mode .wechat-style-bubbles .preview-msg.user {
+    background: #323235;
+    color: #ffffff;
+    border-color: #444448;
+}
+#phone-screen.dark-mode .wechat-style-bubbles .preview-msg.user::before {
+    border-left-color: #444448;
+}
+#phone-screen.dark-mode .wechat-style-bubbles .preview-msg.user::after {
+    border-left-color: #323235;
+}
+
+/* 4. iOS 分组 (Inset Grouped Section) */
+#font-settings-screen .font-ios-group {
+    display: flex;
+    flex-direction: column;
+}
+
+#font-settings-screen .font-ios-group-title {
+    font-size: 13px;
+    font-weight: 400;
+    color: #8e8e93;
+    text-transform: uppercase;
+    letter-spacing: -0.1px;
+    margin: 0 0 7px 14px;
+}
+
+#font-settings-screen .font-ios-group-card {
+    background: #ffffff;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid rgba(0, 0, 0, 0.07);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+#phone-screen.dark-mode #font-settings-screen .font-ios-group-card {
+    background: #1c1c1e;
+    border-color: rgba(84, 84, 88, 0.36);
+    box-shadow: none;
+}
+
+#font-settings-screen .font-ios-group-footer {
+    font-size: 12px;
+    color: #8e8e93;
+    line-height: 1.4;
+    margin: 7px 14px 0 14px;
+}
+
+/* 单元格 Cell */
+#font-settings-screen .font-ios-cell {
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 48px;
+    position: relative;
+    background: transparent;
+}
+
+#font-settings-screen .font-ios-cell + .font-ios-cell::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 16px;
+    right: 0;
+    height: 0.5px;
+    background: rgba(60, 60, 67, 0.12);
+}
+
+#phone-screen.dark-mode #font-settings-screen .font-ios-cell + .font-ios-cell::before {
+    background: rgba(84, 84, 88, 0.36);
+}
+
+#font-settings-screen .font-ios-cell.clickable {
+    cursor: pointer;
+}
+
+#font-settings-screen .font-ios-cell.clickable:active {
+    background: #f2f2f7;
+}
+
+#phone-screen.dark-mode #font-settings-screen .font-ios-cell.clickable:active {
+    background: #2c2c2e;
+}
+
+#font-settings-screen .font-cell-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+}
+
+#font-settings-screen .font-cell-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    flex-shrink: 0;
+}
+
+#font-settings-screen .font-cell-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+#font-settings-screen .font-cell-texts {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+#font-settings-screen .font-cell-main {
+    font-size: 16px;
+    color: var(--text-primary, #000000);
+    letter-spacing: -0.2px;
+}
+
+#phone-screen.dark-mode #font-settings-screen .font-cell-main {
+    color: #ffffff;
+}
+
+#font-settings-screen .font-cell-sub {
+    font-size: 12px;
+    color: #8e8e93;
+}
+
+/* 5. iOS 原生字号滑块 (彻底美化原生 Range) */
+#font-settings-screen .font-slider-box {
+    padding: 14px 16px 16px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+#font-settings-screen .font-slider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#font-settings-screen .font-size-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#font-settings-screen .font-size-badge {
+    font-size: 14px;
+    font-weight: 600;
+    color: #007aff;
+    background: rgba(0, 122, 255, 0.12);
+    padding: 3px 8px;
+    border-radius: 6px;
+}
+
+#phone-screen.dark-mode #font-settings-screen .font-size-badge {
+    color: #0a84ff;
+    background: rgba(10, 132, 255, 0.18);
+}
+
+/* 基准字号“重置”胶囊按钮 */
+.font-reset-pill-btn {
+    border: none;
+    background: #f0f0f4;
+    color: #007aff;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 3px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    line-height: 1.4;
+}
+
+.font-reset-pill-btn:hover {
+    background: #e4e4eb;
+}
+
+.font-reset-pill-btn:active {
+    transform: scale(0.94);
+    opacity: 0.8;
+}
+
+#phone-screen.dark-mode .font-reset-pill-btn {
+    background: #2c2c2e;
+    color: #0a84ff;
+}
+
+#phone-screen.dark-mode .font-reset-pill-btn:hover {
+    background: #3a3a3c;
+}
+
+#font-settings-screen .font-slider-track {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 4px;
+}
+
+#font-settings-screen .slider-sym-sm {
+    font-size: 13px;
+    font-weight: 500;
+    color: #8e8e93;
+}
+
+#font-settings-screen .slider-sym-lg {
+    font-size: 21px;
+    font-weight: 600;
+    color: var(--text-primary, #000000);
+}
+
+#phone-screen.dark-mode #font-settings-screen .slider-sym-lg {
+    color: #ffffff;
+}
+
+#font-size-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    flex: 1;
+    height: 6px;
+    border-radius: 3px;
+    background: #e5e5ea;
+    outline: none;
+}
+
+#phone-screen.dark-mode #font-size-slider {
+    background: #3a3a3c;
+}
+
+#font-size-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #ffffff;
+    cursor: pointer;
+    box-shadow: 0 2px 7px rgba(0, 0, 0, 0.22), 0 0 1px rgba(0, 0, 0, 0.2);
+    border: 0.5px solid rgba(0, 0, 0, 0.04);
+    transition: transform 0.12s ease;
+}
+
+#font-size-slider::-webkit-slider-thumb:active {
+    transform: scale(1.12);
+}
+
+#font-size-slider::-moz-range-thumb {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #ffffff;
+    cursor: pointer;
+    box-shadow: 0 2px 7px rgba(0, 0, 0, 0.22);
+    border: none;
+}
+
+/* 6. 预设管理与下拉框美化 */
+#font-settings-screen .font-select-wrapper {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+}
+
+#font-preset-select {
+    width: 100%;
+    padding: 9px 30px 9px 12px;
+    font-size: 15px;
+    color: var(--text-primary, #000000);
+    background: #f7f7f9;
+    border: 0.5px solid rgba(60, 60, 67, 0.15);
+    border-radius: 9px;
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+    font-family: inherit;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+#phone-screen.dark-mode #font-preset-select {
+    background: #2c2c2e;
+    color: #ffffff;
+    border-color: rgba(84, 84, 88, 0.36);
+}
+
+#font-preset-select:focus {
+    border-color: #007aff;
+}
+
+#font-settings-screen .font-select-arrow {
+    position: absolute;
+    right: 10px;
+    pointer-events: none;
+    color: #8e8e93;
+    display: flex;
+}
+
+#font-settings-screen .font-action-pills {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 8px;
+}
+
+#save-font-preset-btn,
+#delete-font-preset-btn {
+    padding: 7px 13px !important;
+    border-radius: 999px !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    border: none !important;
+    cursor: pointer;
+    display: inline-flex !important;
+    align-items: center;
+    gap: 4px;
+    transition: opacity 0.15s, transform 0.12s;
+    white-space: nowrap;
+    margin: 0 !important;
+}
+
+#save-font-preset-btn {
+    background: #f2f2f7 !important;
+    color: #007aff !important;
+    border: 0.5px solid rgba(60, 60, 67, 0.12) !important;
+}
+
+#phone-screen.dark-mode #save-font-preset-btn {
+    background: #2c2c2e !important;
+    color: #0a84ff !important;
+    border-color: rgba(84, 84, 88, 0.36) !important;
+}
+
+#delete-font-preset-btn {
+    background: rgba(255, 59, 48, 0.1) !important;
+    color: #ff3b30 !important;
+    border: 0.5px solid rgba(255, 59, 48, 0.2) !important;
+}
+
+#phone-screen.dark-mode #delete-font-preset-btn {
+    background: rgba(255, 69, 58, 0.18) !important;
+    color: #ff453a !important;
+    border-color: rgba(255, 69, 58, 0.3) !important;
+}
+
+#save-font-preset-btn:active,
+#delete-font-preset-btn:active {
+    transform: scale(0.96);
+    opacity: 0.8;
+}
+
+/* 7. 字体文件输入与本地上传 */
+#font-settings-screen .font-input-box {
+    padding: 10px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+#font-settings-screen .font-input-label {
+    font-size: 12px;
+    color: #8e8e93;
+    font-weight: 500;
+}
+
+#font-settings-screen .font-input-relative {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+#font-settings-screen .font-input-icon {
+    position: absolute;
+    left: 12px;
+    color: #8e8e93;
+    pointer-events: none;
+    display: flex;
+}
+
+#font-url-input {
+    width: 100%;
+    height: 40px;
+    padding: 0 34px 0 36px;
+    font-size: 14px;
+    color: var(--text-primary, #000000);
+    background: #f7f7f9;
+    border: 0.5px solid rgba(60, 60, 67, 0.15);
+    border-radius: 9px;
+    outline: none;
+    font-family: inherit;
+    transition: all 0.2s ease;
+}
+
+#phone-screen.dark-mode #font-url-input {
+    background: #2c2c2e;
+    color: #ffffff;
+    border-color: rgba(84, 84, 88, 0.36);
+}
+
+#font-url-input:focus {
+    border-color: #007aff;
+    background: #ffffff;
+}
+
+#phone-screen.dark-mode #font-url-input:focus {
+    background: #1c1c1e;
+    border-color: #0a84ff;
+}
+
+#font-url-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* 本地文件行 */
+#font-settings-screen .font-local-row {
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+#font-settings-screen .font-local-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+}
+
+#font-settings-screen .font-format-badge {
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
+    background: rgba(88, 86, 214, 0.12);
+    color: #5856d6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+#phone-screen.dark-mode #font-settings-screen .font-format-badge {
+    background: rgba(94, 92, 230, 0.2);
+    color: #5e5ce6;
+}
+
+#font-settings-screen .font-local-texts {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+#font-local-filename {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary, #000000);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#phone-screen.dark-mode #font-local-filename {
+    color: #ffffff;
+}
+
+#font-settings-screen .font-local-desc {
+    font-size: 12px;
+    color: #8e8e93;
+}
+
+#font-local-upload-btn {
+    padding: 7px 14px !important;
+    border-radius: 999px !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    background: #007aff !important;
+    color: #ffffff !important;
+    border: none !important;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 122, 255, 0.25);
+    transition: opacity 0.15s, transform 0.12s;
+    white-space: nowrap;
+    margin: 0 !important;
+}
+
+#phone-screen.dark-mode #font-local-upload-btn {
+    background: #0a84ff !important;
+}
+
+#font-local-upload-btn:active {
+    transform: scale(0.96);
+    opacity: 0.85;
+}
+
+#font-local-clear-btn {
+    padding: 7px 13px !important;
+    border-radius: 999px !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    background: rgba(255, 59, 48, 0.1) !important;
+    color: #ff3b30 !important;
+    border: 0.5px solid rgba(255, 59, 48, 0.2) !important;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.12s;
+    white-space: nowrap;
+    margin: 0 !important;
+}
+
+#phone-screen.dark-mode #font-local-clear-btn {
+    background: rgba(255, 69, 58, 0.18) !important;
+    color: #ff453a !important;
+    border-color: rgba(255, 69, 58, 0.3) !important;
+}
+
+#font-local-warning {
+    margin: 0 16px 12px 16px;
+    padding: 9px 12px;
+    background: rgba(255, 149, 0, 0.12);
+    border-radius: 8px;
+    font-size: 12px;
+    color: #b26800;
+    line-height: 1.35;
+    display: none;
+}
+
+#phone-screen.dark-mode #font-local-warning {
+    color: #ffaa33;
+}
+
+/* 8. iOS 原生平滑切换开关 (Toggle Switch) */
+#font-settings-screen .ios-switch {
+    position: relative;
+    display: inline-block;
+    width: 51px;
+    height: 31px;
+    flex-shrink: 0;
+}
+
+#font-settings-screen .ios-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+#font-settings-screen .ios-switch-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: #e5e5ea;
+    transition: .26s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 31px;
+}
+
+#phone-screen.dark-mode #font-settings-screen .ios-switch-slider {
+    background-color: #3a3a3c;
+}
+
+#font-settings-screen .ios-switch-slider:before {
+    position: absolute;
+    content: "";
+    height: 27px;
+    width: 27px;
+    left: 2px;
+    bottom: 2px;
+    background-color: #ffffff;
+    transition: .26s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 50%;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.1);
+}
+
+#font-settings-screen .ios-switch input:checked + .ios-switch-slider {
+    background-color: #34c759;
+}
+
+#font-settings-screen .ios-switch input:checked + .ios-switch-slider:before {
+    transform: translateX(20px);
+}
+
+/* 区域勾选列表 (恢复原生垂直分组行，杜绝横向滑动挤压) */
+#font-scope-list {
+    display: flex;
+    flex-direction: column !important;
+    width: 100%;
+    box-sizing: border-box;
+    border-top: 0.5px solid rgba(60, 60, 67, 0.12);
+    background: #ffffff;
+}
+
+#phone-screen.dark-mode #font-scope-list {
+    border-top-color: rgba(84, 84, 88, 0.36);
+    background: #1c1c1e;
+}
+
+#font-settings-screen #font-scope-list .font-scope-item {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 48px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    text-decoration: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+#font-settings-screen #font-scope-list .font-cell-main {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 16px;
+    line-height: 1.25;
+}
+
+#font-settings-screen .font-scope-checkbox-pill {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1.5px solid #c7c7cc;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
+}
+
+#phone-screen.dark-mode #font-settings-screen .font-scope-checkbox-pill {
+    border-color: #48484a;
+}
+
+#font-settings-screen .font-scope-real-cb {
+    display: none;
+}
+
+#font-settings-screen .font-scope-real-cb:checked + .font-scope-checkbox-pill {
+    background: #007aff;
+    border-color: #007aff;
+    color: #ffffff;
+}
+
+#font-settings-screen .font-scope-real-cb:not(:checked) + .font-scope-checkbox-pill svg {
+    display: none;
+}
+
+/* 9. 底部危险操作单元格 */
+#reset-font-scope-btn,
+#reset-font-btn {
+    justify-content: center !important;
+    color: #ff3b30 !important;
+    font-size: 16px !important;
+    font-weight: 400 !important;
+    text-align: center;
+    cursor: pointer;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 14px 16px !important;
+    margin: 0 !important;
+    width: 100% !important;
+    transition: background 0.15s ease;
+}
+
+#reset-font-scope-btn:active,
+#reset-font-btn:active {
+    background: rgba(255, 59, 48, 0.1) !important;
+}
+
+#phone-screen.dark-mode #reset-font-scope-btn,
+#phone-screen.dark-mode #reset-font-btn {
+    color: #ff453a !important;
+}
+
+#phone-screen.dark-mode #reset-font-scope-btn:active,
+#phone-screen.dark-mode #reset-font-btn:active {
+    background: rgba(255, 69, 58, 0.18) !important;
+}
+
+/* 字体页新增操作沿用现有的小按钮和输入框尺度，固定导航不随正文缩放。 */
+#font-settings-screen .font-ios-header {
+    gap: 8px;
+    --user-font-scale: 1;
+}
+#font-settings-screen .font-nav-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    text-align: center;
+}
+#font-settings-screen .font-nav-back,
+#font-settings-screen .font-header-save-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+#font-settings-screen .font-header-save-btn:disabled { opacity: .5; }
+#font-settings-screen .font-cell-left,
+#font-settings-screen .font-cell-texts,
+#font-settings-screen .font-local-info,
+#font-settings-screen .font-local-texts,
+#font-settings-screen .font-select-wrapper {
+    min-width: 0;
+}
+#font-settings-screen .font-cell-icon,
+#font-settings-screen .ios-switch,
+#font-settings-screen .font-action-pills,
+#font-settings-screen .font-size-controls { flex-shrink: 0; }
+#font-settings-screen .font-size-controls,
+#font-settings-screen .font-action-pills,
+#font-settings-screen .font-source-cell .font-select-wrapper { --user-font-scale: 1; }
+#font-settings-screen .font-slider-header > .font-cell-main {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#font-settings-screen .font-cell-sub { overflow-wrap: anywhere; }
+#font-settings-screen .font-cell-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#font-settings-screen .font-local-texts { flex: 1; }
+#font-settings-screen .font-format-badge { flex-shrink: 0; }
+#font-settings-screen .font-local-row { gap: 8px; }
+#font-settings-screen .font-source-cell { gap: 12px; }
+#font-settings-screen .font-source-cell .font-select-wrapper { flex: 1; max-width: 160px; }
+#font-source-select {
+    appearance: none;
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-primary, #191919);
+    font: inherit;
+    font-size: 15px;
+    padding: 8px 24px 8px 4px;
+    cursor: pointer;
+}
+#font-settings-screen .font-load-status-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: -10px;
+    --user-font-scale: 1;
+    --user-font-family: initial;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+#font-load-status { flex: 1; min-width: 0; overflow-wrap: anywhere; line-height: 1.5; }
+#font-load-status[data-kind="error"] { color: var(--danger-color, #ff3b30); }
+#font-reload-btn { flex-shrink: 0; white-space: nowrap; }
+#font-preview { gap: 12px; min-width: 0; --user-font-scale: 1; }
+#font-preview .font-preview-sample-title { font-size: 1.05em; font-weight: 600; }
+#font-preview .font-preview-sample { font-size: 1em; line-height: 1.6; overflow-wrap: anywhere; }
+#font-preview .font-preview-button-sample {
+    align-self: flex-start;
+    border: 1px solid var(--border-color, #dfdfdf);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: .9em;
+    line-height: 1.4;
+}
+.font-reset-scope-choices { max-height: 45vh; overflow-y: auto; margin-top: 12px; }
+.font-reset-scope-choice { display: flex; align-items: center; gap: 10px; padding: 9px 0; cursor: pointer; }
+.font-reset-scope-choice input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.font-reset-scope-check {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    border: 1px solid var(--border-color, #dfdfdf);
+    border-radius: 5px;
+    color: transparent;
+}
+.font-reset-scope-choice input:checked + .font-reset-scope-check { background: var(--accent-color, #007aff); color: #fff; }
+.font-reset-scope-choice input:focus-visible + .font-reset-scope-check { outline: 2px solid var(--accent-color, #007aff); outline-offset: 2px; }
+@media (max-width: 375px) {
+    #font-settings-screen .font-header-save-btn { font-size: 14px; padding-inline: 4px; }
+    #font-settings-screen .font-local-row .font-action-pills { gap: 5px; }
+    #font-settings-screen .font-local-row .font-action-pills button { padding-inline: 8px; }
+    #font-settings-screen .font-slider-header { gap: 8px; }
+    #font-settings-screen .font-size-controls { gap: 5px; }
+}
