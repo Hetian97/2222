@@ -6,6 +6,7 @@
 // ========================================
 
   const BLACK_GOLD_THRESHOLD = 10000;
+  window.alipayThemeOverride = window.alipayThemeOverride || null;
 
   let selectedKinshipCharId = null;
 
@@ -18,16 +19,7 @@
       balanceEl.textContent = safeBalance.toFixed(2);
     }
 
-    const alipayScreen = document.getElementById('alipay-screen');
-    const statusTag = document.getElementById('alipay-status-tag');
-
-    if (window.userBalance >= BLACK_GOLD_THRESHOLD) {
-      alipayScreen.classList.add('theme-blackgold');
-      if (statusTag) statusTag.textContent = '黑金会员';
-    } else {
-      alipayScreen.classList.remove('theme-blackgold');
-      if (statusTag) statusTag.textContent = '标准会员';
-    }
+    checkThemeStatus();
 
     const oldWrapper = document.getElementById('alipay-kinship-section-wrapper');
     if (oldWrapper) oldWrapper.remove();
@@ -477,7 +469,14 @@
   // 全局主题检查 (核心：余额变动自动切换黑金/蓝色)
   function checkThemeStatus() {
     const threshold = 10000;
-    const isGold = window.userBalance >= threshold;
+    let isGold = false;
+    if (window.alipayThemeOverride === 'blackgold') {
+      isGold = true;
+    } else if (window.alipayThemeOverride === 'standard') {
+      isGold = false;
+    } else {
+      isGold = window.userBalance >= threshold;
+    }
 
     const screens = ['alipay-screen', 'fund-screen'];
     screens.forEach(id => {
@@ -505,6 +504,25 @@
     }
     const balanceDisplay = document.getElementById('alipay-balance-display');
     if (balanceDisplay) balanceDisplay.textContent = window.userBalance.toFixed(2);
+  }
+
+  function toggleAlipayTheme() {
+    const threshold = 10000;
+    let currentIsGold = false;
+    if (window.alipayThemeOverride === 'blackgold') {
+      currentIsGold = true;
+    } else if (window.alipayThemeOverride === 'standard') {
+      currentIsGold = false;
+    } else {
+      currentIsGold = window.userBalance >= threshold;
+    }
+    window.alipayThemeOverride = currentIsGold ? 'standard' : 'blackgold';
+    const btn = document.getElementById('alipay-theme-toggle-btn');
+    if (btn) {
+      btn.classList.add('animating');
+      setTimeout(() => btn.classList.remove('animating'), 500);
+    }
+    checkThemeStatus();
   }
 
   // 模拟市场波动 (升级版：记录历史走势)
@@ -1062,9 +1080,10 @@ function extractWalletJson(text) {
 }
 
 async function callWalletAI(chat, prompt) {
-  const proxyUrl = chat.apiOverride?.proxyUrl || state.apiConfig.proxyUrl;
-  const apiKey = getWalletApiKey(chat.apiOverride?.apiKey || state.apiConfig.apiKey);
-  const model = chat.apiOverride?.model || state.apiConfig.model;
+  const override = chat.apiOverride && chat.apiOverride.enabled ? chat.apiOverride : {};
+  const proxyUrl = override.proxyUrl || state.apiConfig.proxyUrl;
+  const apiKey = getWalletApiKey(override.apiKey || state.apiConfig.apiKey);
+  const model = override.model || state.apiConfig.model;
 
   if (!proxyUrl || !apiKey || !model) {
     throw new Error('API配置不完整，请先检查全局API或角色API设置。');
@@ -1323,6 +1342,7 @@ ${recentLogs || '暂无最近流水'}
   window.sendKinshipRequest = sendKinshipRequest;
   window.BLACK_GOLD_THRESHOLD = BLACK_GOLD_THRESHOLD;
   window.checkThemeStatus = checkThemeStatus;
+  window.toggleAlipayTheme = toggleAlipayTheme;
   window.openFundScreen = openFundScreen;
   window.openCharacterWalletScreen = openCharacterWalletScreen;
   window.rechargeCharacterWallet = rechargeCharacterWallet;

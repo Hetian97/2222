@@ -35,7 +35,7 @@
   <link rel="stylesheet" href="css/social/green-river-comments.css?v=0.0.53-upstream">
   <link rel="stylesheet" href="css/living-space.css?v=0.0.4">
   <link rel="stylesheet" href="extra.css?v=0.0.37">
-  <link rel="stylesheet" href="css/frontend-upstream-controls.css?v=0.0.64-unread">
+  <link rel="stylesheet" href="css/frontend-upstream-controls.css?v=0.0.66-alipay">
   <link rel="stylesheet" href="css/ui/free-home-layout.css?v=0.0.2">
   <link rel="stylesheet" href="css/ui/custom-widget-studio.css?v=0.0.1">
   <link rel="apple-touch-icon" href="https://i.postimg.cc/nMbyyt1t/D7CD735A73F5FD1D7B8407E0EB8BBAC0.png">
@@ -109,7 +109,7 @@
   <script src="modules/avatar-library.js?v=0.0.36" defer></script>
   <script src="modules/gomoku.js?v=0.0.36" defer></script>
   <!-- 第六层：大型独立功能 -->
-  <script src="modules/alipay.js?v=0.0.43" defer></script>
+  <script src="modules/alipay.js?v=0.0.65-wallet" defer></script>
   <script src="modules/auction.js?v=0.0.37" defer></script>
   <script src="modules/social/green-river/story-engine.js?v=0.0.53-upstream" defer></script>
   <script src="modules/social/green-river/authors-and-library.js?v=0.0.53-upstream" defer></script>
@@ -165,7 +165,7 @@
   <script src="period-tracker.js?v=0.0.37" defer></script>
   <script src="modules/productivity/focus-timer.js?v=0.0.53-upstream" defer></script>
   <!-- 情侣空间（从内联 script 拆分） -->
-  <script src="couple-space.js?v=0.0.63-couple"></script>
+  <script src="couple-space.js?v=0.0.64-couple"></script>
   <script src="helper-assistant.js?v=0.0.36" defer></script>
   <script src="force-update.js?v=0.0.36" defer></script>
   <script src="modules/floating-ball.js?v=0.0.59-sparkpet" defer></script>
@@ -7146,7 +7146,14 @@
         <div class="alipay-nav">
             <span class="back-btn" onclick="showScreen('home-screen')">‹</span>
             <span class="alipay-title">支付宝</span>
-            <span class="alipay-action" onclick="handleUserTopUp()">充值</span>
+            <div class="alipay-nav-actions">
+                <span id="alipay-theme-toggle-btn" class="alipay-action" onclick="toggleAlipayTheme()" title="切换主题" aria-label="切换会员主题">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" style="vertical-align: middle;">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                </span>
+                <span class="alipay-action" onclick="handleUserTopUp()">充值</span>
+            </div>
         </div>
     </div>
     

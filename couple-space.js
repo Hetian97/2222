@@ -4808,12 +4808,27 @@ function applyCoupleSpaceGardenReward(data) {
       } else if (data.author === 'char') {
         const chat = state.chats[data.charId];
         if (!chat || typeof db === 'undefined' || !db.chats) return false;
-        if (!chat.simulatedTaobaoHistory) chat.simulatedTaobaoHistory = { totalBalance: 0, purchases: [] };
+        if (!chat.simulatedTaobaoHistory) chat.simulatedTaobaoHistory = { totalBalance: 0, purchases: [], walletLogs: [] };
+        if (!Array.isArray(chat.simulatedTaobaoHistory.walletLogs)) chat.simulatedTaobaoHistory.walletLogs = [];
         if (!Array.isArray(chat.coupleGardenRewardTransactionIds)) chat.coupleGardenRewardTransactionIds = [];
         if (chat.coupleGardenRewardTransactionIds.includes(transactionId)) return true;
         const previousBalance = Number(chat.simulatedTaobaoHistory.totalBalance) || 0;
         const previousTransactionIds = chat.coupleGardenRewardTransactionIds.slice();
-        chat.simulatedTaobaoHistory.totalBalance = previousBalance + amount;
+        const previousWalletLogs = chat.simulatedTaobaoHistory.walletLogs.slice();
+        const nextBalance = previousBalance + amount;
+        chat.simulatedTaobaoHistory.totalBalance = nextBalance;
+        chat.simulatedTaobaoHistory.walletLogs.unshift({
+          type: 'couple_garden_reward',
+          amount,
+          balanceBefore: previousBalance,
+          balanceAfter: nextBalance,
+          note: data.description || '情侣树浇水奖励',
+          timestamp: Date.now(),
+          transactionId
+        });
+        if (chat.simulatedTaobaoHistory.walletLogs.length > 500) {
+          chat.simulatedTaobaoHistory.walletLogs = chat.simulatedTaobaoHistory.walletLogs.slice(0, 500);
+        }
         chat.coupleGardenRewardTransactionIds.push(transactionId);
         if (chat.coupleGardenRewardTransactionIds.length > 500) {
           chat.coupleGardenRewardTransactionIds = chat.coupleGardenRewardTransactionIds.slice(-500);
@@ -4822,6 +4837,7 @@ function applyCoupleSpaceGardenReward(data) {
           await db.chats.put(chat);
         } catch (error) {
           chat.simulatedTaobaoHistory.totalBalance = previousBalance;
+          chat.simulatedTaobaoHistory.walletLogs = previousWalletLogs;
           chat.coupleGardenRewardTransactionIds = previousTransactionIds;
           throw error;
         }

@@ -1,3 +1,41 @@
+/* Alipay header: centered title, moon immediately left of top-up. */
+#alipay-screen .alipay-nav { position: relative; }
+#alipay-screen .alipay-title {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    margin: 0;
+    pointer-events: none;
+    white-space: nowrap;
+}
+#alipay-screen .alipay-nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    position: relative;
+    z-index: 2;
+}
+
+/* Alipay theme toggle: moon switches standard / black-gold directly. */
+#alipay-theme-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.3s ease, opacity 0.2s ease;
+}
+#alipay-theme-toggle-btn:hover { opacity: 0.8; }
+#alipay-theme-toggle-btn.animating { transform: rotate(180deg) scale(1.1); }
+
+/* Give the transaction list the lower two-thirds and let the top cards scroll. */
+#alipay-screen .alipay-card-container {
+    max-height: 24% !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+}
+
 /* Upstream main chat-list unread badge. */
 .unread-count-wrapper {
     flex-shrink: 0;
