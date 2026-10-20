@@ -36,7 +36,8 @@
       return text;
     }
 
-    return text.replace(/@\[\[([^\]]+)\]\]/g, (match, originalName) => {
+    const petProcessedText = window.CharacterBond ? window.CharacterBond.displayMentions(text, chat) : text;
+    return petProcessedText.replace(/@\[\[([^\]]+)\]\]/g, (match, originalName) => {
       const trimmedOriginalName = originalName.trim();
       let displayName;
 
@@ -174,6 +175,12 @@
     cleanupWaimaiTimers();
     const chat = state.chats[chatId];
     if (!chat) return;
+
+    if (!chat.isGroup && window.CharacterBond) {
+      window.CharacterBond.ensureChat(chat);
+      window.CharacterBond.reconcile(chat);
+      window.CharacterBond.refreshVisibleUi(chat);
+    }
 
     exitSelectionMode();
 
@@ -666,6 +673,7 @@
     const myNickname = chat.settings.myNickname || '我';
     const wrapper = document.createElement('div');
     wrapper.className = `message-wrapper ${isUser ? 'user' : 'ai'}`;
+    if (msg.actorType === 'pet') wrapper.classList.add('pet-message');
     if (msg.isHidden) {
       wrapper.classList.add('hidden-revealed');
     }
@@ -705,6 +713,9 @@
           avatarSrc = defaultGroupMemberAvatar;
           avatarFrameSrc = '';
         }
+      } else if (msg.actorType === 'pet') {
+        avatarSrc = msg.avatarSnapshot || chat.sharedPet?.avatar || defaultAvatar;
+        avatarFrameSrc = '';
       } else {
         avatarSrc = chat.settings.aiAvatar || defaultAvatar;
         avatarFrameSrc = chat.settings.aiAvatarFrame || '';

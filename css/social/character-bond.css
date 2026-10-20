@@ -1,0 +1,184 @@
+/* 聊天界面顶栏内彻底不展示火花徽标 */
+#character-spark-badge {
+  display: none !important;
+}
+
+/* 聊天列表中的火花徽标：无框轻盈设计，紧随昵称 */
+.character-spark-list-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0;
+  padding: 0 2px;
+  margin-left: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  flex: 0 0 auto;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  vertical-align: middle;
+}
+
+.character-spark-list-badge:hover {
+  transform: scale(1.08);
+}
+
+.character-spark-list-badge:active {
+  transform: scale(0.95);
+}
+
+.character-spark-list-badge .spark-svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.character-spark-list-badge .spark-text {
+  font-size: 11px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  letter-spacing: -0.2px;
+}
+
+/* 灰暗未点燃形态 */
+.character-spark-list-badge.is-unlit {
+  color: #9aa0a6;
+}
+.character-spark-list-badge.is-unlit .spark-text {
+  color: #9aa0a6;
+}
+
+/* 点燃初级形态 (3-6天) */
+.character-spark-list-badge.is-lit {
+  color: #ff5722;
+}
+.character-spark-list-badge.is-lit .spark-text {
+  color: #f4511e;
+  font-weight: 700;
+}
+
+/* 点燃高阶炽热形态 (7天及以上) */
+.character-spark-list-badge.is-lit.is-super {
+  color: #ff3d00;
+  filter: drop-shadow(0 1px 2px rgba(255, 87, 34, 0.25));
+}
+.character-spark-list-badge.is-lit.is-super .spark-text {
+  color: #e64a19;
+  font-weight: 800;
+}
+
+/* 待恢复断签形态 */
+.character-spark-list-badge.needs-recovery {
+  color: #8c9099;
+  opacity: 0.85;
+}
+.character-spark-list-badge.needs-recovery .spark-text {
+  color: #8c9099;
+  font-size: 10px;
+}
+.chat-list-item.has-character-spark .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-wrapper.pet-message .sender-name { color: #a36f54; max-width: calc(100% - 64px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-wrapper.pet-message .message-bubble.ai { background: #fff4e9; }
+#chat-header-status.has-character-spark { max-width: 100%; min-width: 0; }
+#chat-header-status.has-character-spark .status-text { min-width: 0; max-width: 58px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#character-bond-settings-group .settings-item > div:first-child { min-width: 0; padding-right: 10px; }
+.character-bond-action {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 9px;
+  background: var(--secondary-bg, #f1f1f3);
+  color: var(--text-color, #333);
+  font: 500 12px/1.2 inherit;
+  cursor: pointer;
+}
+.character-bond-switch-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+#character-bond-modal.modal {
+  position: fixed;
+  z-index: 10050;
+}
+.character-bond-modal-content { width: min(88vw, 390px); max-height: min(78vh, 650px); }
+.character-bond-summary-card { padding: 14px 16px; border-radius: 12px; background: var(--secondary-bg, #f5f5f7); }
+.character-bond-summary-card strong { display: block; font-size: 16px; margin-bottom: 6px; }
+.character-bond-summary-card p { margin: 4px 0; color: var(--text-secondary, #777); font-size: 12px; line-height: 1.5; }
+.shared-pet-form { display: grid; gap: 12px; }
+.shared-pet-avatar-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
+#shared-pet-avatar-preview { width: 54px; height: 54px; border-radius: 16px; object-fit: cover; background: var(--secondary-bg, #eee); flex: 0 0 auto; }
+.shared-pet-avatar-fields { display: grid; gap: 7px; min-width: 0; flex: 1; }
+.shared-pet-form label { display: grid; gap: 5px; color: var(--text-secondary, #666); font-size: 12px; }
+.shared-pet-form input[type="text"], .shared-pet-form input[type="url"], .shared-pet-form textarea {
+  box-sizing: border-box; width: 100%; min-width: 0; border: 1px solid var(--border-color, #ddd); border-radius: 9px;
+  background: var(--bg-color, #fff); color: var(--text-color, #222); padding: 8px 10px; font: 13px/1.4 inherit;
+}
+.shared-pet-form textarea { min-height: 68px; resize: vertical; }
+.shared-pet-inline-toggle { display: flex !important; grid-template-columns: none; justify-content: space-between; align-items: center; gap: 12px; }
+#shared-pet-disabled-note { color: var(--text-secondary, #777); font-size: 13px; line-height: 1.55; padding: 8px 2px; }
+@media (max-width: 390px) {
+  #character-spark-badge { max-width: 72px; padding-inline: 5px; }
+  .character-bond-action { padding-inline: 7px; font-size: 11px; }
+  .character-bond-switch-actions { gap: 6px; }
+  .character-bond-modal-content { width: calc(100vw - 28px); }
+}
+#phone-screen.dark-mode .message-wrapper.pet-message .message-bubble.ai { background: #3b3028; }
+#character-bond-modal [hidden] { display: none !important; }
+#pet-interaction-modal.modal { position: fixed; z-index: 10050; }
+#pet-interaction-modal .modal-content { width: min(88vw, 390px); }
+#pet-interaction-avatar[hidden] { display: none !important; }
+.pet-interaction-avatar {
+  display: block;
+  width: 82px;
+  height: 82px;
+  margin: 0 auto 12px;
+  border-radius: 20px;
+  object-fit: cover;
+  background: var(--secondary-bg, #f2f2f7);
+}
+.pet-interaction-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 12px;
+}
+.pet-interaction-actions .character-bond-action {
+  min-height: 44px;
+  border-radius: 11px;
+  background: #007aff;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: 0 3px 9px rgba(0, 122, 255, 0.2);
+}
+.pet-interaction-actions .character-bond-action:active { transform: scale(0.97); background: #006ee6; }
+#pet-interaction-summary strong { font-size: 16px; }
+#pet-interaction-summary p { margin: 5px 0 0; font-size: 12px; line-height: 1.6; }
+#pet-interaction-summary .pet-stat-line { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; }
+#pet-interaction-summary .pet-stat-bar {
+  height: 7px;
+  margin-top: 5px;
+  border-radius: 99px;
+  background: rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+#pet-interaction-summary .pet-stat-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #34c759, #30d158);
+  transition: width 0.25s ease;
+}
+#phone-screen.dark-mode #pet-interaction-summary .pet-stat-bar { background: rgba(255, 255, 255, 0.14); }
+.shared-pet-form input[type="number"] {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 9px;
+  background: var(--bg-color, #fff);
+  color: var(--text-color, #222);
+  padding: 8px 10px;
+  font: 13px/1.4 inherit;
+}

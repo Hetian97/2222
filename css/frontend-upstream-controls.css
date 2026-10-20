@@ -1,0 +1,120 @@
+/* Upstream iOS switches and quoted-message styling. */
+.toggle-switch {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    width: 51px;
+    height: 31px;
+    flex-shrink: 0;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    vertical-align: middle;
+    margin: 0;
+}
+.toggle-switch input[type="checkbox"],
+.toggle-switch input {
+    position: absolute !important;
+    opacity: 0 !important;
+    width: 0 !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    pointer-events: none !important;
+}
+.toggle-switch .slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #e9e9ea;
+    border: 1.5px solid transparent;
+    border-radius: 31px;
+    transition: background-color 0.28s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    box-sizing: border-box;
+}
+.toggle-switch .slider::before {
+    position: absolute;
+    content: "";
+    height: 27px;
+    width: 27px;
+    left: 1px;
+    bottom: 1px;
+    background-color: #ffffff;
+    border-radius: 50%;
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.16);
+    box-sizing: border-box;
+}
+.toggle-switch input:checked + .slider { background-color: #34c759; }
+.toggle-switch input:checked + .slider::before { transform: translateX(20px); }
+.toggle-switch:active .slider::before { width: 30px; }
+.toggle-switch input:checked:active + .slider::before { transform: translateX(17px); }
+#phone-screen.dark-mode .toggle-switch .slider { background-color: #39393d; }
+#phone-screen.dark-mode .toggle-switch input:checked + .slider { background-color: #34c759; }
+#phone-screen.dark-mode .toggle-switch .slider::before {
+    background-color: #ffffff;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+}
+
+#reply-preview-bar {
+    display: none;
+    padding: 8px 12px;
+    margin: 0 8px 8px;
+    background-color: rgba(0, 0, 0, 0.05);
+    border-left: 3px solid var(--accent-color);
+    border-radius: 6px;
+    position: relative;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+#phone-screen.dark-mode #reply-preview-bar { background-color: rgba(255, 255, 255, 0.1); }
+.reply-preview-content .sender { font-weight: 600; color: var(--text-primary); }
+.reply-preview-content .text {
+    display: block;
+    max-width: 95%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#cancel-reply-btn {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background-color: rgba(0, 0, 0, 0.1);
+    font-size: 14px;
+    line-height: 20px;
+    text-align: center;
+    cursor: pointer;
+}
+
+.quoted-message {
+    padding: 6px 10px;
+    margin-bottom: 6px;
+    background-color: rgba(0, 0, 0, 0.04);
+    border-left: 2px solid var(--accent-color);
+    border-radius: 4px;
+    font-size: 0.9em;
+    opacity: 0.8;
+}
+#phone-screen.dark-mode .quoted-message {
+    background-color: rgba(255, 255, 255, 0.08);
+    border-left-color: #a0cff1;
+}
+.quoted-message .quoted-sender {
+    font-weight: 600;
+    color: var(--accent-color);
+}
+#phone-screen.dark-mode .quoted-message .quoted-sender { color: #a0cff1; }
+.quoted-message .quoted-content {
+    display: block;
+    color: var(--text-secondary);
+    white-space: normal;
+    word-break: break-word;
+}

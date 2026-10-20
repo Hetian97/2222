@@ -1653,12 +1653,15 @@ window.initEventBindingsA = async function(state, db) {
 
     document.getElementById('send-btn').addEventListener('click', () => {
       playSilentAudio();
-      const content = chatInput.value.trim();
+      let content = chatInput.value.trim();
       if (!content || !state.activeChatId) return;
 
       playChatActionButtonSound('sendMessageSoundUrl', 'sendMessageSoundVolume');
 
       const chat = state.chats[state.activeChatId];
+      if (!chat.isGroup && window.CharacterBond) {
+        content = window.CharacterBond.normalizePetMention(content, chat);
+      }
       if (content.startsWith('/n ') || content.startsWith('/旁白 ')) {
         const narrationText = content.replace(/^\/n\s+|^\/旁白\s+/, '');
 
@@ -1697,6 +1700,7 @@ window.initEventBindingsA = async function(state, db) {
       (async () => {
         chat.history.push(msg);
         await db.chats.put(chat);
+        if (!chat.isGroup && window.CharacterBond) window.CharacterBond.onMessageSaved(chat, msg);
         renderChatList();
 
       })();
@@ -3741,6 +3745,10 @@ window.initEventBindingsA = async function(state, db) {
         window.loadVideoOptimizationSettings(chat);
       }
 
+      if (!chat.isGroup && window.CharacterBond) {
+        window.CharacterBond.loadSettingsUi(chat);
+      }
+
       if (state.globalSettings.cleanChatDetail && typeof window.openCleanChatDetail === 'function') {
         // 整洁模式：先让原有回显完成，再构建Tab界面
         showScreen('chat-settings-screen');
@@ -4367,6 +4375,14 @@ window.initEventBindingsA = async function(state, db) {
       // 保存视频通话优化设置
       if (typeof window.saveVideoOptimizationSettings === 'function') {
         window.saveVideoOptimizationSettings(chat);
+      }
+
+      if (!chat.isGroup && window.CharacterBond) {
+        window.CharacterBond.setSwitches(
+          chat,
+          document.getElementById('character-spark-switch')?.checked === true,
+          document.getElementById('shared-pet-switch')?.checked === true
+        );
       }
 
       await db.chats.put(chat);

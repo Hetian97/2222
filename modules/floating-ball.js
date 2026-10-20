@@ -636,6 +636,7 @@
               <div class="fb-template-name">${preset.name}</div>
               <div class="fb-template-desc">${description}</div>
             </div>
+            <button class="fb-template-delete" data-delete-preset-id="${preset.id}" title="删除模板" type="button">×</button>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="fb-template-arrow">
               <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
@@ -666,6 +667,23 @@
         await applyTemplate(presetId);
         closeSubmenu();
         closeMenu();
+      });
+    });
+
+    submenuEl.querySelectorAll('.fb-template-delete[data-delete-preset-id]').forEach(button => {
+      button.addEventListener('click', async event => {
+        event.stopPropagation();
+        const presetId = parseInt(button.dataset.deletePresetId);
+        const preset = await db.chatSettingsPresets.get(presetId);
+        if (!preset) return;
+        const confirmed = await showCustomConfirm('删除设置模板', `确定要删除模板“${preset.name}”吗？`, {
+          confirmText: '删除',
+          confirmButtonClass: 'btn-danger'
+        });
+        if (!confirmed) return;
+        await db.chatSettingsPresets.delete(presetId);
+        showToast('设置模板已删除');
+        renderTemplateSubmenu();
       });
     });
     

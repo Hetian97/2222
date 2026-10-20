@@ -3020,7 +3020,8 @@
 
 
 
-    let buttonOrder = state.globalSettings.chatActionButtonsOrder || DEFAULT_BUTTON_ORDER;
+    let buttonOrder = [...(state.globalSettings.chatActionButtonsOrder || DEFAULT_BUTTON_ORDER)];
+    if (!buttonOrder.includes('open-pet-panel-btn')) buttonOrder.push('open-pet-panel-btn');
 
     buttonOrder.forEach(buttonId => {
       const originalButton = document.getElementById(buttonId);
@@ -3174,6 +3175,7 @@
     'open-todo-list-btn',
     'open-quick-reply-btn',
     'narration-btn',
+    'open-pet-panel-btn',
     'stop-api-call-btn'
   ];
 

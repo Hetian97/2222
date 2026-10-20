@@ -467,6 +467,7 @@
             break;
         }
       });
+      if (window.CharacterBond) window.CharacterBond.decorateChatListItem(item, chat);
       return item;
 
     } catch (error) {

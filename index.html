@@ -31,9 +31,11 @@
   <link rel="stylesheet" href="css/mail/mail-app.css?v=0.0.53-upstream">
   <link rel="stylesheet" href="css/chat/rendering-and-images.css?v=0.0.56-frontend-fix">
   <link rel="stylesheet" href="css/social/green-river.css?v=0.0.53-upstream">
+  <link rel="stylesheet" href="css/social/character-bond.css?v=0.0.61-sparkpet">
   <link rel="stylesheet" href="css/social/green-river-comments.css?v=0.0.53-upstream">
   <link rel="stylesheet" href="css/living-space.css?v=0.0.4">
   <link rel="stylesheet" href="extra.css?v=0.0.37">
+  <link rel="stylesheet" href="css/frontend-upstream-controls.css?v=0.0.58-sparkpet">
   <link rel="stylesheet" href="css/ui/free-home-layout.css?v=0.0.2">
   <link rel="stylesheet" href="css/ui/custom-widget-studio.css?v=0.0.1">
   <link rel="apple-touch-icon" href="https://i.postimg.cc/nMbyyt1t/D7CD735A73F5FD1D7B8407E0EB8BBAC0.png">
@@ -76,13 +78,13 @@
   <script src="modules/ui-modals.js?v=0.0.36" defer></script>
   <script src="modules/ui-loaders.js?v=0.0.38" defer></script>
   <!-- 第三层：核心聊天功能 -->
-  <script src="modules/chat-list.js?v=0.0.56-frontend" defer></script>
-  <script src="modules/chat-interface.js?v=0.0.55-rules" defer></script>
+  <script src="modules/chat-list.js?v=0.0.58-sparkpet" defer></script>
+  <script src="modules/chat-interface.js?v=0.0.58-sparkpet" defer></script>
   <script src="modules/chat-input.js?v=0.0.37" defer></script>
   <script src="modules/mcp-guide-cache.js?v=0.0.1" defer></script>
   <!-- 第四层：AI 核心 -->
   <script src="modules/chat/remark-names.js?v=0.0.54-remark" defer></script>
-  <script src="modules/ai-response.js?v=0.0.110-remark" defer></script>
+  <script src="modules/ai-response.js?v=0.0.112-sparkpet" defer></script>
   <script src="modules/ai-group.js?v=0.0.41" defer></script>
   <!-- 第五层：功能模块 -->
   <script src="modules/music-online-services.js?v=0.0.54-upstream" defer></script>
@@ -114,6 +116,7 @@
   <script src="modules/social/green-river/story-settings-and-reader.js?v=0.0.53-upstream" defer></script>
   <script src="modules/social/green-river/story-generation.js?v=0.0.53-upstream" defer></script>
   <script src="modules/social/green-river/chapters-and-export.js?v=0.0.53-upstream" defer></script>
+  <script src="modules/social/character-bond.js?v=0.0.61-sparkpet" defer></script>
   <script src="modules/cphone.js?v=0.0.37" defer></script>
   <script src="modules/myphone.js?v=0.0.36" defer></script>
   <script src="modules/werewolf.js?v=0.0.36" defer></script>
@@ -132,7 +135,7 @@
   <script src="modules/data-management.js?v=0.0.56-frontend-fix" defer></script>
   <script src="modules/data/custom-fonts.js?v=0.0.56-font-fix" defer></script>
   <script src="modules/worldbook-header.js?v=0.0.56-worldbook" defer></script>
-  <script src="modules/misc-features.js?v=0.0.55-rules" defer></script>
+  <script src="modules/misc-features.js?v=0.0.58-sparkpet" defer></script>
   <script src="modules/mail/mail-app.js?v=0.0.53-upstream" defer></script>
   <!-- 第八层：初始化（必须在所有模块之后） -->
   <!-- 数据定义（无依赖） -->
@@ -145,7 +148,7 @@
   <!-- PIN/城市（依赖 DOM） -->
   <script src="modules/init-pin-city.js?v=0.0.36" defer></script>
   <!-- 事件绑定和功能（依赖 state, db） -->
-  <script src="modules/init-event-bindingsA.js?v=0.0.55-remark" defer></script>
+  <script src="modules/init-event-bindingsA.js?v=0.0.58-sparkpet" defer></script>
   <script src="modules/init-event-bindingsB.js?v=0.0.56-frontend" defer></script>
   <script src="modules/init-features.js?v=0.0.55-rules" defer></script>
   <!-- 自由桌面 / 经典桌面切换与桌面小组件 -->
@@ -165,7 +168,7 @@
   <script src="couple-space.js?v=0.0.39"></script>
   <script src="helper-assistant.js?v=0.0.36" defer></script>
   <script src="force-update.js?v=0.0.36" defer></script>
-  <script src="modules/floating-ball.js?v=0.0.36" defer></script>
+  <script src="modules/floating-ball.js?v=0.0.59-sparkpet" defer></script>
   
   <!-- 保活音频播放器样式（从内联 style 拆分） -->
   <link rel="stylesheet" href="css/keep-alive-player.css?v=0.0.36">
@@ -174,7 +177,7 @@
   <link rel="stylesheet" href="css/clean-chat-detail.css?v=0.0.40">
   <link rel="stylesheet" href="css/clean-api-settings.css?v=0.0.40">
   <link rel="stylesheet" href="css/couple-invite.css?v=0.0.36">
-  <link rel="stylesheet" href="css/floating-ball.css?v=0.0.36">
+  <link rel="stylesheet" href="css/floating-ball.css?v=0.0.59-sparkpet">
 </head>
 <body>
   <div id="intro-screen">
@@ -4373,7 +4376,17 @@
         <rect x="2" y="7" width="20" height="15" rx="2" ry="2"></rect>
         <polyline points="17 2 12 7 7 2"></polyline>
     </svg>
-</button> <button id="stop-api-call-btn" class="chat-action-icon-btn action-button" title="暂停调用" style="display: none;"> <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+</button>
+<button id="open-pet-panel-btn" class="chat-action-icon-btn action-button" title="宠物" style="display: none;">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="8" cy="8" r="2.4"></circle>
+        <circle cx="16" cy="8" r="2.4"></circle>
+        <circle cx="5.5" cy="14" r="2.1"></circle>
+        <circle cx="18.5" cy="14" r="2.1"></circle>
+        <path d="M8.5 18c1.2 2 2.3 3 3.5 3s2.3-1 3.5-3c1.2-2 0-4-3.5-4s-4.7 2-3.5 4z"></path>
+    </svg>
+</button>
+<button id="stop-api-call-btn" class="chat-action-icon-btn action-button" title="暂停调用" style="display: none;"> <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"></circle>
               <rect x="9" y="8" width="2" height="8" rx="1" fill="currentColor"></rect>
               <rect x="13" y="8" width="2" height="8" rx="1" fill="currentColor"></rect>
@@ -6229,6 +6242,30 @@
                 </label>
             </div>
 
+            <div id="character-bond-settings-group" style="display: none;">
+                <div class="settings-item">
+                    <div>
+                        <label>角色火花</label>
+                        <div class="settings-desc" id="character-spark-settings-summary">关闭后不记录角色互动天数</div>
+                    </div>
+                    <div class="character-bond-switch-actions">
+                        <button type="button" id="character-spark-details-btn" class="character-bond-action">详情</button>
+                        <label class="toggle-switch"><input type="checkbox" id="character-spark-switch"><span class="slider"></span></label>
+                    </div>
+                </div>
+                <div class="settings-item">
+                    <div>
+                        <label>共同宠物</label>
+                        <div class="settings-desc" id="shared-pet-settings-summary">关闭后宠物不出现、不回复</div>
+                    </div>
+                    <div class="character-bond-switch-actions">
+                        <button type="button" id="shared-pet-manage-btn" class="character-bond-action">设置</button>
+                        <label class="toggle-switch"><input type="checkbox" id="shared-pet-switch"><span class="slider"></span></label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Token 统计 -->
             <!-- Token 统计 -->
             <div class="settings-section">
                 <div class="settings-item">
@@ -9272,6 +9309,55 @@
     </div>
 </div>
 <!-- ▲▲▲ 角色专属NAI出图设置弹窗结束 ▲▲▲ -->
+  <div id="character-bond-modal" class="modal">
+    <div class="modal-content character-bond-modal-content">
+      <div class="modal-header"><span id="character-bond-modal-title">角色火花</span><button id="close-character-bond-modal" class="action-button" type="button" aria-label="关闭">×</button></div>
+      <div class="modal-body">
+        <div id="character-spark-panel" class="character-bond-summary-card">
+          <strong id="character-spark-state">火花开关尚未开启</strong>
+          <p id="character-spark-today"></p>
+          <p id="character-spark-record"></p>
+          <p>自然日内你发送可见消息、角色给出可见回复，才算一次有效互动；宠物、隐藏消息和后台系统消息不计入。</p>
+          <button id="restore-character-spark-btn" class="character-bond-action" type="button" hidden>使用恢复卡</button>
+          <button id="dev-add-restore-card-btn" class="character-bond-action" type="button" style="margin-left:6px;">测试：+1 恢复卡</button>
+        </div>
+        <div id="shared-pet-panel" hidden>
+          <div id="shared-pet-disabled-note">请先在聊天设置中打开“共同宠物”开关。关闭时宠物不会出现或回复，已有数据不会删除。</div>
+          <div id="shared-pet-form" class="shared-pet-form">
+            <div class="shared-pet-avatar-row">
+              <img id="shared-pet-avatar-preview" alt="宠物形象">
+              <div class="shared-pet-avatar-fields">
+                <input id="shared-pet-avatar-url" type="url" placeholder="宠物图片 URL">
+                <button id="shared-pet-upload-btn" class="character-bond-action" type="button">从本地上传</button>
+                <input id="shared-pet-upload-input" type="file" accept="image/*" hidden>
+              </div>
+            </div>
+            <label>名称<input id="shared-pet-name" type="text" maxlength="20" placeholder="例如：团团"></label>
+            <label>种类<input id="shared-pet-species" type="text" maxlength="30" placeholder="例如：小火苗精灵"></label>
+            <label>性格<textarea id="shared-pet-persona" maxlength="500" placeholder="它如何说话、喜欢什么、和你们如何相处"></textarea></label>
+            <label class="shared-pet-inline-toggle"><span>允许它偶尔自然插话</span><span class="toggle-switch"><input id="shared-pet-auto-join" type="checkbox"><span class="slider"></span></span></label>
+            <label>插话冷却（分钟）<input id="shared-pet-interject-cooldown" type="number" min="0" max="1440" step="1" value="10"></label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer"><button class="cancel" id="cancel-character-bond-modal" type="button">取消</button><button class="save" id="save-shared-pet-btn" type="button">保存宠物</button></div>
+    </div>
+  </div>
+<div id="pet-interaction-modal" class="modal">
+  <div class="modal-content character-bond-modal-content">
+    <div class="modal-header"><span id="pet-interaction-title">宠物</span><button id="close-pet-interaction-modal" class="action-button" type="button" aria-label="关闭">×</button></div>
+    <div class="modal-body">
+      <img id="pet-interaction-avatar" class="pet-interaction-avatar" alt="宠物形象">
+      <div id="pet-interaction-summary" class="character-bond-summary-card"></div>
+      <div class="pet-interaction-actions">
+        <button type="button" class="character-bond-action" data-pet-action="feed">喂食</button>
+        <button type="button" class="character-bond-action" data-pet-action="play">玩耍</button>
+        <button type="button" class="character-bond-action" data-pet-action="pet">抚摸</button>
+        <button type="button" class="character-bond-action" data-pet-action="talk">对话</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div id="npc-group-manager-modal" class="modal">
   <div class="modal-content" style="height: 60%;">
     <div class="modal-header"> <span>管理NPC分组</span> </div>

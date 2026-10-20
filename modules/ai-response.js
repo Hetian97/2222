@@ -3978,6 +3978,12 @@ ${enabledEntries}
 
           systemPrompt = processPromptWithSettings(systemPrompt, 'offline');
 
+          if (!chat.isGroup && window.CharacterBond) {
+            const lastUser = [...filteredHistory].reverse().find(item => item.role === 'user' && !item.isHidden);
+            const bondContext = window.CharacterBond.getPromptContext(chat, lastUser);
+            if (bondContext) systemPrompt += '\n\n' + bondContext;
+          }
+
           if (window.getCoupleSpaceContextForChat && chat?.id) {
             const coupleSpaceContextOffline = await window.getCoupleSpaceContextForChat(chat.id);
             if (coupleSpaceContextOffline) {
@@ -4855,6 +4861,12 @@ ${getActiveThoughtsPrompt()}
 
           if (!chat.isGroup && window.RemarkNames) {
             systemPrompt += window.RemarkNames.buildContext(chat, filteredHistory);
+          }
+
+          if (!chat.isGroup && window.CharacterBond) {
+            const lastUser = [...filteredHistory].reverse().find(item => item.role === 'user' && !item.isHidden);
+            const bondContext = window.CharacterBond.getPromptContext(chat, lastUser);
+            if (bondContext) systemPrompt += '\n\n' + bondContext;
           }
 
           // 自定义/旧提示词若缺少情侣空间占位符，仍确保已授权内容能够生效。
@@ -5946,11 +5958,16 @@ ${getActiveThoughtsPrompt()}
 
         let aiMessage = null;
         const currentMessageTimestamp = messageTimestamp++;
-        const baseMessage = {
+        let baseMessage = {
           role: 'assistant',
           senderName: msgData.name || chat.name,
           timestamp: currentMessageTimestamp
         };
+
+        if (!chat.isGroup && window.CharacterBond) {
+          if (!window.CharacterBond.isAllowedPetMessage(msgData, chat)) continue;
+          baseMessage = window.CharacterBond.decorateAssistantBase(baseMessage, msgData, chat);
+        }
 
         lastResponseTimestamps.push(currentMessageTimestamp);
 
@@ -8445,6 +8462,7 @@ ${getActiveThoughtsPrompt()}
         if (aiMessage) {
           aiMessage = applyRoleReplySanitizer(aiMessage, chat);
           chat.history.push(aiMessage);
+          if (!chat.isGroup && window.CharacterBond) window.CharacterBond.onMessageSaved(chat, aiMessage);
           responseMessageTimestamps.push(aiMessage.timestamp);
           if (!isViewingThisChat && aiMessage.type !== 'thought_chain_block') {
             chat.unreadCount = (chat.unreadCount || 0) + 1;
@@ -8929,6 +8947,12 @@ ${linkedContents}
 
       if (!chat.isGroup && window.RemarkNames) {
         systemPrompt += window.RemarkNames.buildContext(chat, filteredHistory);
+      }
+
+      if (!chat.isGroup && window.CharacterBond) {
+        const lastUser = [...filteredHistory].reverse().find(item => item.role === 'user' && !item.isHidden);
+        const bondContext = window.CharacterBond.getPromptContext(chat, lastUser);
+        if (bondContext) systemPrompt += '\n\n' + bondContext;
       }
 
       if (window.getPeriodPromptForChat && chat?.id) {
