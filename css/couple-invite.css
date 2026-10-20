@@ -46,3 +46,56 @@
 .couple-invite-status[data-status="rejected"] {
   color: #999;
 }
+
+.garden-repair-entry { justify-content: center; color: var(--text-secondary); }
+.garden-repair-entry-count {
+  min-width: 20px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  color: #fff;
+  background: #ff9500;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
+.garden-repair-modal-content { width: min(calc(100% - 28px), 430px); max-height: min(82%, 680px); }
+.garden-repair-close-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--text-secondary);
+  background: transparent;
+  font: inherit;
+  font-size: 22px;
+  line-height: 1;
+}
+.garden-repair-summary {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.garden-repair-list { min-height: 90px; padding: 10px 14px 16px; overflow-y: auto; }
+.garden-repair-item { padding: 11px 0; border-bottom: 1px solid var(--border-color); }
+.garden-repair-item:last-child { border-bottom: 0; }
+.garden-repair-item-title,
+.garden-repair-item-meta,
+.garden-repair-item-content { min-width: 0; overflow-wrap: anywhere; }
+.garden-repair-item-title { color: var(--text-primary); font-size: 14px; font-weight: 600; }
+.garden-repair-item-meta,
+.garden-repair-item-content { margin-top: 4px; color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
+.garden-repair-item-actions { display: flex; justify-content: flex-end; margin-top: 9px; }
+.garden-repair-confirm-btn {
+  min-height: 30px;
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 7px;
+  color: #fff;
+  background: #ff9500;
+  font: inherit;
+  font-size: 12px;
+}
+.garden-repair-confirm-btn:disabled { opacity: .55; }

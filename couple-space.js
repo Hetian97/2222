@@ -264,7 +264,86 @@ function getCoupleSpaceApiConfig() {
   }
 }
 
-// 通用定时补执行工具：检查今天是否已过设定时间但还没执行过，如果是则立即补执行
+async function fetchCoupleSpaceWithTimeout(url, options, timeoutMs = 45000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error && error.name === 'AbortError') throw new Error('情侣空间 API 请求超时');
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+const coupleSpaceRunsInFlight = new Set();
+
+function getCoupleSpaceLocalDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function saveCoupleSpaceSettingsWithSchedule(data, settingsPrefix, lastKeys, scheduleFields) {
+  const storageKey = settingsPrefix + data.charId;
+  let previous = {};
+  try { previous = JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch(e) {}
+  const next = data.settings || {};
+  const scheduleChanged = scheduleFields.some(field => previous[field] !== next[field]);
+  localStorage.setItem(storageKey, JSON.stringify(next));
+  if (scheduleChanged) {
+    lastKeys.forEach(key => {
+      localStorage.removeItem(key + data.charId);
+      localStorage.removeItem(key + data.charId + '_status');
+    });
+  }
+  return scheduleChanged;
+}
+
+function runCoupleSpaceOncePerDay(lastKey, callback) {
+  const todayStr = getCoupleSpaceLocalDateKey();
+  if (localStorage.getItem(lastKey) === todayStr || coupleSpaceRunsInFlight.has(lastKey)) {
+    return Promise.resolve(false);
+  }
+
+  let previousStatus = {};
+  try { previousStatus = JSON.parse(localStorage.getItem(lastKey + '_status') || '{}'); } catch(e) {}
+  if (previousStatus.state === 'failed' && previousStatus.attemptedAt) {
+    const retryCount = Math.max(1, Number(previousStatus.retryCount) || 1);
+    const retryDelay = Math.min(60 * 60 * 1000, 5 * 60 * 1000 * Math.pow(2, retryCount - 1));
+    if (Date.now() - previousStatus.attemptedAt < retryDelay) return Promise.resolve(false);
+  }
+
+  coupleSpaceRunsInFlight.add(lastKey);
+  const retryCount = previousStatus.state === 'failed' ? (Number(previousStatus.retryCount) || 1) + 1 : 0;
+  localStorage.setItem(lastKey + '_status', JSON.stringify({ state: 'running', attemptedAt: Date.now(), retryCount }));
+
+  return Promise.resolve()
+    .then(callback)
+    .then(success => {
+      if (success === false) {
+        localStorage.setItem(lastKey + '_status', JSON.stringify({ state: 'failed', attemptedAt: Date.now(), retryCount: Math.max(1, retryCount) }));
+        return false;
+      }
+      localStorage.setItem(lastKey, todayStr);
+      localStorage.setItem(lastKey + '_status', JSON.stringify({ state: 'success', completedAt: Date.now() }));
+      return true;
+    })
+    .catch(error => {
+      console.error(`[情侣空间] 自动任务执行失败 (${lastKey})`, error);
+      localStorage.setItem(lastKey + '_status', JSON.stringify({
+        state: 'failed',
+        attemptedAt: Date.now(),
+        retryCount: Math.max(1, retryCount),
+        message: error && error.message ? error.message : String(error)
+      }));
+      return false;
+    })
+    .finally(() => coupleSpaceRunsInFlight.delete(lastKey));
+}
+
 // 通用情侣空间离线保存/推送工具
 async function sendOrSaveCoupleSpaceData(charId, msgObj, storageKey, itemToSave) {
   const iframe = document.getElementById('couple-space-iframe');
@@ -274,7 +353,11 @@ async function sendOrSaveCoupleSpaceData(charId, msgObj, storageKey, itemToSave)
     try {
       iframe.contentWindow.postMessage(msgObj, '*');
       console.log(`[情侣空间] 📥 已将数据 (${msgObj.type}) 推送到打开的页面`);
-    } catch(e) { console.error('Failed to notify iframe:', e); }
+      return true;
+    } catch(e) {
+      console.error('Failed to notify iframe:', e);
+      return false;
+    }
   } else if (storageKey && itemToSave) {
 
     try {
@@ -328,8 +411,13 @@ async function sendOrSaveCoupleSpaceData(charId, msgObj, storageKey, itemToSave)
           console.log(`[情侣空间提醒] ${notificationText}`);
         }
       }
-    } catch(e) { console.error('Failed to save offline or notify:', e); }
+      return true;
+    } catch(e) {
+      console.error('Failed to save offline or notify:', e);
+      return false;
+    }
   }
+  return false;
 }
 
 // 通用定时补执行工具：检查今天是否已过设定时间但还没执行过，如果是则立即补执行
@@ -337,15 +425,16 @@ function checkAndRunMissed(timeStr, lastKey, callback) {
   try {
     const now = new Date();
     const [h, m] = timeStr.split(':').map(Number);
-    const todayStr = now.toISOString().split('T')[0];
+    if (!Number.isInteger(h) || !Number.isInteger(m)) return Promise.resolve(false);
+    const todayStr = getCoupleSpaceLocalDateKey(now);
     const lastDate = localStorage.getItem(lastKey);
-    if (lastDate === todayStr) return; // 今天已经执行过
+    if (lastDate === todayStr) return Promise.resolve(false); // 今天已经执行过
     // 当前时间已经过了设定时间，说明错过了，立即补执行
     if (now.getHours() > h || (now.getHours() === h && now.getMinutes() >= m)) {
-      localStorage.setItem(lastKey, todayStr);
-      callback();
+      return runCoupleSpaceOncePerDay(lastKey, callback);
     }
   } catch(e) { console.error('checkAndRunMissed error:', e); }
+  return Promise.resolve(false);
 }
 
 // ========== AI 自主决定模式 - 事件驱动触发 ==========
@@ -368,7 +457,7 @@ function triggerCoupleSpaceAiDecide(charId, source) {
     { settingsKey: 'coupleFinanceSettings_', lastKey: 'coupleFinanceAutoLast_', chatProb: 'aiDecideChatProb', bgProb: 'aiDecideBgProb', trigger: triggerAutoFinancePost },
   ];
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getCoupleSpaceLocalDateKey();
 
   featureConfigs.forEach(cfg => {
     try {
@@ -408,7 +497,7 @@ function triggerCoupleSpaceAiDecide(charId, source) {
         if (Math.random() < prob) {
           localStorage.setItem(lastKey, todayStr);
           console.log(`[情侣空间] 🎲 随机模式：AI决定触发 sleep-${phase} (${source})`);
-          triggerAutoSleepPost(charId, phase);
+          return triggerAutoSleepPost(charId, phase);
         }
       });
     }
@@ -463,6 +552,17 @@ function showCoupleSpaceSelect(mode) {
         container.appendChild(item);
       });
     }
+    const repairBtn = document.createElement('div');
+    repairBtn.className = 'character-select-item garden-repair-entry';
+    repairBtn.innerHTML = '<span class="name" style="color:inherit;">检查历史浇水奖励</span><span class="garden-repair-entry-count" hidden></span>';
+    repairBtn.addEventListener('click', () => openCoupleSpaceGardenRepairPreview());
+    container.appendChild(repairBtn);
+    countCoupleSpaceGardenRepairCandidates().then(count => {
+      if (!repairBtn.isConnected || count <= 0) return;
+      const badge = repairBtn.querySelector('.garden-repair-entry-count');
+      badge.textContent = count > 99 ? '99+' : String(count);
+      badge.hidden = false;
+    }).catch(error => console.error('[情侣树] 统计历史奖励修复项失败:', error));
     // 新建入口
     const addBtn = document.createElement('div');
     addBtn.className = 'character-select-item';
@@ -546,6 +646,20 @@ function confirmCoupleSpace(charId) {
     createdAt: Date.now()
   });
   saveCoupleSpaces(spaces);
+  setupAllCoupleSpaceAutoTimers();
+}
+
+function setupAllCoupleSpaceAutoTimers() {
+  [
+    'setupCoupleSpaceDiaryAutoTimer', 'setupCoupleSpaceAlbumAutoTimer',
+    'setupCoupleSpaceChecklistAutoTimer', 'setupCoupleSpaceMessageAutoTimer',
+    'setupCoupleSpaceMoodAutoTimer', 'setupCoupleSpaceTimelineAutoTimer',
+    'setupCoupleSpaceLetterAutoTimer', 'setupCoupleSpaceGardenAutoTimer',
+    'setupCoupleSpaceLocationAutoTimer', 'setupCoupleSpaceSleepAutoTimer',
+    'setupCoupleSpaceFinanceAutoTimer'
+  ].forEach(name => {
+    if (typeof window[name] === 'function') window[name]();
+  });
 }
 
 async function unbindCoupleSpace(charId) {
@@ -570,6 +684,21 @@ async function unbindCoupleSpace(charId) {
       'coupleFinance_' + charId, 'coupleFinanceSettings_' + charId, 'coupleFinanceAutoLast_' + charId, 'coupleCustomFinCats_' + charId
     ];
     keysToRemove.forEach(k => localStorage.removeItem(k));
+    const relatedKeys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('couple') && (key.endsWith(charId) || key.endsWith(charId + '_status'))) {
+        relatedKeys.push(key);
+      }
+    }
+    relatedKeys.forEach(key => localStorage.removeItem(key));
+    try {
+      const ledger = JSON.parse(localStorage.getItem('coupleGardenRewardLedger') || '{}');
+      Object.keys(ledger).forEach(transactionId => {
+        if (ledger[transactionId] && ledger[transactionId].charId === charId) delete ledger[transactionId];
+      });
+      localStorage.setItem('coupleGardenRewardLedger', JSON.stringify(ledger));
+    } catch(e) {}
   }
   
   const spaces = getCoupleSpaces();
@@ -608,8 +737,10 @@ function enterCoupleSpace(charId) {
   const charAvatar = chat ? (chat.settings.aiAvatar || defaultAvatar) : '';
   const userNickname = chat ? (chat.settings.myNickname || '我') : '我';
   const userAvatar = chat ? (chat.settings.myAvatar || state.qzoneSettings.avatar || defaultAvatar) : defaultAvatar;
-  const iframe = document.getElementById('couple-space-iframe');
-  iframe.src = '330--main/index.html?v=0.0.37';
+  const previousIframe = document.getElementById('couple-space-iframe');
+  const iframe = previousIframe.cloneNode(false);
+  previousIframe.replaceWith(iframe);
+  iframe.src = '330--main/index.html?v=0.0.63-couple';
   iframe.onload = function() {
     const spaces = getCoupleSpaces();
     const space = spaces.find(s => s.charId === charId);
@@ -689,6 +820,11 @@ async function handleCoupleSpaceShareToChat(data) {
 }
 
 window.addEventListener('message', function(e) {
+  const coupleIframe = document.getElementById('couple-space-iframe');
+  const isCoupleFrame = coupleIframe && e.source === coupleIframe.contentWindow;
+  const isCoupleMessage = e.data === 'closeCoupleSpace' || e.data === 'coupleSpaceSwitchPartner' ||
+    (e.data && typeof e.data.type === 'string' && e.data.type.startsWith('coupleSpace'));
+  if (isCoupleMessage && !isCoupleFrame) return;
   if (e.data === 'closeCoupleSpace') closeCoupleSpace();
   if (e.data === 'coupleSpaceSwitchPartner') showCoupleSpaceSelect('list');
 
@@ -860,6 +996,9 @@ window.addEventListener('message', function(e) {
   if (e.data && e.data.type === 'coupleSpaceGardenWaterReward') {
     handleCoupleSpaceGardenWaterReward(e.data);
   }
+  if (e.data && e.data.type === 'coupleSpaceGardenRepairRequest') {
+    openCoupleSpaceGardenRepairPreview();
+  }
 
   // --- Location requests ---
   if (e.data && e.data.type === 'coupleSpaceLocationAiRequest') {
@@ -976,10 +1115,8 @@ async function handleCoupleSpaceDiaryCommentRequest(data) {
 }
 
 function handleCoupleSpaceDiarySettingsChanged(data) {
-  // Store settings in parent for auto-trigger scheduling
-  localStorage.setItem('coupleDiarySettings_' + data.charId, JSON.stringify(data.settings));
-  localStorage.removeItem('coupleDiaryAutoLast_' + data.charId);
-  console.log(`[情侣空间] ⚙️ 已保存 日记 设置并清除当天执行记录，重新初始化定时器`);
+  saveCoupleSpaceSettingsWithSchedule(data, 'coupleDiarySettings_', ['coupleDiaryAutoLast_'], ['autoEnabled', 'autoTime']);
+  console.log(`[情侣空间] ⚙️ 已保存 日记 设置并重新初始化定时器`);
   setupCoupleSpaceDiaryAutoTimer();
 }
 
@@ -1013,9 +1150,9 @@ ${commentsText}`;
     let response;
     if (isGemini) {
       const geminiConfig = toGeminiRequestData(model, apiKey, prompt, messages);
-      response = await fetch(geminiConfig.url, geminiConfig.data);
+      response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
     } else {
-      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({ model, messages: [{ role: 'system', content: prompt }, ...messages], temperature: 0.5 })
@@ -1463,9 +1600,9 @@ ${ctx.currentTime}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -1528,9 +1665,9 @@ ${ctx.memoryContext ? '# 你的记忆\n' + ctx.memoryContext : ''}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -1566,7 +1703,7 @@ function setupCoupleSpaceDiaryAutoTimer() {
         // Check if missed today's execution on startup
         checkAndRunMissed(settings.autoTime, 'coupleDiaryAutoLast_' + sp.charId, () => {
           console.log(`⏰ [情侣空间] 定时补执行时间已到！开始强制触发 日记 的自动生成`);
-          triggerAutoDiaryWrite(sp.charId, true);
+          return triggerAutoDiaryWrite(sp.charId, true);
         });
         scheduleDiaryAutoWrite(sp.charId, settings.autoTime);
       }
@@ -1578,14 +1715,14 @@ function scheduleDiaryAutoWrite(charId, timeStr) {
   coupleSpaceDiaryTimers[charId] = setInterval(() => {
     checkAndRunMissed(timeStr, 'coupleDiaryAutoLast_' + charId, () => {
       console.log(`⏰ [情侣空间] 定时时间已到！开始强制触发 日记 的自动生成`);
-      triggerAutoDiaryWrite(charId, true);
+      return triggerAutoDiaryWrite(charId, true);
     });
   }, 60000);
 }
 
 async function triggerAutoDiaryWrite(charId, isTimer = false) {
   const chat = state.chats[charId];
-  if (!chat) return;
+  if (!chat) return false;
 
   const settings = JSON.parse(localStorage.getItem('coupleDiarySettings_' + charId) || '{}');
 
@@ -1595,7 +1732,7 @@ async function triggerAutoDiaryWrite(charId, isTimer = false) {
       const shouldWrite = await askAiIfShouldWriteDiary(chat);
       if (!shouldWrite) {
         console.log('AI decided not to write diary today for', chat.name);
-        return;
+        return true;
       }
     } catch(e) {
       console.error('AI decide failed, will write anyway:', e);
@@ -1643,13 +1780,14 @@ async function triggerAutoDiaryWrite(charId, isTimer = false) {
 
     console.log('Auto diary written for', chat.name, ':', result.title);
 
-    sendOrSaveCoupleSpaceData(charId, {
+    return await sendOrSaveCoupleSpaceData(charId, {
       type: 'coupleSpaceDiaryAutoWritten',
       charId: charId,
       diary: newDiary
     }, 'coupleDiaries_', newDiary);
   } catch(err) {
     console.error('Auto diary write failed:', err);
+    return false;
   }
 }
 
@@ -1673,9 +1811,9 @@ ${ctx.summaryContext ? '对话总结:\n' + ctx.summaryContext : ''}
     let response;
     if (isGemini) {
       const geminiConfig = toGeminiRequestData(model, apiKey, prompt, [{ role: 'user', content: '今天要写日记吗？' }]);
-      response = await fetch(geminiConfig.url, geminiConfig.data);
+      response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
     } else {
-      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
@@ -1763,9 +1901,8 @@ async function handleCoupleSpaceAlbumAiRequest(data) {
 }
 
 function handleCoupleSpaceAlbumSettingsChanged(data) {
-  localStorage.setItem('coupleAlbumSettings_' + data.charId, JSON.stringify(data.settings));
-  localStorage.removeItem('coupleAlbumAutoLast_' + data.charId);
-  console.log(`[情侣空间] ⚙️ 已保存 相册 设置并清除当天执行记录，重新初始化定时器`);
+  saveCoupleSpaceSettingsWithSchedule(data, 'coupleAlbumSettings_', ['coupleAlbumAutoLast_'], ['autoEnabled', 'autoTime']);
+  console.log(`[情侣空间] ⚙️ 已保存 相册 设置并重新初始化定时器`);
   setupCoupleSpaceAlbumAutoTimer();
 }
 
@@ -1839,9 +1976,9 @@ ${ctx.memoryContext ? '# 你的记忆\n' + ctx.memoryContext : ''}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -1923,9 +2060,9 @@ ${ctx.currentTime}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -1960,7 +2097,7 @@ function setupCoupleSpaceAlbumAutoTimer() {
         console.log(`✅ [情侣空间] 已重置 相册 的定时器，新的定时时间为：${settings.autoTime}`);
         checkAndRunMissed(settings.autoTime, 'coupleAlbumAutoLast_' + space.charId, () => {
           console.log(`⏰ [情侣空间] 定时补执行时间已到！开始强制触发 相册 的自动生成`);
-          triggerAutoAlbumPost(space.charId, true);
+          return triggerAutoAlbumPost(space.charId, true);
         });
         scheduleAlbumAutoPost(space.charId, settings.autoTime);
       }
@@ -1972,26 +2109,27 @@ function scheduleAlbumAutoPost(charId, timeStr) {
   coupleSpaceAlbumTimers[charId] = setInterval(() => {
     checkAndRunMissed(timeStr, 'coupleAlbumAutoLast_' + charId, () => {
       console.log(`⏰ [情侣空间] 定时时间已到！开始强制触发 相册 的自动生成`);
-      triggerAutoAlbumPost(charId, true);
+      return triggerAutoAlbumPost(charId, true);
     });
   }, 60000);
 }
 
 async function triggerAutoAlbumPost(charId, isTimer = false) {
   const chat = state.chats[charId];
-  if (!chat) return;
+  if (!chat) return false;
 
   const albumSettings = JSON.parse(localStorage.getItem('coupleAlbumSettings_' + charId) || '{}');
 
   if (albumSettings.aiDecide && !isTimer) {
     try {
       const shouldPost = await askAiIfShouldPostPhoto(chat);
-      if (!shouldPost) return;
+      if (!shouldPost) return true;
     } catch(e) {}
   }
 
   console.log(`⏳ [情侣空间] 正在向 AI 请求生成 相册照片...`);
   const postCount = Math.min(Math.max(albumSettings.autoCount || 1, 1), 10);
+  let successCount = 0;
 
   for (let i = 0; i < postCount; i++) {
     try {
@@ -2043,14 +2181,16 @@ async function triggerAutoAlbumPost(charId, isTimer = false) {
       imagePrompt: result.imagePrompt || ''
     };
 
-    sendOrSaveCoupleSpaceData(charId, {
+    const saved = await sendOrSaveCoupleSpaceData(charId, {
       type: 'coupleSpaceAlbumAutoResult',
       photo: newPhoto
     }, 'coupleAlbum_', newPhoto);
+    if (saved) successCount++;
   } catch(err) {
     console.error('Auto album post failed:', err);
   }
   } // end for loop
+  return successCount > 0;
 }
 
 async function askAiIfShouldPostPhoto(chat) {
@@ -2074,9 +2214,9 @@ ${ctx.summaryContext ? '对话总结:\n' + ctx.summaryContext : ''}
     let response;
     if (isGemini) {
       const geminiConfig = toGeminiRequestData(model, apiKey, prompt, [{ role: 'user', content: '想发照片吗？' }]);
-      response = await fetch(geminiConfig.url, geminiConfig.data);
+      response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
     } else {
-      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
@@ -2129,9 +2269,9 @@ async function handleCoupleSpaceAnnivHeartRequest(data) {
     let response;
     if (isGemini) {
       const geminiConfig = toGeminiRequestData(model, apiKey, prompt, [{ role: 'user', content: '你要点爱心吗？' }]);
-      response = await fetch(geminiConfig.url, geminiConfig.data);
+      response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
     } else {
-      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
@@ -2179,7 +2319,7 @@ async function handleCoupleSpaceAnnivCreateRequest(data) {
     const visibleCount = getCoupleSpaceVisibleCount(annivSettings, 'visibleAnniversaries', 10);
     const visibleAnnivs = getRelevantCoupleAnniversaries(existingAnnivs, visibleCount).map(entry => entry.item);
     const existingList = visibleAnnivs.map(a => `- "${a.title}" (${a.date})`).join('\n') || '(暂无)';
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getCoupleSpaceLocalDateKey();
 
     const prompt = `你是"${ctx.charName}"。你的伴侣"${ctx.myNickname}"让你创建一个纪念日。根据你们的对话和关系，想一个有意义的纪念日。
 
@@ -2217,9 +2357,9 @@ ${existingList}
     let response;
     if (isGemini) {
       const geminiConfig = toGeminiRequestData(model, apiKey, prompt, [{ role: 'user', content: '帮我创建一个纪念日吧' }]);
-      response = await fetch(geminiConfig.url, geminiConfig.data);
+      response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
     } else {
-      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
@@ -2302,7 +2442,7 @@ async function triggerAnnivDiscovery(charId) {
   if (!settings.autoEnabled) return;
 
   const ctx = buildDiaryAiContext(chat);
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getCoupleSpaceLocalDateKey();
 
   const existingAnnivs = JSON.parse(localStorage.getItem('coupleAnniv_' + charId) || '[]');
   const visibleCount = getCoupleSpaceVisibleCount(settings, 'visibleAnniversaries', 10);
@@ -2352,9 +2492,9 @@ ${existingList}
     let response;
     if (isGemini) {
       const geminiConfig = toGeminiRequestData(model, apiKey, prompt, [{ role: 'user', content: '有新的纪念日吗？' }]);
-      response = await fetch(geminiConfig.url, geminiConfig.data);
+      response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
     } else {
-      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
@@ -2415,9 +2555,8 @@ function handleCoupleSpaceChecklistChanged(data) {
 }
 
 function handleCoupleSpaceChecklistSettingsChanged(data) {
-  localStorage.setItem('coupleChecklistSettings_' + data.charId, JSON.stringify(data.settings || {}));
-  localStorage.removeItem('coupleChecklistAutoLast_' + data.charId);
-  console.log(`[情侣空间] ⚙️ 已保存 清单 设置并清除当天执行记录，重新初始化定时器`);
+  saveCoupleSpaceSettingsWithSchedule(data, 'coupleChecklistSettings_', ['coupleChecklistAutoLast_'], ['autoEnabled', 'autoTime']);
+  console.log(`[情侣空间] ⚙️ 已保存 清单 设置并重新初始化定时器`);
   setupCoupleSpaceChecklistAutoTimer();
 }
 
@@ -2486,9 +2625,9 @@ async function handleCoupleSpaceChecklistHeartRequest(data) {
     let response;
     if (isGemini) {
       const geminiConfig = toGeminiRequestData(model, apiKey, prompt, [{ role: 'user', content: '你要点爱心吗？' }]);
-      response = await fetch(geminiConfig.url, geminiConfig.data);
+      response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
     } else {
-      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
@@ -2611,9 +2750,9 @@ ${ctx.currentTime}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -2675,9 +2814,9 @@ ${ctx.currentTime}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -2711,7 +2850,7 @@ function setupCoupleSpaceChecklistAutoTimer() {
         console.log(`✅ [情侣空间] 已重置 清单 的定时器，新的定时时间为：${settings.autoTime}`);
         checkAndRunMissed(settings.autoTime, 'coupleChecklistAutoLast_' + space.charId, () => {
           console.log(`⏰ [情侣空间] 定时补执行时间已到！开始强制触发 清单 的自动生成`);
-          triggerAutoChecklistRecommend(space.charId, true);
+          return triggerAutoChecklistRecommend(space.charId, true);
         });
         scheduleChecklistAutoRecommend(space.charId, settings.autoTime);
       }
@@ -2723,14 +2862,14 @@ function scheduleChecklistAutoRecommend(charId, timeStr) {
   coupleSpaceChecklistTimers[charId] = setInterval(() => {
     checkAndRunMissed(timeStr, 'coupleChecklistAutoLast_' + charId, () => {
       console.log(`⏰ [情侣空间] 定时时间已到！开始强制触发 清单 的自动生成`);
-      triggerAutoChecklistRecommend(charId, true);
+      return triggerAutoChecklistRecommend(charId, true);
     });
   }, 60000);
 }
 
 async function triggerAutoChecklistRecommend(charId, isTimer = false) {
   const chat = state.chats[charId];
-  if (!chat) return;
+  if (!chat) return false;
 
   const settings = JSON.parse(localStorage.getItem('coupleChecklistSettings_' + charId) || '{}');
 
@@ -2759,12 +2898,13 @@ async function triggerAutoChecklistRecommend(charId, isTimer = false) {
       comments: []
     };
 
-    sendOrSaveCoupleSpaceData(charId, {
+    return await sendOrSaveCoupleSpaceData(charId, {
       type: 'coupleSpaceChecklistAutoResult',
       item: newItem
     }, 'coupleChecklist_', newItem);
   } catch(err) {
     console.error('Auto checklist recommend failed:', err);
+    return false;
   }
 }
 
@@ -2780,9 +2920,8 @@ function handleCoupleSpaceMessageChanged(data) {
 }
 
 function handleCoupleSpaceMessageSettingsChanged(data) {
-  localStorage.setItem('coupleMessageSettings_' + data.charId, JSON.stringify(data.settings || {}));
-  localStorage.removeItem('coupleMessageAutoLast_' + data.charId);
-  console.log(`[情侣空间] ⚙️ 已保存 留言板 设置并清除当天执行记录，重新初始化定时器`);
+  saveCoupleSpaceSettingsWithSchedule(data, 'coupleMessageSettings_', ['coupleMessageAutoLast_'], ['autoEnabled', 'autoTime']);
+  console.log(`[情侣空间] ⚙️ 已保存 留言板 设置并重新初始化定时器`);
   setupCoupleSpaceMessageAutoTimer();
 }
 
@@ -2847,9 +2986,9 @@ async function handleCoupleSpaceMessageHeartRequest(data) {
     let response;
     if (isGemini) {
       const geminiConfig = toGeminiRequestData(model, apiKey, prompt, [{ role: 'user', content: '你要点爱心吗？' }]);
-      response = await fetch(geminiConfig.url, geminiConfig.data);
+      response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
     } else {
-      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
@@ -2982,9 +3121,9 @@ ${ctx.currentTime}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -3045,9 +3184,9 @@ ${ctx.currentTime}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -3081,7 +3220,7 @@ function setupCoupleSpaceMessageAutoTimer() {
         console.log(`✅ [情侣空间] 已重置 留言板 的定时器，新的定时时间为：${settings.autoTime}`);
         checkAndRunMissed(settings.autoTime, 'coupleMessageAutoLast_' + space.charId, () => {
           console.log(`⏰ [情侣空间] 定时补执行时间已到！开始强制触发 留言板 的自动生成`);
-          triggerAutoMessagePost(space.charId, true);
+          return triggerAutoMessagePost(space.charId, true);
         });
         scheduleMessageAutoPost(space.charId, settings.autoTime);
       }
@@ -3093,14 +3232,14 @@ function scheduleMessageAutoPost(charId, timeStr) {
   coupleSpaceMessageTimers[charId] = setInterval(() => {
     checkAndRunMissed(timeStr, 'coupleMessageAutoLast_' + charId, () => {
       console.log(`⏰ [情侣空间] 定时时间已到！开始强制触发 留言板 的自动生成`);
-      triggerAutoMessagePost(charId, true);
+      return triggerAutoMessagePost(charId, true);
     });
   }, 60000);
 }
 
 async function triggerAutoMessagePost(charId, isTimer = false) {
   const chat = state.chats[charId];
-  if (!chat) return;
+  if (!chat) return false;
 
   const settings = JSON.parse(localStorage.getItem('coupleMessageSettings_' + charId) || '{}');
 
@@ -3123,12 +3262,13 @@ async function triggerAutoMessagePost(charId, isTimer = false) {
       comments: []
     };
 
-    sendOrSaveCoupleSpaceData(charId, {
+    return await sendOrSaveCoupleSpaceData(charId, {
       type: 'coupleSpaceMessageAutoResult',
       item: newMsg
     }, 'coupleMessages_', newMsg);
   } catch(err) {
     console.error('Auto message post failed:', err);
+    return false;
   }
 }
 
@@ -3208,9 +3348,9 @@ async function handleCoupleSpaceMoodHeartRequest(data) {
     let response;
     if (isGemini) {
       const geminiConfig = toGeminiRequestData(model, apiKey, prompt, [{ role: 'user', content: '你要点爱心吗？' }]);
-      response = await fetch(geminiConfig.url, geminiConfig.data);
+      response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
     } else {
-      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({ model, messages: [{ role: 'system', content: prompt }, { role: 'user', content: '你要点爱心吗？' }], temperature: 0.7 })
@@ -3320,9 +3460,9 @@ moodType 可选值: happy(开心) sweet(甜蜜) calm(平静) miss(想你) excite
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, ...messages], temperature: state.globalSettings.apiTemperature || 0.8, top_p: state.globalSettings.apiTopP !== undefined ? state.globalSettings.apiTopP : 1.0, presence_penalty: state.globalSettings.apiPresencePenalty !== undefined ? state.globalSettings.apiPresencePenalty : 0.0, frequency_penalty: state.globalSettings.apiFrequencyPenalty !== undefined ? state.globalSettings.apiFrequencyPenalty : 0.0 })
@@ -3368,9 +3508,9 @@ ${ctx.currentTime}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, ...messages], temperature: state.globalSettings.apiTemperature || 0.8, top_p: state.globalSettings.apiTopP !== undefined ? state.globalSettings.apiTopP : 1.0, presence_penalty: state.globalSettings.apiPresencePenalty !== undefined ? state.globalSettings.apiPresencePenalty : 0.0, frequency_penalty: state.globalSettings.apiFrequencyPenalty !== undefined ? state.globalSettings.apiFrequencyPenalty : 0.0 })
@@ -3395,7 +3535,7 @@ function setupCoupleSpaceMoodAutoTimer() {
         console.log(`✅ [情侣空间] 已重置 心情 的定时器，新的定时时间为：${settings.autoTime}`);
         checkAndRunMissed(settings.autoTime, 'coupleMoodAutoLast_' + space.charId, () => {
           console.log(`⏰ [情侣空间] 定时补执行时间已到！开始强制触发 心情 的自动生成`);
-          triggerAutoMoodPost(space.charId, true);
+          return triggerAutoMoodPost(space.charId, true);
         });
         scheduleMoodAutoPost(space.charId, settings.autoTime);
       }
@@ -3407,14 +3547,14 @@ function scheduleMoodAutoPost(charId, timeStr) {
   coupleSpaceMoodTimers[charId] = setInterval(() => {
     checkAndRunMissed(timeStr, 'coupleMoodAutoLast_' + charId, () => {
       console.log(`⏰ [情侣空间] 定时时间已到！开始强制触发 心情 的自动生成`);
-      triggerAutoMoodPost(charId, true);
+      return triggerAutoMoodPost(charId, true);
     });
   }, 60000);
 }
 
 async function triggerAutoMoodPost(charId, isTimer = false) {
   const chat = state.chats[charId];
-  if (!chat) return;
+  if (!chat) return false;
   const settings = JSON.parse(localStorage.getItem('coupleMoodSettings_' + charId) || '{}');
 
   console.log(`⏳ [情侣空间] 正在向 AI 请求生成 心情...`);
@@ -3434,12 +3574,13 @@ async function triggerAutoMoodPost(charId, isTimer = false) {
       hearts: { char: true },
       comments: []
     };
-    sendOrSaveCoupleSpaceData(charId, {
+    return await sendOrSaveCoupleSpaceData(charId, {
       type: 'coupleSpaceMoodAutoResult',
       item: newMood
     }, 'coupleMoods_', newMood);
   } catch(err) {
     console.error('Auto mood post failed:', err);
+    return false;
   }
 }
 
@@ -3523,9 +3664,9 @@ async function handleCoupleSpaceTimelineHeartRequest(data) {
     let response;
     if (isGemini) {
       const geminiConfig = toGeminiRequestData(model, apiKey, prompt, [{ role: 'user', content: '你要点爱心吗？' }]);
-      response = await fetch(geminiConfig.url, geminiConfig.data);
+      response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
     } else {
-      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
@@ -3651,9 +3792,9 @@ ${ctx.currentTime}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -3716,9 +3857,9 @@ ${ctx.currentTime}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -3752,7 +3893,7 @@ function setupCoupleSpaceTimelineAutoTimer() {
         console.log(`✅ [情侣空间] 已重置 时光轴 的定时器，新的定时时间为：${settings.autoTime}`);
         checkAndRunMissed(settings.autoTime, 'coupleTimelineAutoLast_' + space.charId, () => {
           console.log(`⏰ [情侣空间] 定时补执行时间已到！开始强制触发 时光轴 的自动生成`);
-          triggerAutoTimelinePost(space.charId, true);
+          return triggerAutoTimelinePost(space.charId, true);
         });
         scheduleTimelineAutoPost(space.charId, settings.autoTime);
       }
@@ -3764,14 +3905,14 @@ function scheduleTimelineAutoPost(charId, timeStr) {
   coupleSpaceTimelineTimers[charId] = setInterval(() => {
     checkAndRunMissed(timeStr, 'coupleTimelineAutoLast_' + charId, () => {
       console.log(`⏰ [情侣空间] 定时时间已到！开始强制触发 时光轴 的自动生成`);
-      triggerAutoTimelinePost(charId, true);
+      return triggerAutoTimelinePost(charId, true);
     });
   }, 60000);
 }
 
 async function triggerAutoTimelinePost(charId, isTimer = false) {
   const chat = state.chats[charId];
-  if (!chat) return;
+  if (!chat) return false;
 
   const settings = JSON.parse(localStorage.getItem('coupleTimelineSettings_' + charId) || '{}');
 
@@ -3795,12 +3936,13 @@ async function triggerAutoTimelinePost(charId, isTimer = false) {
       comments: []
     };
 
-    sendOrSaveCoupleSpaceData(charId, {
+    return await sendOrSaveCoupleSpaceData(charId, {
       type: 'coupleSpaceTimelineAutoResult',
       item: newItem
     }, 'coupleTimeline_', newItem);
   } catch(err) {
     console.error('Auto timeline post failed:', err);
+    return false;
   }
 }
 
@@ -3904,9 +4046,9 @@ async function handleCoupleSpaceLetterHeartRequest(data) {
     let response;
     if (isGemini) {
       const geminiConfig = toGeminiRequestData(model, apiKey, prompt, [{ role: 'user', content: '你要点爱心吗？' }]);
-      response = await fetch(geminiConfig.url, geminiConfig.data);
+      response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
     } else {
-      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({ model, messages: [{ role: 'system', content: prompt }, { role: 'user', content: '你要点爱心吗？' }], temperature: 0.7 })
@@ -4018,9 +4160,9 @@ envelope 可选值: none(普通) love(情书) classic(经典) seasonal(时令) h
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, ...messages], temperature: state.globalSettings.apiTemperature || 0.8, top_p: state.globalSettings.apiTopP !== undefined ? state.globalSettings.apiTopP : 1.0, presence_penalty: state.globalSettings.apiPresencePenalty !== undefined ? state.globalSettings.apiPresencePenalty : 0.0, frequency_penalty: state.globalSettings.apiFrequencyPenalty !== undefined ? state.globalSettings.apiFrequencyPenalty : 0.0 })
@@ -4077,9 +4219,9 @@ envelope 可选值: none(普通) love(情书) classic(经典) seasonal(时令) h
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, ...messages], temperature: state.globalSettings.apiTemperature || 0.8, top_p: state.globalSettings.apiTopP !== undefined ? state.globalSettings.apiTopP : 1.0, presence_penalty: state.globalSettings.apiPresencePenalty !== undefined ? state.globalSettings.apiPresencePenalty : 0.0, frequency_penalty: state.globalSettings.apiFrequencyPenalty !== undefined ? state.globalSettings.apiFrequencyPenalty : 0.0 })
@@ -4129,9 +4271,9 @@ ${ctx.currentTime}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, ...messages], temperature: state.globalSettings.apiTemperature || 0.8, top_p: state.globalSettings.apiTopP !== undefined ? state.globalSettings.apiTopP : 1.0, presence_penalty: state.globalSettings.apiPresencePenalty !== undefined ? state.globalSettings.apiPresencePenalty : 0.0, frequency_penalty: state.globalSettings.apiFrequencyPenalty !== undefined ? state.globalSettings.apiFrequencyPenalty : 0.0 })
@@ -4156,7 +4298,7 @@ function setupCoupleSpaceLetterAutoTimer() {
         console.log(`✅ [情侣空间] 已重置 信件 的定时器，新的定时时间为：${settings.autoTime}`);
         checkAndRunMissed(settings.autoTime, 'coupleLetterAutoLast_' + space.charId, () => {
           console.log(`⏰ [情侣空间] 定时补执行时间已到！开始强制触发 信件 的自动生成`);
-          triggerAutoLetterPost(space.charId, true);
+          return triggerAutoLetterPost(space.charId, true);
         });
         scheduleLetterAutoPost(space.charId, settings.autoTime);
       }
@@ -4168,14 +4310,14 @@ function scheduleLetterAutoPost(charId, timeStr) {
   coupleSpaceLetterTimers[charId] = setInterval(() => {
     checkAndRunMissed(timeStr, 'coupleLetterAutoLast_' + charId, () => {
       console.log(`⏰ [情侣空间] 定时时间已到！开始强制触发 信件 的自动生成`);
-      triggerAutoLetterPost(charId, true);
+      return triggerAutoLetterPost(charId, true);
     });
   }, 60000);
 }
 
 async function triggerAutoLetterPost(charId, isTimer = false) {
   const chat = state.chats[charId];
-  if (!chat) return;
+  if (!chat) return false;
   const settings = JSON.parse(localStorage.getItem('coupleLetterSettings_' + charId) || '{}');
 
   console.log(`⏳ [情侣空间] 正在向 AI 请求生成 信件...`);
@@ -4199,12 +4341,13 @@ async function triggerAutoLetterPost(charId, isTimer = false) {
       hearts: { char: true },
       comments: []
     };
-    sendOrSaveCoupleSpaceData(charId, {
+    return await sendOrSaveCoupleSpaceData(charId, {
       type: 'coupleSpaceLetterAutoResult',
       item: newLetter
     }, 'coupleLetters_', newLetter);
   } catch(err) {
     console.error('Auto letter post failed:', err);
+    return false;
   }
 }
 
@@ -4292,9 +4435,9 @@ ${msgList}
           if (geminiConfig.data && typeof geminiConfig.data === 'object' && !(geminiConfig.data instanceof FormData)) {
             geminiConfig.data.signal = controller.signal;
           }
-          response = await fetch(geminiConfig.url, geminiConfig.data);
+          response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
         } else {
-          response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+          response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
             body: JSON.stringify({
@@ -4538,7 +4681,7 @@ function setupCoupleSpaceScreenshotTimer() {
   spaces.forEach(space => {
     // Check every 4 hours if there's something worth screenshotting
     coupleSpaceScreenshotTimers[space.charId] = setInterval(() => {
-      triggerAutoScreenshot(space.charId);
+      return triggerAutoScreenshot(space.charId);
     }, 14400000);
   });
 }
@@ -4563,9 +4706,9 @@ ${ctx.shortTermMemory || '(无)'}
     let response;
     if (isGemini) {
       const geminiConfig = toGeminiRequestData(model, apiKey, prompt, [{ role: 'user', content: '想截图吗？' }]);
-      response = await fetch(geminiConfig.url, geminiConfig.data);
+      response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
     } else {
-      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
@@ -4595,34 +4738,344 @@ function handleCoupleSpaceGardenChanged(data) {
 }
 
 function handleCoupleSpaceGardenSettingsChanged(data) {
-  localStorage.setItem('coupleGardenSettings_' + data.charId, JSON.stringify(data.settings || {}));
-  localStorage.removeItem('coupleGardenAutoLast_' + data.charId);
-  console.log(`[情侣空间] ⚙️ 已保存 浇水 设置并清除当天执行记录，重新初始化定时器`);
+  saveCoupleSpaceSettingsWithSchedule(data, 'coupleGardenSettings_', ['coupleGardenAutoLast_'], ['autoEnabled', 'autoTime']);
+  console.log(`[情侣空间] ⚙️ 已保存 浇水 设置并重新初始化定时器`);
   setupCoupleSpaceGardenAutoTimer();
 }
 
 async function handleCoupleSpaceGardenWaterReward(data) {
-  // data: { charId, author, amount, description }
-  const chat = state.chats[data.charId];
-  if (!chat) return;
-  try {
-    if (data.author === 'user') {
-      // User wallet: processTransaction
-      if (typeof processTransaction === 'function') {
-        await processTransaction(data.amount, 'income', data.description || '情侣树浇水奖励');
+  const success = await applyCoupleSpaceGardenReward(data);
+  const iframe = document.getElementById('couple-space-iframe');
+  if (iframe?.contentWindow && localStorage.getItem('coupleSpaceLastId') === data.charId) {
+    iframe.contentWindow.postMessage({
+      type: 'coupleSpaceGardenWaterRewardResult',
+      charId: data.charId,
+      transactionId: data.transactionId || '',
+      success
+    }, '*');
+  }
+  return success;
+}
+
+let coupleSpaceGardenRewardQueue = Promise.resolve();
+
+function getCoupleSpaceGardenRewardLedger() {
+  try { return JSON.parse(localStorage.getItem('coupleGardenRewardLedger') || '{}'); }
+  catch(e) { return {}; }
+}
+
+function saveCoupleSpaceGardenRewardLedger(ledger) {
+  const entries = Object.entries(ledger);
+  if (entries.length > 500) {
+    entries.sort((a, b) => (b[1].completedAt || 0) - (a[1].completedAt || 0));
+    ledger = Object.fromEntries(entries.slice(0, 500));
+  }
+  localStorage.setItem('coupleGardenRewardLedger', JSON.stringify(ledger));
+}
+
+function applyCoupleSpaceGardenReward(data) {
+  const transactionId = data.transactionId || [
+    'garden', data.charId, data.author, data.waterId || data.streakDays || '',
+    Number(data.amount).toFixed(2), data.description || ''
+  ].join('-');
+  const task = coupleSpaceGardenRewardQueue.then(async () => {
+    const amount = Number(data.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return false;
+
+    const ledger = getCoupleSpaceGardenRewardLedger();
+    if (ledger[transactionId] && ledger[transactionId].state === 'completed') return true;
+
+    try {
+      if (data.author === 'user') {
+        if (typeof db === 'undefined' || !db.userWallet || !db.userTransactions) return false;
+        await db.transaction('rw', db.userWallet, db.userTransactions, async () => {
+          const existing = await db.userTransactions.filter(item => item.transactionId === transactionId).first();
+          if (existing) return;
+          let wallet = await db.userWallet.get('main');
+          if (!wallet) wallet = { id: 'main', balance: 0, kinshipCards: [] };
+          if (typeof wallet.balance !== 'number' || Number.isNaN(wallet.balance)) wallet.balance = 0;
+          wallet.balance += amount;
+          await db.userWallet.put(wallet);
+          await db.userTransactions.add({
+            timestamp: Date.now(),
+            type: 'income',
+            amount,
+            description: data.description || '情侣树浇水奖励',
+            transactionId
+          });
+          window.userBalance = wallet.balance;
+        });
+      } else if (data.author === 'char') {
+        const chat = state.chats[data.charId];
+        if (!chat || typeof db === 'undefined' || !db.chats) return false;
+        if (!chat.simulatedTaobaoHistory) chat.simulatedTaobaoHistory = { totalBalance: 0, purchases: [] };
+        if (!Array.isArray(chat.coupleGardenRewardTransactionIds)) chat.coupleGardenRewardTransactionIds = [];
+        if (chat.coupleGardenRewardTransactionIds.includes(transactionId)) return true;
+        const previousBalance = Number(chat.simulatedTaobaoHistory.totalBalance) || 0;
+        const previousTransactionIds = chat.coupleGardenRewardTransactionIds.slice();
+        chat.simulatedTaobaoHistory.totalBalance = previousBalance + amount;
+        chat.coupleGardenRewardTransactionIds.push(transactionId);
+        if (chat.coupleGardenRewardTransactionIds.length > 500) {
+          chat.coupleGardenRewardTransactionIds = chat.coupleGardenRewardTransactionIds.slice(-500);
+        }
+        try {
+          await db.chats.put(chat);
+        } catch (error) {
+          chat.simulatedTaobaoHistory.totalBalance = previousBalance;
+          chat.coupleGardenRewardTransactionIds = previousTransactionIds;
+          throw error;
+        }
+      } else {
+        return false;
       }
-    } else if (data.author === 'char') {
-      // Character wallet: simulatedTaobaoHistory.totalBalance
-      if (!chat.simulatedTaobaoHistory) chat.simulatedTaobaoHistory = { totalBalance: 0, purchases: [] };
-      chat.simulatedTaobaoHistory.totalBalance += data.amount;
-      if (typeof db !== 'undefined' && db.chats) {
-        await db.chats.put(chat);
-      }
+
+      ledger[transactionId] = {
+        state: 'completed',
+        completedAt: Date.now(),
+        charId: data.charId,
+        author: data.author,
+        amount
+      };
+      saveCoupleSpaceGardenRewardLedger(ledger);
+      return true;
+    } catch(e) {
+      console.error('Garden water reward error:', e);
+      return false;
     }
-  } catch(e) {
-    console.error('Garden water reward error:', e);
+  });
+  coupleSpaceGardenRewardQueue = task.catch(() => false);
+  return task;
+}
+
+function calculateCoupleSpaceGardenReward(gardenData, now = new Date()) {
+  const mmdd = String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+  const defaultDates = {
+    '01-01': ['元旦', 100], '02-14': ['情人节', 520], '03-08': ['妇女节', 38],
+    '03-14': ['白色情人节', 314], '05-01': ['劳动节', 51], '05-20': ['520', 520],
+    '05-21': ['521', 521], '06-01': ['儿童节', 61], '07-07': ['七夕', 77.77],
+    '10-01': ['国庆节', 101], '11-11': ['光棍节', 111.10], '12-24': ['平安夜', 124],
+    '12-25': ['圣诞节', 125], '12-31': ['跨年', 131.40]
+  };
+  let special = defaultDates[mmdd] ? { name: defaultDates[mmdd][0], coins: defaultDates[mmdd][1] } : null;
+  if (!special) {
+    const custom = (gardenData.specialDates || []).find(item => item.date === mmdd);
+    if (custom) special = { name: custom.name, coins: Number(custom.coins) || 0 };
+  }
+  if (!special) {
+    try {
+      const anniversaries = JSON.parse(localStorage.getItem('coupleAnniv_' + gardenData.charId) || '[]');
+      const anniversary = anniversaries.find(item => item.date && item.date.slice(5) === mmdd);
+      if (anniversary) special = { name: anniversary.title, coins: 1314 };
+    } catch(e) {}
+  }
+  const amount = special && special.coins > 0 ? special.coins : 5.20;
+  return {
+    amount,
+    special: special ? { name: special.name, coins: amount } : null,
+    description: special ? `情侣树浇水-${special.name}` : '情侣树自动浇水奖励'
+  };
+}
+
+function getCoupleSpaceGardenRepairTransactionId(charId, water, index) {
+  return water.rewardTransactionId || (water.id
+    ? 'garden-water-' + water.id
+    : ['garden-repair', charId, Number(water.createdAt) || 0, water.author || 'unknown', index].join('-'));
+}
+
+async function isCoupleSpaceGardenRewardSettled(charId, water, transactionId) {
+  if (water.rewardSettled === true) return true;
+  const ledger = getCoupleSpaceGardenRewardLedger();
+  if (ledger[transactionId]?.state === 'completed') return true;
+  if (water.author === 'char') {
+    return state.chats[charId]?.coupleGardenRewardTransactionIds?.includes(transactionId) === true;
+  }
+  if (water.author === 'user' && typeof db !== 'undefined' && db.userTransactions) {
+    try {
+      return Boolean(await db.userTransactions.filter(item => item.transactionId === transactionId).first());
+    } catch (error) {
+      console.warn('[情侣树] 检查历史奖励到账记录失败，将在确认时再次核验:', error);
+    }
+  }
+  return false;
+}
+
+async function getCoupleSpaceGardenRepairCandidates() {
+  const candidates = [];
+  for (const space of getCoupleSpaces()) {
+    let gardenData;
+    try { gardenData = JSON.parse(localStorage.getItem('coupleGarden_' + space.charId) || '{}'); }
+    catch (_) { continue; }
+    const waterLogs = Array.isArray(gardenData.waterLogs) ? gardenData.waterLogs : [];
+    const knownRewardTotal = waterLogs.reduce((sum, item) => {
+      const amount = Number(item.coinsEarned);
+      return sum + (Number.isFinite(amount) && amount > 0 ? amount : 0);
+    }, 0);
+    for (let index = 0; index < waterLogs.length; index += 1) {
+      const water = waterLogs[index];
+      const existingAmount = Number(water.coinsEarned);
+      if (Number.isFinite(existingAmount) && existingAmount > 0) continue;
+      if (!['user', 'char'].includes(water.author)) continue;
+      const createdAt = new Date(water.createdAt);
+      if (!Number.isFinite(createdAt.getTime())) continue;
+      const reward = calculateCoupleSpaceGardenReward({ ...gardenData, charId: space.charId }, createdAt);
+      if (!reward.special && water.author === 'user') reward.description = '情侣树浇水奖励';
+      if (!Number.isFinite(reward.amount) || reward.amount <= 0) continue;
+      const transactionId = getCoupleSpaceGardenRepairTransactionId(space.charId, water, index);
+      const settled = await isCoupleSpaceGardenRewardSettled(space.charId, water, transactionId);
+      const totalCoins = Math.max(0, Number(gardenData.totalCoins) || 0);
+      const treeDelta = Math.max(0, knownRewardTotal + reward.amount - totalCoins);
+      candidates.push({
+        charId: space.charId,
+        waterId: water.id || null,
+        waterIndex: index,
+        createdAt: createdAt.getTime(),
+        author: water.author,
+        content: String(water.content || ''),
+        existingAmount: Number.isFinite(existingAmount) ? existingAmount : null,
+        amount: reward.amount,
+        special: reward.special,
+        description: reward.description,
+        transactionId,
+        walletDelta: settled ? 0 : reward.amount,
+        treeDelta,
+        settled
+      });
+    }
+  }
+  return candidates;
+}
+
+async function countCoupleSpaceGardenRepairCandidates() {
+  return (await getCoupleSpaceGardenRepairCandidates()).length;
+}
+
+function closeCoupleSpaceGardenRepairPreview() {
+  const modal = document.getElementById('garden-repair-modal');
+  modal?.classList.remove('visible');
+  modal?.setAttribute('aria-hidden', 'true');
+}
+
+function bindCoupleSpaceGardenRepairPreview() {
+  const modal = document.getElementById('garden-repair-modal');
+  if (!modal || modal.dataset.repairBound === '1') return;
+  modal.dataset.repairBound = '1';
+  document.getElementById('garden-repair-close-btn')?.addEventListener('click', closeCoupleSpaceGardenRepairPreview);
+  modal.addEventListener('click', event => {
+    if (event.target === modal) closeCoupleSpaceGardenRepairPreview();
+  });
+}
+
+async function openCoupleSpaceGardenRepairPreview() {
+  bindCoupleSpaceGardenRepairPreview();
+  const modal = document.getElementById('garden-repair-modal');
+  const list = document.getElementById('garden-repair-list');
+  const summary = document.getElementById('garden-repair-summary');
+  if (!modal || !list || !summary) return;
+  modal.classList.add('visible');
+  modal.setAttribute('aria-hidden', 'false');
+  list.innerHTML = '<p style="text-align:center;color:var(--text-secondary);">正在检查历史记录…</p>';
+  const candidates = await getCoupleSpaceGardenRepairCandidates();
+  summary.textContent = candidates.length
+    ? `发现 ${candidates.length} 条金额缺失记录。不会自动修改；每次只处理你确认的这一条。`
+    : '未发现需要修复的历史浇水奖励记录。';
+  list.innerHTML = '';
+  if (candidates.length === 0) {
+    list.innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:20px 0;">当前记录无需处理</p>';
+    return;
+  }
+  candidates.forEach(candidate => {
+    const chat = state.chats[candidate.charId];
+    const item = document.createElement('article');
+    item.className = 'garden-repair-item';
+    const title = document.createElement('div');
+    title.className = 'garden-repair-item-title';
+    title.textContent = `${chat?.name || '未知角色'} · ${candidate.author === 'user' ? '我的浇水' : '角色浇水'}`;
+    const meta = document.createElement('div');
+    meta.className = 'garden-repair-item-meta';
+    const specialText = candidate.special?.name ? `（${candidate.special.name}）` : '';
+    meta.textContent = `${new Date(candidate.createdAt).toLocaleString()} · 原金额 ${candidate.existingAmount ?? '缺失'} · 建议 ¥${candidate.amount.toFixed(2)}${specialText} · 钱包 +¥${candidate.walletDelta.toFixed(2)} · 树累计 +¥${candidate.treeDelta.toFixed(2)}`;
+    const content = document.createElement('div');
+    content.className = 'garden-repair-item-content';
+    content.textContent = candidate.content || '（无浇水文字）';
+    const actions = document.createElement('div');
+    actions.className = 'garden-repair-item-actions';
+    const confirmButton = document.createElement('button');
+    confirmButton.type = 'button';
+    confirmButton.className = 'garden-repair-confirm-btn';
+    confirmButton.textContent = candidate.settled ? '确认修正记录' : '确认修正并补发';
+    confirmButton.addEventListener('click', async () => {
+      const confirmed = await showCustomConfirm(
+        '确认这一条奖励修复',
+        `将这条浇水记录修正为 ¥${candidate.amount.toFixed(2)}。${candidate.walletDelta > 0 ? `对应钱包将补发 ¥${candidate.walletDelta.toFixed(2)}。` : '检测到已有到账凭据，不会重复补发钱包。'}${candidate.treeDelta > 0 ? `情侣树累计增加 ¥${candidate.treeDelta.toFixed(2)}。` : '情侣树累计无需重复增加。'}只处理这一条，是否继续？`
+      );
+      if (!confirmed) return;
+      confirmButton.disabled = true;
+      const success = await applyCoupleSpaceGardenRepairCandidate(candidate);
+      if (success) {
+        showToast('这条历史浇水奖励已修复', 'success');
+        await openCoupleSpaceGardenRepairPreview();
+      } else {
+        confirmButton.disabled = false;
+        showToast('修复未完成，请重新打开清单核对到账状态', 'error');
+      }
+    });
+    actions.appendChild(confirmButton);
+    item.append(title, meta, content, actions);
+    list.appendChild(item);
+  });
+}
+
+async function applyCoupleSpaceGardenRepairCandidate(candidate) {
+  let gardenData;
+  try { gardenData = JSON.parse(localStorage.getItem('coupleGarden_' + candidate.charId) || '{}'); }
+  catch (_) { return false; }
+  const waterLogs = Array.isArray(gardenData.waterLogs) ? gardenData.waterLogs : [];
+  const water = candidate.waterId
+    ? waterLogs.find(item => item.id === candidate.waterId)
+    : waterLogs[candidate.waterIndex];
+  if (!water || Number(water.createdAt) !== candidate.createdAt || water.author !== candidate.author) return false;
+  const currentAmount = Number(water.coinsEarned);
+  if (Number.isFinite(currentAmount) && currentAmount > 0) return true;
+  const settled = await isCoupleSpaceGardenRewardSettled(candidate.charId, water, candidate.transactionId);
+  if (!settled) {
+    const rewardSuccess = await applyCoupleSpaceGardenReward({
+      charId: candidate.charId,
+      author: candidate.author,
+      amount: candidate.amount,
+      description: candidate.description,
+      transactionId: candidate.transactionId
+    });
+    if (!rewardSuccess) return false;
+  }
+  water.coinsEarned = candidate.amount;
+  water.specialDate = candidate.special;
+  water.rewardTransactionId = candidate.transactionId;
+  water.rewardSettled = true;
+  const knownRewardTotal = waterLogs.reduce((sum, item) => {
+    const amount = Number(item.coinsEarned);
+    return sum + (Number.isFinite(amount) && amount > 0 ? amount : 0);
+  }, 0);
+  gardenData.totalCoins = Math.max(Number(gardenData.totalCoins) || 0, knownRewardTotal);
+  try {
+    localStorage.setItem('coupleGarden_' + candidate.charId, JSON.stringify(gardenData));
+    const iframe = document.getElementById('couple-space-iframe');
+    if (iframe?.contentWindow && localStorage.getItem('coupleSpaceLastId') === candidate.charId) {
+      iframe.contentWindow.postMessage({
+        type: 'coupleSpaceGardenRepairApplied',
+        charId: candidate.charId,
+        waterId: water.id || ''
+      }, '*');
+    }
+    return true;
+  } catch (error) {
+    console.error('[情侣树] 保存历史奖励修复失败:', error);
+    return false;
   }
 }
+
+window.openCoupleSpaceGardenRepairPreview = openCoupleSpaceGardenRepairPreview;
+window.countCoupleSpaceGardenRepairCandidates = countCoupleSpaceGardenRepairCandidates;
+
 
 async function handleCoupleSpaceGardenAiRequest(data) {
   const iframe = document.getElementById('couple-space-iframe');
@@ -4681,9 +5134,9 @@ async function handleCoupleSpaceGardenHeartRequest(data) {
     let response;
     if (isGemini) {
       const geminiConfig = toGeminiRequestData(model, apiKey, prompt, [{ role: 'user', content: '你要点爱心吗？' }]);
-      response = await fetch(geminiConfig.url, geminiConfig.data);
+      response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
     } else {
-      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({ model, messages: [{ role: 'system', content: prompt }, { role: 'user', content: '你要点爱心吗？' }], temperature: 0.7 })
@@ -4796,9 +5249,9 @@ ${ctx.currentTime}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, ...messages], temperature: state.globalSettings.apiTemperature || 0.8, top_p: state.globalSettings.apiTopP !== undefined ? state.globalSettings.apiTopP : 1.0, presence_penalty: state.globalSettings.apiPresencePenalty !== undefined ? state.globalSettings.apiPresencePenalty : 0.0, frequency_penalty: state.globalSettings.apiFrequencyPenalty !== undefined ? state.globalSettings.apiFrequencyPenalty : 0.0 })
@@ -4843,9 +5296,9 @@ ${ctx.currentTime}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, ...messages], temperature: state.globalSettings.apiTemperature || 0.8, top_p: state.globalSettings.apiTopP !== undefined ? state.globalSettings.apiTopP : 1.0, presence_penalty: state.globalSettings.apiPresencePenalty !== undefined ? state.globalSettings.apiPresencePenalty : 0.0, frequency_penalty: state.globalSettings.apiFrequencyPenalty !== undefined ? state.globalSettings.apiFrequencyPenalty : 0.0 })
@@ -4870,7 +5323,7 @@ function setupCoupleSpaceGardenAutoTimer() {
         console.log(`✅ [情侣空间] 已重置 浇水 的定时器，新的定时时间为：${settings.autoTime}`);
         checkAndRunMissed(settings.autoTime, 'coupleGardenAutoLast_' + space.charId, () => {
           console.log(`⏰ [情侣空间] 定时补执行时间已到！开始强制触发 浇水 的自动生成`);
-          triggerAutoGardenWater(space.charId, true);
+          return triggerAutoGardenWater(space.charId, true);
         });
         scheduleGardenAutoWater(space.charId, settings.autoTime);
       }
@@ -4882,14 +5335,14 @@ function scheduleGardenAutoWater(charId, timeStr) {
   coupleSpaceGardenTimers[charId] = setInterval(() => {
     checkAndRunMissed(timeStr, 'coupleGardenAutoLast_' + charId, () => {
       console.log(`⏰ [情侣空间] 定时时间已到！开始强制触发 浇水 的自动生成`);
-      triggerAutoGardenWater(charId, true);
+      return triggerAutoGardenWater(charId, true);
     });
   }, 60000);
 }
 
 async function triggerAutoGardenWater(charId, isTimer = false) {
   const chat = state.chats[charId];
-  if (!chat) return;
+  if (!chat) return false;
   const settings = JSON.parse(localStorage.getItem('coupleGardenSettings_' + charId) || '{}');
 
   console.log(`⏳ [情侣空间] 正在向 AI 请求生成 浇水记录...`);
@@ -4902,31 +5355,44 @@ async function triggerAutoGardenWater(charId, isTimer = false) {
       gardenSettings: settings,
       treeStatus: ''
     });
+    gardenData.charId = charId;
+    const reward = calculateCoupleSpaceGardenReward(gardenData);
     const newWater = {
-      id: 'water_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+      id: 'water_auto_' + charId + '_' + getCoupleSpaceLocalDateKey(),
       content: result.content,
       author: 'char',
       createdAt: Date.now(),
-      coinsEarned: 0,
-      specialDate: null,
+      coinsEarned: reward.amount,
+      specialDate: reward.special,
+      rewardTransactionId: 'garden-water-water_auto_' + charId + '_' + getCoupleSpaceLocalDateKey(),
+      rewardSettled: false,
       hearts: { char: true },
       comments: []
     };
+    const rewardSaved = await applyCoupleSpaceGardenReward({
+      charId,
+      author: 'char',
+      amount: reward.amount,
+      description: reward.description,
+      transactionId: newWater.rewardTransactionId
+    });
+    if (!rewardSaved) throw new Error('自动浇水奖励入账失败');
+    newWater.rewardSettled = true;
+
+    gardenData.waterLogs = waterLogs;
+    gardenData.waterLogs.push(newWater);
+    gardenData.totalCoins = (Number(gardenData.totalCoins) || 0) + reward.amount;
+    localStorage.setItem('coupleGarden_' + charId, JSON.stringify(gardenData));
+
     const iframe = document.getElementById('couple-space-iframe');
     const isIframeOpenForThisChar = iframe && iframe.src && iframe.src.includes('330--main/index.html') && localStorage.getItem('coupleSpaceLastId') === charId;
-    
     if (isIframeOpenForThisChar && iframe.contentWindow) {
       iframe.contentWindow.postMessage({ type: 'coupleSpaceGardenAutoResult', item: newWater }, '*');
-    } else {
-      try {
-        const gardenData = JSON.parse(localStorage.getItem('coupleGarden_' + charId) || '{}');
-        if (!gardenData.waterLogs) gardenData.waterLogs = [];
-        gardenData.waterLogs.push(newWater);
-        localStorage.setItem('coupleGarden_' + charId, JSON.stringify(gardenData));
-      } catch(e) { console.error('Failed to save garden offline:', e); }
     }
+    return true;
   } catch(err) {
     console.error('Auto garden water failed:', err);
+    return false;
   }
 }
 
@@ -5011,9 +5477,9 @@ async function handleCoupleSpaceLocationHeartRequest(data) {
     let response;
     if (isGemini) {
       const geminiConfig = toGeminiRequestData(model, apiKey, prompt, [{ role: 'user', content: '回爱心吗？' }]);
-      response = await fetch(geminiConfig.url, geminiConfig.data);
+      response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
     } else {
-      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({ model, messages: [{ role: 'system', content: prompt }, { role: 'user', content: '回爱心吗？' }], temperature: 0.5 })
@@ -5123,9 +5589,9 @@ ${ctx.currentTime}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, ...messages], temperature: state.globalSettings.apiTemperature || 0.8, top_p: state.globalSettings.apiTopP !== undefined ? state.globalSettings.apiTopP : 1.0, presence_penalty: state.globalSettings.apiPresencePenalty !== undefined ? state.globalSettings.apiPresencePenalty : 0.0, frequency_penalty: state.globalSettings.apiFrequencyPenalty !== undefined ? state.globalSettings.apiFrequencyPenalty : 0.0 })
@@ -5164,9 +5630,9 @@ ${ctx.aiPersona}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, ...messages], temperature: state.globalSettings.apiTemperature || 0.8, top_p: state.globalSettings.apiTopP !== undefined ? state.globalSettings.apiTopP : 1.0, presence_penalty: state.globalSettings.apiPresencePenalty !== undefined ? state.globalSettings.apiPresencePenalty : 0.0, frequency_penalty: state.globalSettings.apiFrequencyPenalty !== undefined ? state.globalSettings.apiFrequencyPenalty : 0.0 })
@@ -5188,7 +5654,7 @@ function setupCoupleSpaceLocationAutoTimer() {
         console.log(`✅ [情侣空间] 已重置 定位 的定时器，新的定时时间为：${settings.autoTime}`);
         checkAndRunMissed(settings.autoTime, 'coupleLocAutoLast_' + space.charId, () => {
           console.log(`⏰ [情侣空间] 定时补执行时间已到！开始强制触发 定位 的自动生成`);
-          triggerAutoLocationPost(space.charId, true);
+          return triggerAutoLocationPost(space.charId, true);
         });
         scheduleLocationAutoPost(space.charId, settings.autoTime);
       }
@@ -5200,14 +5666,14 @@ function scheduleLocationAutoPost(charId, timeStr) {
   coupleSpaceLocationTimers[charId] = setInterval(() => {
     checkAndRunMissed(timeStr, 'coupleLocAutoLast_' + charId, () => {
       console.log(`⏰ [情侣空间] 定时时间已到！开始强制触发 定位 的自动生成`);
-      triggerAutoLocationPost(charId, true);
+      return triggerAutoLocationPost(charId, true);
     });
   }, 60000);
 }
 
 async function triggerAutoLocationPost(charId, isTimer = false) {
   const chat = state.chats[charId];
-  if (!chat) return;
+  if (!chat) return false;
   const settings = JSON.parse(localStorage.getItem('coupleLocSettings_' + charId) || '{}');
 
   console.log(`⏳ [情侣空间] 正在向 AI 请求生成 定位...`);
@@ -5231,12 +5697,13 @@ async function triggerAutoLocationPost(charId, isTimer = false) {
       hearts: { char: true },
       comments: []
     };
-    sendOrSaveCoupleSpaceData(charId, {
+    return await sendOrSaveCoupleSpaceData(charId, {
       type: 'coupleSpaceLocationAutoResult',
       item: newLoc
     }, 'coupleLocations_', newLoc);
   } catch(err) {
     console.error('Auto location post failed:', err);
+    return false;
   }
 }
 
@@ -5318,9 +5785,9 @@ async function handleCoupleSpaceSleepHeartRequest(data) {
     let response;
     if (isGemini) {
       const geminiConfig = toGeminiRequestData(model, apiKey, prompt, [{ role: 'user', content: '你要点爱心吗？' }]);
-      response = await fetch(geminiConfig.url, geminiConfig.data);
+      response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
     } else {
-      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({ model, messages: [{ role: 'system', content: prompt }, { role: 'user', content: '你要点爱心吗？' }], temperature: 0.7 })
@@ -5571,9 +6038,9 @@ quality 可选值: good(睡得好) normal(一般) bad(没睡好) terrible(失眠
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, ...messages], temperature: state.globalSettings.apiTemperature || 0.8, top_p: state.globalSettings.apiTopP !== undefined ? state.globalSettings.apiTopP : 1.0, presence_penalty: state.globalSettings.apiPresencePenalty !== undefined ? state.globalSettings.apiPresencePenalty : 0.0, frequency_penalty: state.globalSettings.apiFrequencyPenalty !== undefined ? state.globalSettings.apiFrequencyPenalty : 0.0 })
@@ -5629,9 +6096,9 @@ ${ctx.currentTime}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, ...messages], temperature: state.globalSettings.apiTemperature || 0.8, top_p: state.globalSettings.apiTopP !== undefined ? state.globalSettings.apiTopP : 1.0, presence_penalty: state.globalSettings.apiPresencePenalty !== undefined ? state.globalSettings.apiPresencePenalty : 0.0, frequency_penalty: state.globalSettings.apiFrequencyPenalty !== undefined ? state.globalSettings.apiFrequencyPenalty : 0.0 })
@@ -5657,7 +6124,7 @@ function setupCoupleSpaceSleepAutoTimer() {
           console.log(`✅ [情侣空间] 已重置 睡眠(入睡) 的定时器，新的定时时间为：${settings.autoSleepTime}`);
           checkAndRunMissed(settings.autoSleepTime, 'coupleSleepAuto_sleep_' + space.charId, () => {
             console.log(`⏰ [情侣空间] 定时补执行时间已到！开始强制触发 睡眠(入睡) 的自动生成`);
-            triggerAutoSleepPost(space.charId, 'sleep', true);
+            return triggerAutoSleepPost(space.charId, 'sleep', true);
           });
           scheduleSleepAutoPost(space.charId, settings.autoSleepTime, 'sleep');
         }
@@ -5665,7 +6132,7 @@ function setupCoupleSpaceSleepAutoTimer() {
           console.log(`✅ [情侣空间] 已重置 睡眠(起床) 的定时器，新的定时时间为：${settings.autoWakeTime}`);
           checkAndRunMissed(settings.autoWakeTime, 'coupleSleepAuto_wake_' + space.charId, () => {
             console.log(`⏰ [情侣空间] 定时补执行时间已到！开始强制触发 睡眠(起床) 的自动生成`);
-            triggerAutoSleepPost(space.charId, 'wake', true);
+            return triggerAutoSleepPost(space.charId, 'wake', true);
           });
           scheduleSleepAutoPost(space.charId, settings.autoWakeTime, 'wake');
         }
@@ -5679,14 +6146,14 @@ function scheduleSleepAutoPost(charId, timeStr, phase) {
   coupleSpaceSleepTimers[timerKey] = setInterval(() => {
     checkAndRunMissed(timeStr, 'coupleSleepAuto_' + phase + '_' + charId, () => {
       console.log(`⏰ [情侣空间] 定时时间已到！开始强制触发 睡眠(${phase}) 的自动生成`);
-      triggerAutoSleepPost(charId, phase, true);
+      return triggerAutoSleepPost(charId, phase, true);
     });
   }, 60000);
 }
 
 async function triggerAutoSleepPost(charId, phase, isTimer = false) {
   const chat = state.chats[charId];
-  if (!chat) return;
+  if (!chat) return false;
   const settings = JSON.parse(localStorage.getItem('coupleSleepSettings_' + charId) || '{}');
 
   console.log(`⏳ [情侣空间] 正在向 AI 请求生成 睡眠(${phase})...`);
@@ -5701,7 +6168,7 @@ async function triggerAutoSleepPost(charId, phase, isTimer = false) {
       const newSleep = {
         id: 'sleep_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
         author: 'char',
-        sleepAt: new Date().toISOString().split('T')[0] + 'T' + (sleepResult.sleepTime || '23:00') + ':00',
+        sleepAt: getCoupleSpaceLocalDateKey() + 'T' + (sleepResult.sleepTime || '23:00') + ':00',
         wakeAt: null,
         duration: null,
         sleepNote: sleepResult.sleepNote,
@@ -5716,7 +6183,7 @@ async function triggerAutoSleepPost(charId, phase, isTimer = false) {
         hearts: { char: true },
         comments: []
       };
-      sendOrSaveCoupleSpaceData(charId, {
+      return await sendOrSaveCoupleSpaceData(charId, {
         type: 'coupleSpaceSleepAutoResult',
         phase: 'sleep',
         item: newSleep
@@ -5724,7 +6191,7 @@ async function triggerAutoSleepPost(charId, phase, isTimer = false) {
     } else if (phase === 'wake') {
       // Find the latest sleeping record
       const sleepingIdx = existingSleeps.map((s, i) => ({ s, i })).reverse().find(x => x.s.author === 'char' && x.s.status === 'sleeping');
-      if (!sleepingIdx) return;
+      if (!sleepingIdx) return false;
       const currentSleep = existingSleeps[sleepingIdx.i];
 
       // Phase 2: Generate sleep events
@@ -5751,7 +6218,7 @@ async function triggerAutoSleepPost(charId, phase, isTimer = false) {
       const wakeResult = await generateCoupleSpaceSleepAi(chat, {
         charId, existingSleeps, sleepSettings: settings, phase: 'wake', currentSleep
       });
-      currentSleep.wakeAt = new Date().toISOString().split('T')[0] + 'T' + (wakeResult.wakeTime || '07:00') + ':00';
+      currentSleep.wakeAt = getCoupleSpaceLocalDateKey() + 'T' + (wakeResult.wakeTime || '07:00') + ':00';
       currentSleep.wakeNote = wakeResult.wakeNote;
       currentSleep.wakeMood = wakeResult.wakeMood;
       currentSleep.quality = wakeResult.quality;
@@ -5774,12 +6241,15 @@ async function triggerAutoSleepPost(charId, phase, isTimer = false) {
         try {
           existingSleeps[sleepingIdx.i] = currentSleep;
           localStorage.setItem('coupleSleep_' + charId, JSON.stringify(existingSleeps));
-        } catch(e) { console.error('Failed to save sleep wake offline:', e); }
+        } catch(e) { console.error('Failed to save sleep wake offline:', e); return false; }
       }
+      return true;
     }
   } catch(err) {
     console.error('Auto sleep post failed:', err);
+    return false;
   }
+  return true;
 }
 
 // Initialize sleep timers
@@ -5867,9 +6337,9 @@ async function handleCoupleSpaceFinanceHeartRequest(data) {
     let response;
     if (isGemini) {
       const geminiConfig = toGeminiRequestData(model, apiKey, prompt, [{ role: 'user', content: '你要点爱心吗？' }]);
-      response = await fetch(geminiConfig.url, geminiConfig.data);
+      response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
     } else {
-      response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+      response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({ model, messages: [{ role: 'system', content: prompt }, { role: 'user', content: '你要点爱心吗？' }], temperature: 0.7 })
@@ -5992,7 +6462,7 @@ ${ctx.currentTime}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
     const requestBody = JSON.stringify({
       model,
@@ -6002,7 +6472,7 @@ ${ctx.currentTime}
               presence_penalty: state.globalSettings.apiPresencePenalty !== undefined ? state.globalSettings.apiPresencePenalty : 0.0,
               frequency_penalty: state.globalSettings.apiFrequencyPenalty !== undefined ? state.globalSettings.apiFrequencyPenalty : 0.0
     });
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: requestBody
@@ -6058,9 +6528,9 @@ ${ctx.currentTime}
   let response;
   if (isGemini) {
     const geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt, messages);
-    response = await fetch(geminiConfig.url, geminiConfig.data);
+    response = await fetchCoupleSpaceWithTimeout(geminiConfig.url, geminiConfig.data);
   } else {
-    response = await fetch(`${proxyUrl}/v1/chat/completions`, {
+    response = await fetchCoupleSpaceWithTimeout(`${proxyUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -6093,7 +6563,7 @@ function setupCoupleSpaceFinanceAutoTimer() {
         console.log(`✅ [情侣空间] 已重置 记账 的定时器，新的定时时间为：${settings.autoTime}`);
         checkAndRunMissed(settings.autoTime, 'coupleFinanceAutoLast_' + space.charId, () => {
           console.log(`⏰ [情侣空间] 定时补执行时间已到！开始强制触发 记账 的自动生成`);
-          triggerAutoFinancePost(space.charId, true);
+          return triggerAutoFinancePost(space.charId, true);
         });
         scheduleFinanceAutoPost(space.charId, settings.autoTime);
       }
@@ -6105,14 +6575,14 @@ function scheduleFinanceAutoPost(charId, timeStr) {
   coupleSpaceFinanceTimers[charId] = setInterval(() => {
     checkAndRunMissed(timeStr, 'coupleFinanceAutoLast_' + charId, () => {
       console.log(`⏰ [情侣空间] 定时时间已到！开始强制触发 记账 的自动生成`);
-      triggerAutoFinancePost(charId, true);
+      return triggerAutoFinancePost(charId, true);
     });
   }, 60000);
 }
 
 async function triggerAutoFinancePost(charId, isTimer = false) {
   const chat = state.chats[charId];
-  if (!chat) return;
+  if (!chat) return false;
   const settings = JSON.parse(localStorage.getItem('coupleFinanceSettings_' + charId) || '{}');
 
   console.log(`⏳ [情侣空间] 正在向 AI 请求生成 记账...`);
@@ -6132,18 +6602,19 @@ async function triggerAutoFinancePost(charId, isTimer = false) {
       category: result.category || '',
       title: result.title || '',
       note: result.note || '',
-      date: new Date().toISOString().split('T')[0],
+      date: getCoupleSpaceLocalDateKey(),
       author: 'char',
       createdAt: Date.now(),
       hearts: { char: true },
       comments: []
     };
-    sendOrSaveCoupleSpaceData(charId, {
+    return await sendOrSaveCoupleSpaceData(charId, {
       type: 'coupleSpaceFinanceAutoResult',
       item: newItem
     }, 'coupleFinance_', newItem);
   } catch(err) {
     console.error('Auto finance post failed:', err);
+    return false;
   }
 }
 

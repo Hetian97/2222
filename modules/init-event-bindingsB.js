@@ -3950,6 +3950,9 @@ window.initEventBindingsB = function(state, db) {
 
     document.getElementById('memory-screen-back-btn').addEventListener('click', () => {
       showScreen('chat-interface-screen');
+      if (state.activeChatId && typeof window.renderChatInterface === 'function') {
+        window.renderChatInterface(state.activeChatId);
+      }
     });
 
 

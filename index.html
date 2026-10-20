@@ -35,7 +35,7 @@
   <link rel="stylesheet" href="css/social/green-river-comments.css?v=0.0.53-upstream">
   <link rel="stylesheet" href="css/living-space.css?v=0.0.4">
   <link rel="stylesheet" href="extra.css?v=0.0.37">
-  <link rel="stylesheet" href="css/frontend-upstream-controls.css?v=0.0.58-sparkpet">
+  <link rel="stylesheet" href="css/frontend-upstream-controls.css?v=0.0.64-unread">
   <link rel="stylesheet" href="css/ui/free-home-layout.css?v=0.0.2">
   <link rel="stylesheet" href="css/ui/custom-widget-studio.css?v=0.0.1">
   <link rel="apple-touch-icon" href="https://i.postimg.cc/nMbyyt1t/D7CD735A73F5FD1D7B8407E0EB8BBAC0.png">
@@ -149,7 +149,7 @@
   <script src="modules/init-pin-city.js?v=0.0.36" defer></script>
   <!-- 事件绑定和功能（依赖 state, db） -->
   <script src="modules/init-event-bindingsA.js?v=0.0.58-sparkpet" defer></script>
-  <script src="modules/init-event-bindingsB.js?v=0.0.56-frontend" defer></script>
+  <script src="modules/init-event-bindingsB.js?v=0.0.64-memory" defer></script>
   <script src="modules/init-features.js?v=0.0.55-rules" defer></script>
   <!-- 自由桌面 / 经典桌面切换与桌面小组件 -->
   <script src="modules/ui/free-home-layout.js?v=0.0.2" defer></script>
@@ -165,7 +165,7 @@
   <script src="period-tracker.js?v=0.0.37" defer></script>
   <script src="modules/productivity/focus-timer.js?v=0.0.53-upstream" defer></script>
   <!-- 情侣空间（从内联 script 拆分） -->
-  <script src="couple-space.js?v=0.0.39"></script>
+  <script src="couple-space.js?v=0.0.63-couple"></script>
   <script src="helper-assistant.js?v=0.0.36" defer></script>
   <script src="force-update.js?v=0.0.36" defer></script>
   <script src="modules/floating-ball.js?v=0.0.59-sparkpet" defer></script>
@@ -176,7 +176,7 @@
   <link rel="stylesheet" href="css/auth-intro.css?v=0.0.36">
   <link rel="stylesheet" href="css/clean-chat-detail.css?v=0.0.40">
   <link rel="stylesheet" href="css/clean-api-settings.css?v=0.0.40">
-  <link rel="stylesheet" href="css/couple-invite.css?v=0.0.36">
+  <link rel="stylesheet" href="css/couple-invite.css?v=0.0.63-couple">
   <link rel="stylesheet" href="css/floating-ball.css?v=0.0.59-sparkpet">
 </head>
 <body>
@@ -794,6 +794,17 @@
         <span style="width: 30px;"></span>
       </div>
       <div id="couple-space-select-content" class="list-container"></div>
+    </div>
+
+    <div id="garden-repair-modal" class="modal" aria-hidden="true">
+      <div class="modal-content garden-repair-modal-content" role="dialog" aria-modal="true" aria-labelledby="garden-repair-title">
+        <div class="modal-header">
+          <span id="garden-repair-title">历史浇水奖励检查</span>
+          <button id="garden-repair-close-btn" class="garden-repair-close-btn" type="button" aria-label="关闭">×</button>
+        </div>
+        <div class="garden-repair-summary" id="garden-repair-summary"></div>
+        <div class="modal-body garden-repair-list" id="garden-repair-list"></div>
+      </div>
     </div>
 
     <div id="living-space-screen" class="screen">

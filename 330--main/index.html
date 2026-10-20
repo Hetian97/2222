@@ -8811,6 +8811,11 @@ function getTodaySpecialDate() {
 }
 
 // --- Calculate co-water streak ---
+function getGardenLocalDateKey(date) {
+  date = date || new Date();
+  return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+}
+
 function getCoWaterStreak() {
   var gd = getGardenData();
   var logs = gd.waterLogs || [];
@@ -8818,7 +8823,7 @@ function getCoWaterStreak() {
   // Group by date
   var dateMap = {};
   logs.forEach(function(l) {
-    var ds = new Date(l.createdAt).toISOString().split('T')[0];
+    var ds = getGardenLocalDateKey(new Date(l.createdAt));
     if (!dateMap[ds]) dateMap[ds] = { user: false, char: false };
     dateMap[ds][l.author] = true;
   });
@@ -8826,7 +8831,7 @@ function getCoWaterStreak() {
   var streak = 0;
   var d = new Date(); d.setHours(0,0,0,0);
   for (var i = 0; i < 400; i++) {
-    var ds = d.toISOString().split('T')[0];
+    var ds = getGardenLocalDateKey(d);
     if (dateMap[ds] && dateMap[ds].user && dateMap[ds].char) {
       streak++;
       d.setDate(d.getDate() - 1);
@@ -9142,7 +9147,9 @@ function submitGardenWrite() {
     charId: currentCharId,
     author: 'user',
     amount: reward.amount,
-    description: reward.special ? ('情侣树浇水-' + reward.special.name) : '情侣树浇水奖励'
+    description: reward.special ? ('情侣树浇水-' + reward.special.name) : '情侣树浇水奖励',
+    transactionId: 'garden-water-' + newWater.id,
+    waterId: newWater.id
   }, '*');
 
   // Check streak rewards
@@ -9156,7 +9163,9 @@ function submitGardenWrite() {
       charId: currentCharId,
       author: 'user',
       amount: sr.coins,
-      description: '情侣树连续共同浇水' + sr.label + '奖励'
+      description: '情侣树连续共同浇水' + sr.label + '奖励',
+      transactionId: 'garden-streak-' + sr.days + '-user-' + currentCharId,
+      streakDays: sr.days
     }, '*');
     // Also reward char
     window.parent.postMessage({
@@ -9164,7 +9173,9 @@ function submitGardenWrite() {
       charId: currentCharId,
       author: 'char',
       amount: sr.coins,
-      description: '情侣树连续共同浇水' + sr.label + '奖励'
+      description: '情侣树连续共同浇水' + sr.label + '奖励',
+      transactionId: 'garden-streak-' + sr.days + '-char-' + currentCharId,
+      streakDays: sr.days
     }, '*');
   });
 
@@ -9509,6 +9520,13 @@ function openGardenSettings() {
     '</div>' +
     '<div style="padding-top:16px;margin-top:8px;border-top:1px solid #f0efed">' +
       '<div class="diary-setting-item">' +
+        '<div><div class="diary-setting-label">历史浇水奖励检查</div>' +
+        '<div class="diary-setting-desc">检查过去可能缺失的浇水奖励；只生成预览，逐条确认后才修正</div></div>' +
+        '<button style="padding:6px 14px;border-radius:9999px;font-size:12px;background:#fff7ed;border:1px solid #fed7aa;color:#b45309;cursor:pointer" onclick="requestGardenRepairPreview()">检查</button>' +
+      '</div>' +
+    '</div>' +
+    '<div style="padding-top:16px;margin-top:8px;border-top:1px solid #f0efed">' +
+      '<div class="diary-setting-item">' +
         '<div><div class="diary-setting-label">自定义浇水生成提示词</div>' +
         '<div class="diary-setting-desc">自定义 AI 浇水时使用的提示词模板</div></div>' +
         '<div class="diary-toggle' + (enableCustomPrompt ? ' on' : '') + '" id="garden-toggle-prompt" onclick="toggleGardenPromptSetting()"></div>' +
@@ -9591,6 +9609,10 @@ function resetGardenPrompt() {
 }
 
 // --- Special Dates Management ---
+function requestGardenRepairPreview() {
+  window.parent.postMessage({ type: 'coupleSpaceGardenRepairRequest' }, '*');
+}
+
 function openGardenSpecialDates() {
   closeGardenSettings();
   var overlay = document.createElement('div');
@@ -9783,7 +9805,9 @@ window.addEventListener('message', function(e) {
       charId: currentCharId,
       author: 'char',
       amount: reward.amount,
-      description: reward.special ? ('情侣树浇水-' + reward.special.name) : '情侣树浇水奖励'
+      description: reward.special ? ('情侣树浇水-' + reward.special.name) : '情侣树浇水奖励',
+      transactionId: 'garden-water-' + newWater.id,
+      waterId: newWater.id
     }, '*');
 
     // Check streak rewards
@@ -9797,14 +9821,18 @@ window.addEventListener('message', function(e) {
         charId: currentCharId,
         author: 'user',
         amount: sr.coins,
-        description: '情侣树连续共同浇水' + sr.label + '奖励'
+        description: '情侣树连续共同浇水' + sr.label + '奖励',
+        transactionId: 'garden-streak-' + sr.days + '-user-' + currentCharId,
+        streakDays: sr.days
       }, '*');
       window.parent.postMessage({
         type: 'coupleSpaceGardenWaterReward',
         charId: currentCharId,
         author: 'char',
         amount: sr.coins,
-        description: '情侣树连续共同浇水' + sr.label + '奖励'
+        description: '情侣树连续共同浇水' + sr.label + '奖励',
+        transactionId: 'garden-streak-' + sr.days + '-char-' + currentCharId,
+        streakDays: sr.days
       }, '*');
     });
     if (streakRewards.length > 0) {
@@ -9867,7 +9895,9 @@ window.addEventListener('message', function(e) {
         charId: currentCharId,
         author: 'char',
         amount: reward.amount,
-        description: reward.special ? ('情侣树浇水-' + reward.special.name) : '情侣树自动浇水奖励'
+        description: reward.special ? ('情侣树浇水-' + reward.special.name) : '情侣树自动浇水奖励',
+        transactionId: 'garden-water-' + e.data.item.id,
+        waterId: e.data.item.id
       }, '*');
     }
   }
@@ -10746,7 +10776,7 @@ window.addEventListener('message', function(e) {
       var newSleep = {
         id: 'sleep_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
         author: 'char',
-        sleepAt: new Date().toISOString().split('T')[0] + 'T' + (result.sleepTime || '23:00') + ':00',
+        sleepAt: getGardenLocalDateKey() + 'T' + (result.sleepTime || '23:00') + ':00',
         wakeAt: null, duration: null,
         sleepNote: result.sleepNote,
         sleepMood: result.sleepMood,
@@ -10782,7 +10812,7 @@ window.addEventListener('message', function(e) {
     } else if (phase === 'wake') {
       var s = sleeps.find(function(x) { return x.id === pendingSleepWakeId; });
       if (s) {
-        s.wakeAt = new Date().toISOString().split('T')[0] + 'T' + (result.wakeTime || '07:00') + ':00';
+        s.wakeAt = getGardenLocalDateKey() + 'T' + (result.wakeTime || '07:00') + ':00';
         s.wakeNote = result.wakeNote;
         s.wakeMood = result.wakeMood;
         s.quality = result.quality;
@@ -11437,11 +11467,11 @@ function saveSleepItem() {
     if (idx >= 0) {
       var s = sleeps[idx];
       if (sleepWriteType === 'sleep') {
-        s.sleepAt = new Date().toISOString().split('T')[0] + 'T' + (timeVal || '23:00') + ':00';
+        s.sleepAt = getGardenLocalDateKey() + 'T' + (timeVal || '23:00') + ':00';
         s.sleepNote = noteVal;
         s.sleepMood = sleepWriteMood || s.sleepMood || 'calm';
       } else {
-        s.wakeAt = new Date().toISOString().split('T')[0] + 'T' + (timeVal || '07:00') + ':00';
+        s.wakeAt = getGardenLocalDateKey() + 'T' + (timeVal || '07:00') + ':00';
         s.wakeNote = noteVal;
         s.wakeMood = sleepWriteMood || s.wakeMood || 'refreshed';
         s.quality = sleepWriteQuality || s.quality || 'normal';
@@ -11466,7 +11496,7 @@ function saveSleepItem() {
     var newSleep = {
       id: 'sleep_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
       author: 'user',
-      sleepAt: new Date().toISOString().split('T')[0] + 'T' + (timeVal || '23:00') + ':00',
+      sleepAt: getGardenLocalDateKey() + 'T' + (timeVal || '23:00') + ':00',
       wakeAt: null, duration: null,
       sleepNote: noteVal,
       sleepMood: sleepWriteMood || 'calm',
@@ -11497,7 +11527,7 @@ function saveSleepItem() {
     }
     if (sleepingIdx >= 0) {
       var s = sleeps[sleepingIdx];
-      s.wakeAt = new Date().toISOString().split('T')[0] + 'T' + (timeVal || '07:00') + ':00';
+      s.wakeAt = getGardenLocalDateKey() + 'T' + (timeVal || '07:00') + ':00';
       s.wakeNote = noteVal;
       s.wakeMood = sleepWriteMood || 'refreshed';
       s.quality = sleepWriteQuality || 'normal';
@@ -11526,7 +11556,7 @@ function saveSleepItem() {
       var newWake = {
         id: 'sleep_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
         author: 'user',
-        sleepAt: null, wakeAt: new Date().toISOString().split('T')[0] + 'T' + (timeVal || '07:00') + ':00',
+        sleepAt: null, wakeAt: getGardenLocalDateKey() + 'T' + (timeVal || '07:00') + ':00',
         duration: null,
         sleepNote: null, sleepMood: null,
         events: [],
@@ -12172,7 +12202,7 @@ function openFinWrite(existingId) {
   document.getElementById('fin-write-amount').value = '';
   document.getElementById('fin-write-title').value = '';
   document.getElementById('fin-write-note').value = '';
-  document.getElementById('fin-write-date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('fin-write-date').value = getGardenLocalDateKey();
   document.getElementById('fin-type-expense').className = 'fin-write-type-btn expense active';
   document.getElementById('fin-type-income').className = 'fin-write-type-btn income';
   if (existingId) {
@@ -12184,7 +12214,7 @@ function openFinWrite(existingId) {
       document.getElementById('fin-write-amount').value = item.amount || '';
       document.getElementById('fin-write-title').value = item.title || '';
       document.getElementById('fin-write-note').value = item.note || '';
-      document.getElementById('fin-write-date').value = item.date || new Date().toISOString().split('T')[0];
+      document.getElementById('fin-write-date').value = item.date || getGardenLocalDateKey();
       document.getElementById('fin-type-expense').className = 'fin-write-type-btn expense' + (editingFinType === 'expense' ? ' active' : '');
       document.getElementById('fin-type-income').className = 'fin-write-type-btn income' + (editingFinType === 'income' ? ' active' : '');
     }
@@ -12282,7 +12312,7 @@ function saveFinItem() {
   var title = document.getElementById('fin-write-title').value.trim();
   if (!amt || !title || !editingFinCat) return;
   var note = document.getElementById('fin-write-note').value.trim();
-  var date = document.getElementById('fin-write-date').value || new Date().toISOString().split('T')[0];
+  var date = document.getElementById('fin-write-date').value || getGardenLocalDateKey();
   var items = getFinItems();
   if (editingFinId) {
     var idx = items.findIndex(function(x){ return x.id === editingFinId; });
@@ -12546,7 +12576,7 @@ window.addEventListener('message', function(e) {
       category: e.data.category || '',
       title: e.data.title || '',
       note: e.data.note || '',
-      date: new Date().toISOString().split('T')[0],
+      date: getGardenLocalDateKey(),
       author: 'char',
       createdAt: Date.now(),
       hearts: { char: true },
