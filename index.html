@@ -58,7 +58,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js" defer></script>
   <script src="update-notification.js?v=0.0.36" defer></script>
-  <script src="thought-chain-manager.js?v=0.0.41" defer></script>
+  <script src="thought-chain-manager.js?v=0.0.66-thought" defer></script>
   <script src="online-chat-manager.js?v=0.0.57-online" defer></script>
   <script src="online-chat-integration.js?v=0.0.36" defer></script>
   <script src="sticker-vision.js?v=0.0.36" defer></script>
@@ -85,7 +85,7 @@
   <!-- 第四层：AI 核心 -->
   <script src="modules/chat/remark-names.js?v=0.0.54-remark" defer></script>
   <script src="modules/ai-response.js?v=0.0.112-sparkpet" defer></script>
-  <script src="modules/ai-group.js?v=0.0.41" defer></script>
+  <script src="modules/ai-group.js?v=0.0.66-thought" defer></script>
   <!-- 第五层：功能模块 -->
   <script src="modules/music-online-services.js?v=0.0.54-upstream" defer></script>
   <script src="modules/music-player.js?v=0.0.54-upstream" defer></script>
@@ -2260,7 +2260,7 @@
     <!-- 思维链/预设配置屏幕 -->
     <div id="thought-chain-screen" class="screen ios-settings-screen">
       <div class="header">
-        <span class="back-btn" onclick="showScreen('home-screen')">‹</span>
+        <span class="back-btn" id="thought-chain-back-btn">‹</span>
         <span>思维链管理</span>
         <div class="header-actions">
           <span class="action-btn" id="add-thought-chain-btn" title="添加条目">+</span>
@@ -2297,6 +2297,9 @@
              </div>
              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; width: 100%;">
                  <button id="new-thought-chain-preset-btn" class="settings-mini-btn">新建</button>
+                 <button id="duplicate-thought-chain-preset-btn" class="settings-mini-btn">复制</button>
+                 <button id="rename-thought-chain-preset-btn" class="settings-mini-btn">重命名</button>
+                 <button id="revert-thought-chain-preset-btn" class="settings-mini-btn">撤销修改</button>
                  <button id="import-thought-chain-preset-btn" class="settings-mini-btn">导入</button>
                  <button id="export-thought-chain-preset-btn" class="settings-mini-btn">导出</button>
                  <button id="save-thought-chain-preset-btn" class="settings-mini-btn">保存</button>

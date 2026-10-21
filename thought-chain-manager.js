@@ -4,6 +4,7 @@ const ThoughtChainManager = {
     selectedIds: [],
     draggedItemId: null,
     activeMode: 'chat',
+    currentPresetId: null,
     modes: {
         chat: {
             label: '聊天',
@@ -31,6 +32,14 @@ const ThoughtChainManager = {
             enabledKey: 'ephone_thought_chain_enabled',
             itemsKey: 'ephone_thought_chain_items',
             defaultEnabled: true
+        },
+        // 线下模式的后台自主回复：读取线下条目和线下兼容设置，
+        // 但沿用后台的“不预填充”约束，避免请求以 model 轮结尾。
+        background_offline: {
+            label: '后台（线下）',
+            enabledKey: 'ephone_thought_chain_offline_enabled',
+            itemsKey: 'ephone_thought_chain_offline_items',
+            defaultEnabled: false
         }
     },
 
@@ -73,11 +82,17 @@ const ThoughtChainManager = {
             prefillEnabled: false,
             extractionEnabled: true,
             manageOwnInjection: false
+        },
+        background_offline: {
+            prefillEnabled: false,
+            extractionEnabled: true,
+            manageOwnInjection: false
         }
     },
 
     getBehaviorStorageKey(mode = this.activeMode) {
-        return `ephone_thought_chain_behavior_${this.modes[mode] ? mode : 'chat'}`;
+        const resolvedMode = mode === 'background_offline' ? 'offline' : (this.modes[mode] ? mode : 'chat');
+        return `ephone_thought_chain_behavior_${resolvedMode}`;
     },
 
     normalizeBehavior(behavior) {
@@ -149,8 +164,38 @@ const ThoughtChainManager = {
     updateDirtyState() {
         const indicator = document.getElementById('thought-chain-unsaved-indicator');
         if (!indicator) return;
-        const dirty = !!this.lastSavedSnapshot && this.getStateSnapshot() !== this.lastSavedSnapshot;
-        indicator.hidden = !dirty;
+        indicator.hidden = !this.hasUnsavedChanges();
+    },
+
+    hasUnsavedChanges() {
+        return !!this.lastSavedSnapshot && this.getStateSnapshot() !== this.lastSavedSnapshot;
+    },
+
+    async confirmDiscardUnsavedChanges(message, confirmText = '放弃修改') {
+        if (!this.hasUnsavedChanges()) return true;
+        return !!(await showCustomConfirm('未保存修改', message, {
+            confirmText,
+            cancelText: '继续编辑'
+        }));
+    },
+
+    restoreSavedSnapshot() {
+        if (!this.lastSavedSnapshot) return false;
+        try {
+            const snapshot = JSON.parse(this.lastSavedSnapshot);
+            this.enabled = snapshot.enabled !== false;
+            this.items = this.normalizeItems(this.clone(snapshot.items || []));
+            this.behaviors[this.activeMode] = this.normalizeBehavior(snapshot.behavior);
+            this.selectedIds = [];
+            this.saveData();
+            this.renderList();
+            this.renderBehaviorSettings();
+            this.setSavedSnapshot();
+            return true;
+        } catch (error) {
+            console.warn('恢复思维链未保存前的状态失败:', error);
+            return false;
+        }
     },
 
     // 是否允许给“当前模式”发送底部 assistant 预填
@@ -188,6 +233,9 @@ const ThoughtChainManager = {
         // 后台自主回复与“聊天”共用总开关，直接跟随聊天的实时状态，避免读存储值滞后
         if (resolvedMode === 'background') {
             return this.isModeEnabled('chat');
+        }
+        if (resolvedMode === 'background_offline') {
+            return this.isModeEnabled('offline');
         }
         if (resolvedMode === this.activeMode) return this.enabled !== false;
         return !!this.getStoredModeState(resolvedMode).enabled;
@@ -616,6 +664,7 @@ const ThoughtChainManager = {
 
             if (forceSelectedId) {
                 selectEl.value = forceSelectedId;
+                this.currentPresetId = forceSelectedId === 'default' ? 'default' : (Number(forceSelectedId) || forceSelectedId);
                 return;
             }
             
@@ -635,10 +684,13 @@ const ThoughtChainManager = {
 
             if (matchingPresetId) {
                 selectEl.value = matchingPresetId;
+                this.currentPresetId = Number(matchingPresetId) || matchingPresetId;
             } else if (JSON.stringify(this.items) === JSON.stringify(this.defaultItems)) {
                 selectEl.value = 'default';
+                this.currentPresetId = 'default';
             } else {
                 selectEl.value = 'current';
+                this.currentPresetId = null;
             }
         } catch (e) {
             console.error('加载思维链预设失败:', e);
@@ -649,7 +701,20 @@ const ThoughtChainManager = {
         const selectEl = document.getElementById('thought-chain-preset-select');
         const selectedValue = selectEl.value;
 
+        if (this.hasUnsavedChanges()) {
+            const confirmed = await showCustomConfirm(
+                '未保存修改',
+                '当前配置有未保存修改，确定放弃修改并切换预设吗？',
+                { confirmText: '放弃并切换', cancelText: '继续编辑' }
+            );
+            if (!confirmed) {
+                await this.loadPresetsDropdown();
+                return;
+            }
+        }
+
         if (selectedValue === 'default') {
+            this.currentPresetId = 'default';
             this.items = JSON.parse(JSON.stringify(this.defaultItems));
             this.behaviors[this.activeMode] = this.normalizeBehavior({ ...this.defaultBehavior, ...(this.modeBehaviorOverrides[this.activeMode] || {}) });
             this.saveData();
@@ -668,6 +733,7 @@ const ThoughtChainManager = {
         try {
             const preset = await db.thoughtChainPresets.get(selectedId);
             if (preset && preset.items) {
+                this.currentPresetId = selectedId;
                 this.items = this.normalizeItems(this.clone(preset.items));
                 if (preset.behavior) {
                     this.behaviors[this.activeMode] = this.normalizeBehavior({ ...preset.behavior, ...(this.modeBehaviorOverrides[this.activeMode] || {}) });
@@ -714,6 +780,95 @@ const ThoughtChainManager = {
         } catch (e) {
             console.error('保存思维链预设失败:', e);
             alert('保存失败，请查看控制台。');
+        }
+    },
+
+    async duplicatePreset() {
+        const selectEl = document.getElementById('thought-chain-preset-select');
+        const currentName = selectEl && selectEl.selectedIndex >= 0
+            ? selectEl.options[selectEl.selectedIndex].textContent
+            : '当前配置';
+        const name = await showCustomPrompt('复制思维链预设', '请输入副本名称', `${currentName} 副本`);
+        if (!name || !name.trim()) return;
+        const presetData = {
+            name: name.trim(),
+            items: this.clone(this.items),
+            behavior: this.clone(this.getBehavior()),
+            enabled: this.enabled,
+            formatVersion: 2,
+            updatedAt: Date.now()
+        };
+        try {
+            const newId = await db.thoughtChainPresets.put(presetData);
+            this.currentPresetId = newId;
+            await this.loadPresetsDropdown(newId);
+            this.setSavedSnapshot();
+            showToast('思维链预设副本已创建。');
+        } catch (error) {
+            console.error('复制思维链预设失败:', error);
+            alert('复制失败，请查看控制台。');
+        }
+    },
+
+    async renamePreset() {
+        const selectEl = document.getElementById('thought-chain-preset-select');
+        const selectedId = Number(selectEl && selectEl.value);
+        if (!Number.isInteger(selectedId) || selectedId <= 0) {
+            showToast('请先选择一个已保存的自定义预设。');
+            return;
+        }
+        try {
+            const preset = await db.thoughtChainPresets.get(selectedId);
+            if (!preset) return;
+            const name = await showCustomPrompt('重命名思维链预设', '请输入新的预设名称', preset.name || '');
+            if (!name || !name.trim() || name.trim() === preset.name) return;
+            await db.thoughtChainPresets.put({ ...preset, name: name.trim(), updatedAt: Date.now() });
+            this.currentPresetId = selectedId;
+            await this.loadPresetsDropdown(selectedId);
+            this.setSavedSnapshot();
+            showToast('思维链预设已重命名。');
+        } catch (error) {
+            console.error('重命名思维链预设失败:', error);
+            alert('重命名失败，请查看控制台。');
+        }
+    },
+
+    async revertCurrentPreset() {
+        const presetReference = this.currentPresetId || Number(document.getElementById('thought-chain-preset-select')?.value);
+        if (!presetReference) {
+            showToast('请先选择一个已保存的预设。');
+            return;
+        }
+        const confirmed = await showCustomConfirm(
+            '撤销修改',
+            presetReference === 'default' ? '确定恢复到内置默认模板吗？' : '确定恢复到这个预设上次保存的状态吗？',
+            { confirmText: '恢复' }
+        );
+        if (!confirmed) return;
+        try {
+            if (presetReference === 'default') {
+                this.items = this.cloneDefaultItems();
+                this.behaviors[this.activeMode] = this.normalizeBehavior({ ...this.defaultBehavior, ...(this.modeBehaviorOverrides[this.activeMode] || {}) });
+                this.enabled = true;
+                this.currentPresetId = 'default';
+            } else {
+                const preset = await db.thoughtChainPresets.get(Number(presetReference));
+                if (!preset) return;
+                this.items = this.normalizeItems(this.clone(preset.items || []));
+                this.behaviors[this.activeMode] = this.normalizeBehavior(preset.behavior || this.defaultBehavior);
+                this.enabled = preset.enabled !== false;
+                this.currentPresetId = Number(presetReference);
+            }
+            this.selectedIds = [];
+            this.saveData();
+            this.renderList();
+            this.renderBehaviorSettings();
+            await this.loadPresetsDropdown(this.currentPresetId);
+            this.setSavedSnapshot();
+            showToast('已恢复到上次保存状态。');
+        } catch (error) {
+            console.error('撤销思维链预设修改失败:', error);
+            alert('撤销失败，请查看控制台。');
         }
     },
 
@@ -790,8 +945,7 @@ const ThoughtChainManager = {
             enableSwitch.checked = this.enabled;
         }
         this.updateModeTabs();
-        // 未初始化的脏状态不显示
-        this.lastSavedSnapshot = '';
+        this.lastSavedSnapshot = this.getStateSnapshot();
         this.updateDirtyState();
     },
 
@@ -817,9 +971,19 @@ const ThoughtChainManager = {
         return items;
     },
 
-    switchMode(mode) {
+    async switchMode(mode) {
         if (!this.modes[mode] || mode === this.activeMode) return;
-        this.saveData();
+        if (this.hasUnsavedChanges()) {
+            const confirmed = await showCustomConfirm(
+                '未保存修改',
+                `当前配置有未保存修改，确定放弃修改并切换为${this.modes[mode].label}模式吗？`,
+                { confirmText: '放弃并切换', cancelText: '继续编辑' }
+            );
+            if (!confirmed) return;
+            this.restoreSavedSnapshot();
+        } else {
+            this.saveData();
+        }
         this.loadData(mode);
         this.renderList();
         this.renderBehaviorSettings();
@@ -836,6 +1000,22 @@ const ThoughtChainManager = {
     },
 
     bindEvents() {
+        const backBtn = document.getElementById('thought-chain-back-btn');
+        if (backBtn) {
+            backBtn.addEventListener('click', async () => {
+                if (this.hasUnsavedChanges()) {
+                    const confirmed = await showCustomConfirm(
+                        '未保存修改',
+                        '当前配置有未保存修改，确定放弃修改并退出吗？',
+                        { confirmText: '放弃并退出', cancelText: '继续编辑' }
+                    );
+                    if (!confirmed) return;
+                    this.restoreSavedSnapshot();
+                }
+                showScreen('home-screen');
+            });
+        }
+
         document.querySelectorAll('.thought-chain-mode-tab').forEach(btn => {
             btn.addEventListener('click', () => this.switchMode(btn.dataset.mode));
         });
@@ -897,6 +1077,13 @@ const ThoughtChainManager = {
         if (savePresetBtn) {
             savePresetBtn.addEventListener('click', () => this.savePreset());
         }
+
+        const duplicatePresetBtn = document.getElementById('duplicate-thought-chain-preset-btn');
+        if (duplicatePresetBtn) duplicatePresetBtn.addEventListener('click', () => this.duplicatePreset());
+        const renamePresetBtn = document.getElementById('rename-thought-chain-preset-btn');
+        if (renamePresetBtn) renamePresetBtn.addEventListener('click', () => this.renamePreset());
+        const revertPresetBtn = document.getElementById('revert-thought-chain-preset-btn');
+        if (revertPresetBtn) revertPresetBtn.addEventListener('click', () => this.revertCurrentPreset());
         
         const deletePresetBtn = document.getElementById('delete-thought-chain-preset-btn');
         if (deletePresetBtn) {
