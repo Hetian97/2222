@@ -242,6 +242,7 @@
     'pollinations-api-key',
     'pollinations-model',
     'image-generation-scene-settings',
+    'image-generation-scene-routing',
 
     'google-imagen-enabled',
     'google-imagen-model',
@@ -252,6 +253,12 @@
     'novelai-model',
     'novelai-api-key',
     'novelai-settings',
+
+    'openai-image-enabled',
+    'openai-image-model',
+    'openai-image-api-key',
+    'openai-image-settings',
+    'user-image-appearance-prompts',
 
     'imgbb-enabled',
     'imgbb-api-key',

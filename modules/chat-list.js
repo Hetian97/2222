@@ -364,7 +364,7 @@
           lastMsgDisplay = `[系统消息] ${lastMsgObj.content}`;
         } else if (lastMsgObj.type === 'transfer') {
           lastMsgDisplay = '[转账]';
-        } else if (lastMsgObj.type === 'ai_image' || lastMsgObj.type === 'user_photo' || lastMsgObj.type === 'naiimag' || lastMsgObj.type === 'googleimag') {
+        } else if (lastMsgObj.type === 'ai_image' || lastMsgObj.type === 'user_photo' || lastMsgObj.type === 'naiimag' || lastMsgObj.type === 'googleimag' || lastMsgObj.type === 'openaiimag') {
           lastMsgDisplay = '[照片]';
         } else if (lastMsgObj.type === 'voice_message') {
           lastMsgDisplay = '[语音]';

@@ -740,7 +740,7 @@ function enterCoupleSpace(charId) {
   const previousIframe = document.getElementById('couple-space-iframe');
   const iframe = previousIframe.cloneNode(false);
   previousIframe.replaceWith(iframe);
-  iframe.src = '330--main/index.html?v=0.0.63-couple';
+  iframe.src = '330--main/index.html?v=0.0.70-gpt';
   iframe.onload = function() {
     const spaces = getCoupleSpaces();
     const space = spaces.find(s => s.charId === charId);
@@ -857,6 +857,9 @@ window.addEventListener('message', function(e) {
   // --- Album requests ---
   if (e.data && e.data.type === 'coupleSpaceAlbumAiRequest') {
     handleCoupleSpaceAlbumAiRequest(e.data);
+  }
+  if (e.data && e.data.type === 'coupleSpaceAlbumPhotoRegenerateRequest') {
+    handleCoupleSpaceAlbumPhotoRegenerateRequest(e.data);
   }
   if (e.data && e.data.type === 'coupleSpaceAlbumSettingsChanged') {
     handleCoupleSpaceAlbumSettingsChanged(e.data);
@@ -1840,6 +1843,43 @@ if (typeof setTimeout !== 'undefined') {
 
 // ========== Album AI Integration ==========
 
+async function handleCoupleSpaceAlbumPhotoRegenerateRequest(data) {
+  const iframe = document.getElementById('couple-space-iframe');
+  if (!iframe || !iframe.contentWindow) return;
+  try {
+    if (!data?.charId || !data?.photoId || !data?.imagePrompt) {
+      throw new Error('缺少照片信息');
+    }
+    if (typeof generateImageForScene !== 'function') {
+      throw new Error('生图函数尚未加载');
+    }
+    const generated = await generateImageForScene(data.imagePrompt, 'coupleSpace', data.charId, null, data.subjects);
+    if (!generated || !generated.imageUrl) {
+      throw new Error('当前情侣空间供应商未启用或没有返回图片');
+    }
+    const records = await db.coupleAlbumPhotos.where('chatId').equals(data.charId).toArray();
+    const record = records.find(item => item?.photo?.id === data.photoId);
+    if (!record) throw new Error('相册照片不存在');
+    record.photo.imageData = generated.imageUrl;
+    record.photo.type = 'ai_gen';
+    record.photo.imagePrompt = data.imagePrompt;
+    await db.coupleAlbumPhotos.put(record);
+    iframe.contentWindow.postMessage({
+      type: 'coupleSpaceAlbumPhotoRegenerateResult',
+      photoId: data.photoId,
+      imageData: generated.imageUrl,
+      provider: generated.provider
+    }, '*');
+  } catch (error) {
+    console.error('[情侣空间] 重新生成照片失败:', error);
+    iframe.contentWindow.postMessage({
+      type: 'coupleSpaceAlbumPhotoRegenerateResult',
+      photoId: data?.photoId,
+      error: error.message
+    }, '*');
+  }
+}
+
 async function handleCoupleSpaceAlbumAiRequest(data) {
   const iframe = document.getElementById('couple-space-iframe');
   if (!iframe || !iframe.contentWindow) return;
@@ -1854,7 +1894,9 @@ async function handleCoupleSpaceAlbumAiRequest(data) {
 
     // Try to generate image based on settings
     const albumSettings = JSON.parse(localStorage.getItem('coupleAlbumSettings_' + data.charId) || '{}');
-    const genMode = albumSettings.imageGenMode || 'none';
+    const sceneProviders = typeof getImageGenerationSceneProviders === 'function' ? getImageGenerationSceneProviders() : null;
+    const sceneProvider = sceneProviders ? sceneProviders.coupleSpace : null;
+    const genMode = sceneProvider || albumSettings.imageGenMode || 'none';
 
     if (genMode === 'pollinations' && isImageGenerationProviderAvailable('pollinations', 'coupleSpace') && result.imagePrompt) {
       try {
@@ -1873,18 +1915,27 @@ async function handleCoupleSpaceAlbumAiRequest(data) {
       } catch(e) { console.error('Album Pollinations gen failed:', e); }
     } else if (genMode === 'nai' && isImageGenerationProviderAvailable('nai', 'coupleSpace') && result.imagePrompt) {
       try {
-        const naiResult = await generateNaiImageFromPrompt(result.imagePrompt, data.charId);
-        if (naiResult && naiResult.base64) {
+        const naiResult = await generateNaiImageFromPrompt(result.imagePrompt, data.charId, result.subjects);
+        if (naiResult && naiResult.imageUrl) {
+          imageData = naiResult.imageUrl;
+        } else if (naiResult && naiResult.base64) {
           imageData = 'data:image/png;base64,' + naiResult.base64;
         }
       } catch(e) { console.error('Album NAI gen failed:', e); }
     } else if (genMode === 'imagen' && isImageGenerationProviderAvailable('imagen', 'coupleSpace') && result.imagePrompt) {
       try {
-        const imagenResult = await generateGoogleImagenFromPrompt(result.imagePrompt);
-        if (imagenResult && imagenResult.base64) {
+        const imagenResult = await generateGoogleImagenFromPrompt(result.imagePrompt, data.charId, { subjects: result.subjects });
+        if (imagenResult && imagenResult.imageUrl) {
+          imageData = imagenResult.imageUrl;
+        } else if (imagenResult && imagenResult.base64) {
           imageData = 'data:image/png;base64,' + imagenResult.base64;
         }
       } catch(e) { console.error('Album Imagen gen failed:', e); }
+    } else if (genMode === 'openai' && isImageGenerationProviderAvailable('openai', 'coupleSpace') && result.imagePrompt) {
+      try {
+        const openAIResult = await generateOpenAIImageFromPrompt(result.imagePrompt, data.charId, { subjects: result.subjects });
+        if (openAIResult && openAIResult.imageUrl) imageData = openAIResult.imageUrl;
+      } catch(e) { console.error('Album GPT gen failed:', e); }
     }
 
     iframe.contentWindow.postMessage({
@@ -1892,6 +1943,7 @@ async function handleCoupleSpaceAlbumAiRequest(data) {
       description: result.description,
       imageData: imageData,
       imagePrompt: result.imagePrompt,
+      subjects: result.subjects || ['char'],
       tags: result.tags || []
     }, '*');
   } catch(err) {
@@ -2044,11 +2096,12 @@ ${ctx.currentTime}
 
 # 输出要求
 请以JSON格式返回，不要输出任何其他内容：
-{"description": "照片配文", "imagePrompt": "英文生图提示词", "tags": ["标签1", "标签2"]}
+{"description": "照片配文", "imagePrompt": "英文生图提示词", "subjects": ["char"], "tags": ["标签1", "标签2"]}
 
 # 要求
 - description 是你发照片时配的文字，像发朋友圈一样自然，符合你的性格
 - imagePrompt 用英文写，描述具体画面、光线、构图、风格，尽量详细
+- subjects 表示照片里出现了谁：只有你时填 ["char"]；只有用户时填 ["user"]；你和用户都在时填 ["char","user"]
 - tags 是1-3个中文标签
 - 可以是自拍、风景、食物、日常、和伴侣相关的场景等
 - 不要和最近发过的照片内容重复
@@ -2141,7 +2194,9 @@ async function triggerAutoAlbumPost(charId, isTimer = false) {
       const result = await generateCoupleSpaceAlbumAi(chat, { charId, recentPhotos });
 
       let imageData = null;
-      const genMode = albumSettings.imageGenMode || 'none';
+      const sceneProviders = typeof getImageGenerationSceneProviders === 'function' ? getImageGenerationSceneProviders() : null;
+    const sceneProvider = sceneProviders ? sceneProviders.coupleSpace : null;
+    const genMode = sceneProvider || albumSettings.imageGenMode || 'none';
 
     if (genMode === 'pollinations' && isImageGenerationProviderAvailable('pollinations', 'coupleSpace') && result.imagePrompt) {
       try {
@@ -2160,14 +2215,21 @@ async function triggerAutoAlbumPost(charId, isTimer = false) {
       } catch(e) {}
     } else if (genMode === 'nai' && isImageGenerationProviderAvailable('nai', 'coupleSpace') && result.imagePrompt) {
       try {
-        const naiResult = await generateNaiImageFromPrompt(result.imagePrompt, charId);
-        if (naiResult && naiResult.base64) imageData = 'data:image/png;base64,' + naiResult.base64;
+        const naiResult = await generateNaiImageFromPrompt(result.imagePrompt, charId, result.subjects);
+        if (naiResult && naiResult.imageUrl) imageData = naiResult.imageUrl;
+        else if (naiResult && naiResult.base64) imageData = 'data:image/png;base64,' + naiResult.base64;
       } catch(e) {}
     } else if (genMode === 'imagen' && isImageGenerationProviderAvailable('imagen', 'coupleSpace') && result.imagePrompt) {
       try {
-        const imagenResult = await generateGoogleImagenFromPrompt(result.imagePrompt);
-        if (imagenResult && imagenResult.base64) imageData = 'data:image/png;base64,' + imagenResult.base64;
+        const imagenResult = await generateGoogleImagenFromPrompt(result.imagePrompt, charId, { subjects: result.subjects });
+        if (imagenResult && imagenResult.imageUrl) imageData = imagenResult.imageUrl;
+        else if (imagenResult && imagenResult.base64) imageData = 'data:image/png;base64,' + imagenResult.base64;
       } catch(e) {}
+    } else if (genMode === 'openai' && isImageGenerationProviderAvailable('openai', 'coupleSpace') && result.imagePrompt) {
+      try {
+        const openAIResult = await generateOpenAIImageFromPrompt(result.imagePrompt, charId, { subjects: result.subjects });
+        if (openAIResult && openAIResult.imageUrl) imageData = openAIResult.imageUrl;
+      } catch(e) { console.warn('[情侣空间] GPT 相册图片生成失败:', e); }
     }
 
     const newPhoto = {
@@ -2178,7 +2240,8 @@ async function triggerAutoAlbumPost(charId, isTimer = false) {
       imageData: imageData,
       type: imageData ? 'ai_gen' : 'text',
       tags: result.tags || [],
-      imagePrompt: result.imagePrompt || ''
+      imagePrompt: result.imagePrompt || '',
+      subjects: result.subjects || ['char']
     };
 
     const saved = await sendOrSaveCoupleSpaceData(charId, {

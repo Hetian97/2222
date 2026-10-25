@@ -3343,8 +3343,19 @@ window.initEventBindingsB = function(state, db) {
             forwardedMessage.type = msg.type;
             if (msg.type === 'voice_message') {
               forwardedMessage.content = msg.content;
-            } else if (msg.type === 'ai_image' || msg.type === 'naiimag') {
+            } else if (msg.type === 'ai_image') {
               forwardedMessage.content = msg.content;
+              forwardedMessage.image_prompt = msg.image_prompt;
+              forwardedMessage.subjects = msg.subjects;
+            } else if (msg.type === 'naiimag' || msg.type === 'googleimag' || msg.type === 'openaiimag') {
+              forwardedMessage.content = msg.content;
+              forwardedMessage.imageUrl = msg.imageUrl;
+              forwardedMessage.prompt = msg.prompt;
+              forwardedMessage.fullPrompt = msg.fullPrompt;
+              forwardedMessage.subjects = msg.subjects;
+              if (msg.model) forwardedMessage.model = msg.model;
+              if (msg.mimeType) forwardedMessage.mimeType = msg.mimeType;
+              if (msg.requestId) forwardedMessage.requestId = msg.requestId;
             } else if (msg.type === 'transfer') {
               forwardedMessage.amount = msg.amount;
               forwardedMessage.note = msg.note;

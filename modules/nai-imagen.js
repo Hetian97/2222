@@ -294,6 +294,314 @@
     alert('已恢复默认设置！');
   }
 
+  // ========== OpenAI GPT Image 生图功能 ==========
+  function getCharacterImagePrompts(chatId, provider) {
+    const resolvedChatId = chatId || (typeof state !== 'undefined' ? state.activeChatId : null);
+    const chat = resolvedChatId && typeof state !== 'undefined' ? state.chats[resolvedChatId] : null;
+    if (!chat || !chat.settings) return { positive: '', negative: '' };
+    // 角色形象所有供应商共用一套，provider 参数仅保留兼容。
+    const settings = chat.settings.naiSettings || {};
+    return {
+      positive: String(settings.characterPositivePrompt || '').trim(),
+      negative: String(settings.characterNegativePrompt || '').trim()
+    };
+  }
+
+  const USER_APPEARANCE_PROMPTS_KEY = 'user-image-appearance-prompts';
+
+  function getUserImagePrompts() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(USER_APPEARANCE_PROMPTS_KEY) || '{}');
+      return {
+        positive: String(saved.positive || '').trim(),
+        negative: String(saved.negative || '').trim()
+      };
+    } catch (_) {
+      return { positive: '', negative: '' };
+    }
+  }
+
+  function saveUserImageAppearancePrompts() {
+    const positive = document.getElementById('user-appearance-positive')?.value.trim() || '';
+    const negative = document.getElementById('user-appearance-negative')?.value.trim() || '';
+    localStorage.setItem(USER_APPEARANCE_PROMPTS_KEY, JSON.stringify({ positive, negative }));
+  }
+
+  function normalizeImageSubjects(subjects) {
+    if (subjects === undefined || subjects === null) return null;
+    const values = Array.isArray(subjects) ? subjects : String(subjects).split(',');
+    return values.map(value => String(value).trim().toLowerCase()).filter(Boolean);
+  }
+
+  function getSharedImagePrompts(chatId, subjects) {
+    const normalized = normalizeImageSubjects(subjects);
+    // 旧消息没有 subjects 时保持兼容：默认只追加角色形象。
+    const includeChar = normalized === null || normalized.includes('char');
+    const includeUser = normalized !== null && normalized.includes('user');
+    const charPrompts = includeChar ? getCharacterImagePrompts(chatId) : { positive: '', negative: '' };
+    const userPrompts = includeUser ? getUserImagePrompts() : { positive: '', negative: '' };
+    return {
+      positive: [charPrompts.positive, userPrompts.positive].filter(Boolean).join(', '),
+      negative: [charPrompts.negative, userPrompts.negative].filter(Boolean).join(', ')
+    };
+  }
+
+  function getOpenAIImageSettings() {
+    const defaultSettings = {
+      model: 'gpt-image-2',
+      endpoint: 'https://api.openai.com',
+      size: 'auto',
+      quality: 'auto',
+      outputFormat: 'png',
+      outputCompression: 100,
+      background: 'auto',
+      moderation: 'auto',
+      positivePrompt: '',
+      negativePrompt: ''
+    };
+    const saved = localStorage.getItem('openai-image-settings');
+    if (!saved) return defaultSettings;
+    try {
+      return { ...defaultSettings, ...JSON.parse(saved) };
+    } catch (error) {
+      console.warn('[GPT Image] 设置解析失败，已使用默认设置。', error);
+      return defaultSettings;
+    }
+  }
+
+  function saveOpenAIImageSettings() {
+    const enabled = document.getElementById('openai-image-switch')?.checked || false;
+    const model = document.getElementById('openai-image-model')?.value.trim() || 'gpt-image-2';
+    const apiKey = document.getElementById('openai-image-api-key')?.value.trim() || '';
+    const endpoint = document.getElementById('openai-image-endpoint')?.value.trim() || 'https://api.openai.com';
+    const compressionValue = parseInt(document.getElementById('openai-image-compression')?.value, 10);
+    const settings = {
+      model,
+      endpoint,
+      size: document.getElementById('openai-image-size')?.value || 'auto',
+      quality: document.getElementById('openai-image-quality')?.value || 'auto',
+      outputFormat: document.getElementById('openai-image-output-format')?.value || 'png',
+      outputCompression: Math.min(100, Math.max(0, Number.isFinite(compressionValue) ? compressionValue : 100)),
+      background: document.getElementById('openai-image-background')?.value || 'auto',
+      moderation: document.getElementById('openai-image-moderation')?.value || 'auto',
+      positivePrompt: document.getElementById('openai-image-positive')?.value.trim() || '',
+      negativePrompt: document.getElementById('openai-image-negative')?.value.trim() || ''
+    };
+    localStorage.setItem('openai-image-enabled', String(enabled));
+    localStorage.setItem('openai-image-model', model);
+    localStorage.setItem('openai-image-api-key', apiKey);
+    localStorage.setItem('openai-image-settings', JSON.stringify(settings));
+  }
+
+  async function fetchOpenAIImageModels() {
+    const endpoint = document.getElementById('openai-image-endpoint')?.value.trim() || 'https://api.openai.com';
+    const apiKey = document.getElementById('openai-image-api-key')?.value.trim();
+    const select = document.getElementById('openai-image-model');
+    if (!apiKey || !endpoint) {
+      alert('请先填写 API 地址和密钥！');
+      return;
+    }
+    const fetchBtn = document.getElementById('openai-image-fetch-models-btn');
+    if (fetchBtn) {
+      fetchBtn.disabled = true;
+      fetchBtn.textContent = '⏳ 拉取中...';
+    }
+    const base = endpoint
+      .replace(/\/+$/, '')
+      .replace(/\/v1\/images\/generations$/i, '')
+      .replace(/\/images\/generations$/i, '')
+      .replace(/\/v1$/i, '');
+    try {
+      const response = await fetch(`${base}/v1/models`, {
+        method: 'GET',
+        mode: 'cors',
+        cache: 'no-cache',
+        credentials: 'omit',
+        headers: {
+          'Authorization': `Bearer ${getRandomValue(apiKey)}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`拉取失败 (${response.status}): ${errorText}`);
+      }
+      const data = await response.json();
+      const allModels = (data?.data || data?.models || [])
+        .map(item => typeof item === 'string' ? item : item?.id)
+        .filter(Boolean);
+      if (!allModels.length) throw new Error('返回的模型列表为空');
+      const imageModels = allModels.filter(id => /(^|[-_/])(gpt[-_]?image|image)/i.test(id));
+      const models = imageModels.length ? imageModels : allModels;
+
+      if (select) {
+        const currentValue = select.value;
+        select.innerHTML = '';
+        models.forEach(id => {
+          const option = document.createElement('option');
+          option.value = id;
+          option.textContent = id;
+          if (id === currentValue) option.selected = true;
+          select.appendChild(option);
+        });
+        if (currentValue && !models.includes(currentValue)) {
+          const option = document.createElement('option');
+          option.value = currentValue;
+          option.textContent = currentValue;
+          option.selected = true;
+          select.appendChild(option);
+        }
+      }
+      alert(`✅ 模型列表已更新，共 ${models.length} 个模型。`);
+    } catch (error) {
+      console.error('[GPT Image] 拉取模型失败:', error);
+      alert('❌ 拉取模型失败: ' + error.message);
+    } finally {
+      if (fetchBtn) {
+        fetchBtn.disabled = false;
+        fetchBtn.textContent = '🔄 拉取';
+      }
+    }
+  }
+
+  function getOpenAIImageGenerationsUrl(endpoint) {
+    const normalized = String(endpoint || 'https://api.openai.com').trim().replace(/\/+$/, '');
+    if (/\/images\/generations$/i.test(normalized)) return normalized;
+    return /\/v1$/i.test(normalized)
+      ? `${normalized}/images/generations`
+      : `${normalized}/v1/images/generations`;
+  }
+
+  function getOpenAIImageMimeType(outputFormat) {
+    if (outputFormat === 'jpg' || outputFormat === 'jpeg') return 'image/jpeg';
+    if (outputFormat === 'webp') return 'image/webp';
+    return 'image/png';
+  }
+
+  async function generateOpenAIImageFromPrompt(aiPrompt, chatId = null, options = {}) {
+    const prompt = sanitizeImagePrompt(aiPrompt) || 'A beautiful scene';
+    const apiKey = localStorage.getItem('openai-image-api-key');
+    if (!apiKey) {
+      throw new Error('GPT 生图 API Key 未配置。请在 GPT 生图设置中填写 API Key。');
+    }
+
+    const settings = getOpenAIImageSettings();
+    const model = localStorage.getItem('openai-image-model') || settings.model || 'gpt-image-2';
+    const subjectPrompts = getSharedImagePrompts(chatId, options.subjects);
+    let finalPrompt = prompt;
+    if (settings.positivePrompt) finalPrompt += `, ${settings.positivePrompt}`;
+    if (subjectPrompts.positive) finalPrompt += `, ${subjectPrompts.positive}`;
+    const negativeParts = [settings.negativePrompt, subjectPrompts.negative].filter(Boolean);
+    if (negativeParts.length) finalPrompt += `. Avoid: ${negativeParts.join(', ')}`;
+    finalPrompt = sanitizeImagePrompt(finalPrompt);
+    const outputFormat = settings.outputFormat || 'png';
+    if ((outputFormat === 'jpeg' || outputFormat === 'jpg') && settings.background === 'transparent') {
+      throw new Error('JPEG 不支持透明背景，请选择 PNG/WebP，或将背景改为自动/不透明。');
+    }
+    const requestBody = {
+      model,
+      prompt: finalPrompt,
+      n: 1,
+      size: settings.size || 'auto',
+      quality: settings.quality || 'auto',
+      output_format: outputFormat,
+      background: settings.background || 'auto',
+      moderation: settings.moderation || 'auto'
+    };
+    if (outputFormat === 'jpeg' || outputFormat === 'webp') {
+      const compressionValue = Number(settings.outputCompression);
+      requestBody.output_compression = Math.min(100, Math.max(0, Number.isFinite(compressionValue) ? compressionValue : 100));
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 180000);
+    let response;
+    try {
+      response = await fetch(getOpenAIImageGenerationsUrl(settings.endpoint), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getRandomValue(apiKey)}`
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal
+      });
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        throw new Error('GPT 生图请求超时（超过3分钟），请检查网络或稍后重试。');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    if (!response.ok) {
+      let errorMessage = `GPT 生图 API 请求失败 (${response.status})`;
+      try {
+        const errorData = await response.json();
+        if (errorData?.error?.code === 'moderation_blocked') {
+          errorMessage = '该提示词或生成结果未通过安全检查，请调整描述后重试。';
+        } else if (errorData?.error?.message) {
+          errorMessage += `: ${errorData.error.message}`;
+        }
+      } catch (_) {}
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    const image = data?.data?.[0];
+    if (!image) throw new Error('GPT 生图响应中未找到图片数据。');
+    const mimeType = getOpenAIImageMimeType(outputFormat);
+    const rawImageUrl = image.b64_json
+      ? `data:${mimeType};base64,${image.b64_json}`
+      : image.url;
+    if (!rawImageUrl) throw new Error('GPT 生图响应中未找到可用的图片内容。');
+    const imageUrl = options.persist === false
+      ? rawImageUrl
+      : await persistGeneratedImage(rawImageUrl, 'GPT 图片');
+    return {
+      imageUrl,
+      fullPrompt: image.revised_prompt || finalPrompt,
+      model,
+      mimeType,
+      requestId: response.headers.get('x-request-id') || ''
+    };
+  }
+
+  async function testOpenAIImageGeneration() {
+    const apiKey = document.getElementById('openai-image-api-key')?.value.trim();
+    if (!apiKey) {
+      alert('请先填写 GPT 生图 API Key！');
+      return;
+    }
+    saveOpenAIImageSettings();
+    const testBtn = document.getElementById('openai-image-test-btn');
+    const resultDiv = document.getElementById('openai-image-test-result');
+    const resultImg = document.getElementById('openai-image-result-image');
+    if (!testBtn || !resultDiv || !resultImg) return;
+    testBtn.disabled = true;
+    resultDiv.style.display = 'none';
+    let seconds = 0;
+    const timer = setInterval(() => {
+      seconds += 1;
+      testBtn.textContent = `⏳ 生成中... (${seconds}s)`;
+    }, 1000);
+    testBtn.textContent = '⏳ 生成中... (0s)';
+    try {
+      const result = await generateOpenAIImageFromPrompt('一只戴着红色围巾的橘猫坐在温暖的窗边，细腻自然光，高质量摄影', null, { persist: false });
+      resultImg.src = result.imageUrl;
+      resultDiv.style.display = 'block';
+    } catch (error) {
+      alert(`❌ GPT 生图测试失败: ${error.message}`);
+      console.error('[GPT Image] 测试失败:', error);
+    } finally {
+      clearInterval(timer);
+      testBtn.disabled = false;
+      testBtn.textContent = '🧪 测试生成';
+    }
+  }
+  // ========== OpenAI GPT Image 结束 ==========
+
   // ========== Google Imagen 生图功能 ==========
   function getGoogleImagenSettings() {
     const defaultSettings = {
@@ -332,7 +640,7 @@
     localStorage.setItem('google-imagen-settings', JSON.stringify(settings));
   }
 
-  async function generateGoogleImagenFromPrompt(aiPrompt) {
+  async function generateGoogleImagenFromPrompt(aiPrompt, chatId = null, options = {}) {
     console.log(`🎨 [Google Imagen] 开始生成... Prompt: "${aiPrompt}"`);
 
     const apiKey = localStorage.getItem('google-imagen-api-key');
@@ -345,10 +653,13 @@
     const baseEndpoint = (settings.endpoint || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
     const isGemini = baseEndpoint.includes('generativelanguage.googleapis.com');
 
-    let finalPrompt = aiPrompt;
-    if (settings.positivePrompt) {
-        finalPrompt = finalPrompt + ', ' + settings.positivePrompt;
-    }
+    const subjectPrompts = getSharedImagePrompts(chatId, options.subjects);
+    let finalPrompt = sanitizeImagePrompt(aiPrompt);
+    if (settings.positivePrompt) finalPrompt = finalPrompt + ', ' + settings.positivePrompt;
+    if (subjectPrompts.positive) finalPrompt = finalPrompt + ', ' + subjectPrompts.positive;
+    const negativeParts = [settings.negativePrompt, subjectPrompts.negative].filter(Boolean);
+    if (negativeParts.length) finalPrompt = finalPrompt + '. Avoid: ' + negativeParts.join(', ');
+    finalPrompt = sanitizeImagePrompt(finalPrompt);
 
     let apiUrl, requestBody, headers;
 
@@ -447,8 +758,11 @@
     const imageDataUrl = `data:image/png;base64,${base64Data}`;
     console.log('✅ [Google Imagen] 生成成功！');
 
+    const imageUrl = options.persist === false
+      ? imageDataUrl
+      : await persistGeneratedImage(imageDataUrl, 'Imagen 图片');
     return {
-      imageUrl: imageDataUrl,
+      imageUrl,
       fullPrompt: aiPrompt
     };
   }
@@ -476,7 +790,7 @@
     testBtn.textContent = '⏳ 生成中... (0s)';
 
     try {
-      const result = await generateGoogleImagenFromPrompt('A beautiful sunset over the ocean, vibrant colors, high quality');
+      const result = await generateGoogleImagenFromPrompt('A beautiful sunset over the ocean, vibrant colors, high quality', null, { persist: false });
       resultImg.src = result.imageUrl;
       resultDiv.style.display = 'block';
       console.log('测试图片:', result.imageUrl.substring(0, 100) + '...');
@@ -509,14 +823,17 @@
                         endpoint.includes('generativelanguage.googleapis.com');
 
       const fetchUrl = isGemini 
-        ? `${GEMINI_API_URL}?key=${getRandomValue(apiKey)}`
+        ? GEMINI_API_URL
         : `${endpoint.replace(/\/+$/, '')}/v1/models`;
 
       const fetchOptions = isGemini ? {
         method: 'GET',
         mode: 'cors',
         cache: 'no-cache',
-        credentials: 'omit'
+        credentials: 'omit',
+        headers: {
+          'x-goog-api-key': getRandomValue(apiKey)
+        }
       } : {
         method: 'GET',
         mode: 'cors',
@@ -540,13 +857,19 @@
       const data = await response.json();
       console.log('📦 模型列表响应:', data);
 
-      // 跟主API一样的解析方式
-      let models = isGemini 
-        ? (data.models || []).map(model => ({ id: model.name.split('/')[1] || model.name }))
-        : (data.data || []);
+      // 只保留真正可用于图片生成的模型。
+      let models = isGemini
+        ? (data.models || [])
+            .filter(model => {
+              const id = model.name?.split('/')[1] || model.name || '';
+              return id.startsWith('imagen-') &&
+                (!Array.isArray(model.supportedGenerationMethods) || model.supportedGenerationMethods.includes('predict'));
+            })
+            .map(model => ({ id: model.name.split('/')[1] || model.name }))
+        : (data.data || []).filter(model => /imagen|image/i.test(model.id || ''));
 
       if (!models || models.length === 0) {
-        throw new Error('返回的模型列表为空');
+        throw new Error('没有找到可用的图片生成模型');
       }
 
       const select = document.getElementById('google-imagen-model');
@@ -609,7 +932,7 @@
     return defaultSettings;
   }
 
-  async function generateNaiImageFromPrompt(aiPrompt, chatId) {
+  async function generateNaiImageFromPrompt(aiPrompt, chatId, subjects = null) {
       console.log(`🎨 [NAI核心生成] 开始... Prompt: "${aiPrompt}", ChatID: ${chatId}`);
 
       const apiKey = localStorage.getItem('novelai-api-key');
@@ -632,12 +955,17 @@
       }
 
       // 【第2步】决定提示词，优先级：角色专属画师串 > 绑定预设画师串 > 全局默认
-      const naiPrompts = getCharacterNAIPrompts(chatId);
+      const normalizedSubjects = normalizeImageSubjects(subjects);
+      const includeCharacter = normalizedSubjects === null || normalizedSubjects.includes('char');
+      const includeUser = normalizedSubjects !== null && normalizedSubjects.includes('user');
+      const naiPrompts = includeCharacter
+        ? getCharacterNAIPrompts(chatId)
+        : { positive: '', negative: '', source: 'none' };
       let positiveBase = naiPrompts.positive;
       let negativeBase = naiPrompts.negative;
 
       // 如果角色没有专属画师串，但绑定了预设且预设里有画师串，用预设的
-      if (naiPrompts.source !== 'character' && boundPresetSettings) {
+      if (includeCharacter && naiPrompts.source !== 'character' && boundPresetSettings) {
         if (boundPresetSettings.default_positive) {
           positiveBase = boundPresetSettings.default_positive;
           console.log('📝 使用绑定预设的正面提示词:', positiveBase);
@@ -648,8 +976,11 @@
         }
       }
 
-      const finalPositivePrompt = aiPrompt + ', ' + positiveBase;
-      const finalNegativePrompt = negativeBase;
+      const userPrompts = includeUser ? getUserImagePrompts() : { positive: '', negative: '' };
+      if (userPrompts.positive) positiveBase = [positiveBase, userPrompts.positive].filter(Boolean).join(', ');
+      if (userPrompts.negative) negativeBase = [negativeBase, userPrompts.negative].filter(Boolean).join(', ');
+      const finalPositivePrompt = sanitizeImagePrompt([aiPrompt, positiveBase].filter(Boolean).join(', '));
+      const finalNegativePrompt = sanitizeImagePrompt(negativeBase);
 
       console.log(`📝 提示词来源: ${naiPrompts.source === 'character' ? '角色专属' : (boundPresetSettings ? '绑定预设' : '系统默认')}`);
       console.log('   [+] 最终正面提示词:', finalPositivePrompt);
@@ -764,14 +1095,27 @@
       }
 
 
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + apiKey
-        },
-        body: JSON.stringify(requestBody)
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 180000);
+      let response;
+      try {
+        response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + apiKey
+          },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal
+        });
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          throw new Error('NovelAI 图片生成请求超时（超过3分钟），请检查网络或稍后重试。');
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -859,8 +1203,9 @@
       }
 
       console.log(`✅ [NAI核心生成] 成功！`);
+      const imageUrl = await persistGeneratedImage(imageDataUrl, 'NovelAI 图片');
       return {
-        imageUrl: imageDataUrl,
+        imageUrl,
         fullPrompt: finalPositivePrompt
       };
     }
@@ -1075,7 +1420,20 @@
         fetchOptions.headers = cleanHeaders;
       }
 
-      const response = await fetch(apiUrl, fetchOptions);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 180000);
+      fetchOptions.signal = controller.signal;
+      let response;
+      try {
+        response = await fetch(apiUrl, fetchOptions);
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          throw new Error('NovelAI 测试请求超时（超过3分钟），请检查网络或稍后重试。');
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       console.log('Response status:', response.status);
       console.log('Response headers:', [...response.headers.entries()]);
@@ -1263,6 +1621,13 @@
   window.generateNaiImageFromPrompt = generateNaiImageFromPrompt;
   window.getNovelAISettings = getNovelAISettings;
   window.generateGoogleImagenFromPrompt = generateGoogleImagenFromPrompt;
+  window.getUserImagePrompts = getUserImagePrompts;
+  window.saveUserImageAppearancePrompts = saveUserImageAppearancePrompts;
+  window.getOpenAIImageSettings = getOpenAIImageSettings;
+  window.saveOpenAIImageSettings = saveOpenAIImageSettings;
+  window.generateOpenAIImageFromPrompt = generateOpenAIImageFromPrompt;
+  window.testOpenAIImageGeneration = testOpenAIImageGeneration;
+  window.fetchOpenAIImageModels = fetchOpenAIImageModels;
 
   // ========== 从 script.js 迁移：NAI Gallery 及相关函数 ==========
   let isNaiGalleryManagementMode = false;
@@ -1287,13 +1652,52 @@
     const imgElement = bubble ? bubble.querySelector('.realimag-image') : null;
     if (imgElement) imgElement.style.opacity = '0.5';
     try {
-      const generatedData = await generateNaiImageFromPrompt(originalPrompt, chat.id);
+      const generatedData = await generateNaiImageFromPrompt(originalPrompt, chat.id, message.subjects);
       message.imageUrl = generatedData.imageUrl;
       message.fullPrompt = generatedData.fullPrompt;
       await db.chats.put(chat);
       if (imgElement) { imgElement.src = generatedData.imageUrl; imgElement.title = generatedData.fullPrompt; imgElement.style.opacity = '1'; }
     } catch (error) {
       console.error("重新生成NAI图片失败:", error);
+      await showCustomAlert("生成失败", `无法重新生成图片: ${error.message}`);
+      if (imgElement) imgElement.style.opacity = '1';
+    } finally {
+      buttonElement.disabled = false;
+      buttonElement.classList.remove('loading');
+    }
+  }
+
+  async function handleRegenerateOpenAIImage(timestamp, buttonElement) {
+    if (!state.activeChatId) return;
+    const chat = state.chats[state.activeChatId];
+    const msgIndex = chat.history.findIndex(m => m.timestamp === timestamp);
+    if (msgIndex === -1) return;
+    const message = chat.history[msgIndex];
+    const originalPrompt = message.prompt;
+    if (!originalPrompt) {
+      await showCustomAlert("无法重新生成", "未找到该图片的原始提示词(prompt)。");
+      return;
+    }
+    buttonElement.disabled = true;
+    buttonElement.classList.add('loading');
+    const bubble = buttonElement.closest('.message-bubble');
+    const imgElement = bubble ? bubble.querySelector('.realimag-image') : null;
+    if (imgElement) imgElement.style.opacity = '0.5';
+    try {
+      const generatedData = await generateOpenAIImageFromPrompt(originalPrompt, chat.id, { subjects: message.subjects });
+      message.imageUrl = generatedData.imageUrl;
+      message.fullPrompt = generatedData.fullPrompt;
+      message.model = generatedData.model;
+      message.mimeType = generatedData.mimeType;
+      message.requestId = generatedData.requestId;
+      await db.chats.put(chat);
+      if (imgElement) {
+        imgElement.src = generatedData.imageUrl;
+        imgElement.title = generatedData.fullPrompt;
+        imgElement.style.opacity = '1';
+      }
+    } catch (error) {
+      console.error("重新生成GPT图片失败:", error);
       await showCustomAlert("生成失败", `无法重新生成图片: ${error.message}`);
       if (imgElement) imgElement.style.opacity = '1';
     } finally {
@@ -1364,6 +1768,7 @@
   }
 
   window.handleRegenerateNaiImage = handleRegenerateNaiImage;
+  window.handleRegenerateOpenAIImage = handleRegenerateOpenAIImage;
   window.handleSilentUploadNaiImage = handleSilentUploadNaiImage;
   window.handleSilentUploadUserImage = handleSilentUploadUserImage;
   window.naiGalleryCache = naiGalleryCache;
@@ -1382,8 +1787,8 @@
       for (const chat of allChats) {
         if (chat.history && chat.history.length > 0) {
           chat.history.forEach(msg => {
-            if ((msg.type === 'naiimag' || msg.type === 'googleimag') && msg.imageUrl) {
-              allNaiImages.push({ sourceType: 'chat', imageUrl: msg.imageUrl, prompt: msg.prompt || msg.fullPrompt || 'NAI Image', chatId: chat.id, msgTimestamp: msg.timestamp });
+            if ((msg.type === 'naiimag' || msg.type === 'googleimag' || msg.type === 'openaiimag') && msg.imageUrl) {
+              allNaiImages.push({ sourceType: 'chat', imageUrl: msg.imageUrl, prompt: sanitizeImagePrompt(msg.prompt || msg.fullPrompt || 'NAI Image'), chatId: chat.id, msgTimestamp: msg.timestamp });
             }
           });
         }
@@ -1392,11 +1797,11 @@
     try {
       const allPosts = await db.qzonePosts.toArray();
       allPosts.forEach(post => {
-        if (post.type === 'naiimag' || post.type === 'googleimag') {
+        if (post.type === 'naiimag' || post.type === 'googleimag' || post.type === 'openaiimag') {
           const urls = post.imageUrls || (post.imageUrl ? [post.imageUrl] : []);
           const prompts = Array.isArray(post.prompt) ? post.prompt : [post.prompt || 'NAI Image'];
           urls.forEach((url, index) => {
-            allNaiImages.push({ sourceType: 'qzone', imageUrl: url, prompt: prompts[index] || prompts[0], postId: post.id, imageIndex: index });
+            allNaiImages.push({ sourceType: 'qzone', imageUrl: url, prompt: sanitizeImagePrompt(prompts[index] || prompts[0]), postId: post.id, imageIndex: index });
           });
         }
       });

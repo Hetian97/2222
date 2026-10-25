@@ -129,6 +129,7 @@
 #novelai-settings-modal,
 #novelai-test-modal,
 #character-nai-prompts-modal,
+#character-image-prompts-modal,
 .modal.visible {
   z-index: 30000 !important;
   position: fixed;

@@ -513,7 +513,7 @@
     if (msg.role === 'assistant' && msg.type !== 'recalled_message' && msg.type !== 'post_deleted_notice' &&
       msg.type !== 'narration' && msg.type !== 'pat_message' && !msg.type?.startsWith('waimai_') &&
       msg.type !== 'red_packet' && msg.type !== 'transfer' && msg.type !== 'poll' && msg.type !== 'gift' &&
-      msg.type !== 'kinship_request' && msg.type !== 'synth_music' && msg.type !== 'naiimag' && msg.type !== 'realimag' && msg.type !== 'googleimag' &&
+      msg.type !== 'kinship_request' && msg.type !== 'synth_music' && msg.type !== 'naiimag' && msg.type !== 'realimag' && msg.type !== 'googleimag' && msg.type !== 'openaiimag' &&
       msg.type !== 'ai_image' && msg.type !== 'user_photo' && msg.type !== 'couple_invite' && msg.type !== 'couple_invite_response' && msg.type !== 'thought_chain_block') {
       const contentStr = String(msg.content || '').trim().toLowerCase();
       const offlineFallbackStr = msg.type === 'offline_text'
@@ -754,7 +754,7 @@
     if (typeof rawContent === 'string' && rawContent.trim().startsWith('<') && rawContent.trim().endsWith('>')) {
       contentHtml = rawContent;
       bubble.classList.add('is-raw-html');
-    } else if (msg.type === 'offline_text' || msg.type === 'share_link' || msg.type === 'share_card' || msg.type === 'location_share' || msg.type === 'ai_image' || msg.type === 'user_photo' || msg.type === 'voice_message' || msg.type === 'transfer' || msg.type === 'waimai_request' || msg.type === 'waimai_order' || msg.type === 'red_packet' || msg.type === 'poll' || msg.type === 'gift' || msg.type === 'realimag' || msg.type === 'naiimag' || msg.type === 'googleimag' || msg.type === 'kinship_request' || msg.type === 'forwarded_email' || msg.type === 'reddit_share' || msg.type === 'playlist_share' || msg.type === 'couple_invite' || msg.type === 'couple_invite_response') {
+    } else if (msg.type === 'offline_text' || msg.type === 'share_link' || msg.type === 'share_card' || msg.type === 'location_share' || msg.type === 'ai_image' || msg.type === 'user_photo' || msg.type === 'voice_message' || msg.type === 'transfer' || msg.type === 'waimai_request' || msg.type === 'waimai_order' || msg.type === 'red_packet' || msg.type === 'poll' || msg.type === 'gift' || msg.type === 'realimag' || msg.type === 'naiimag' || msg.type === 'googleimag' || msg.type === 'openaiimag' || msg.type === 'kinship_request' || msg.type === 'forwarded_email' || msg.type === 'reddit_share' || msg.type === 'playlist_share' || msg.type === 'couple_invite' || msg.type === 'couple_invite_response') {
 
       if (msg.type === 'offline_text') {
 
@@ -950,6 +950,35 @@
                                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
                                         <polyline points="17 8 12 3 7 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></polyline>
                                         <line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></line>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+      } else if (msg.type === 'openaiimag') {
+        bubble.classList.add('is-realimag', 'is-card-like');
+        contentHtml = `
+                        <div class="nai-image-wrapper">
+                            <img src="${msg.imageUrl}" class="realimag-image" alt="GPT 图片分享" loading="lazy" onerror="this.src='https://i.postimg.cc/KYr2qRCK/1.jpg'; this.alt='图片加载失败';" title="${msg.fullPrompt || msg.prompt || 'GPT 图片生成'}">
+                            <div class="bubble-image-controls">
+                                <button class="nai-save-local-btn" title="下载图片">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                        <polyline points="7 10 12 15 17 10"></polyline>
+                                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                                    </svg>
+                                </button>
+                                <button class="nai-upload-imgbb-btn" title="上传图床" style="display: none;">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+                                        <polyline points="17 8 12 3 7 8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></polyline>
+                                        <line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></line>
+                                    </svg>
+                                </button>
+                                <button class="openai-regenerate-btn" title="重新生成">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+                                        <path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
                                     </svg>
                                 </button>
                             </div>
@@ -1440,7 +1469,7 @@
                     ${contentHtml}
                 </div>
             `;
-    if ((msg.type === 'naiimag' || msg.type === 'googleimag') && msg.imageUrl && msg.imageUrl.startsWith('data:image')) {
+    if ((msg.type === 'naiimag' || msg.type === 'googleimag' || msg.type === 'openaiimag') && msg.imageUrl && msg.imageUrl.startsWith('data:image')) {
       if (state.apiConfig.imgbbEnable && state.apiConfig.imgbbApiKey) {
 
         const uploadBtn = bubble.querySelector('.nai-upload-imgbb-btn');

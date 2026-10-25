@@ -1376,7 +1376,9 @@ async function cleanupRedundantData() {
 
       console.log("压缩步骤 1/3: 正在从数据库读取所有相关数据...");
       const tablesToScan = [
-        'chats', 'globalSettings', 'qzoneSettings',
+        'chats', 'qzonePosts', 'qzonePhotos', 'coupleAlbumPhotos',
+        'shoppingProducts', 'inventory', 'auctions',
+        'globalSettings', 'qzoneSettings',
         'userStickers', 'customAvatarFrames'
       ];
       const allData = [];
@@ -1477,7 +1479,9 @@ async function cleanupRedundantData() {
     try {
       let totalBytes = 0;
       const tablesToScan = [
-        'chats', 'globalSettings', 'qzoneSettings',
+        'chats', 'qzonePosts', 'qzonePhotos', 'coupleAlbumPhotos',
+        'shoppingProducts', 'inventory', 'auctions',
+        'globalSettings', 'qzoneSettings',
         'userStickers', 'customAvatarFrames'
       ];
 
@@ -1492,7 +1496,7 @@ async function cleanupRedundantData() {
       const totalMB = (totalBytes / 1024 / 1024).toFixed(2);
 
       displayElement.innerHTML = `
-            <span id="image-size-label">本地图片(头像/表情/头像框/等)大小:</span>
+            <span id="image-size-label">本地图片(Base64)占用:</span>
             <span id="image-size-value"><strong>${totalMB} MB</strong></span>
         `;
 

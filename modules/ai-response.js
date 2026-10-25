@@ -110,7 +110,7 @@ function buildExternalMcpProxyUrl(path) {
   // === 新增：动态年龄和生日计算上下文生成函数 ===
   function getDynamicAgeContext(chat) {
     if (!chat || !chat.settings || !chat.settings.enableDynamicAge || !chat.settings.aiBirthday) return '';
-    
+
     const bd = chat.settings.aiBirthday;
     if (!bd.year) return ''; // 必须至少要有年份
 
@@ -119,7 +119,7 @@ function buildExternalMcpProxyUrl(path) {
     const now = (customTimeInfo && customTimeInfo.enabled) ? customTimeInfo.date : new Date();
 
     let age = now.getFullYear() - bd.year;
-    
+
     // 构建生日字符串
     let birthdayStr = `${bd.year}年`;
     if (bd.month) {
@@ -1598,36 +1598,59 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
     console.log(`[Catbox] 开始上传文件: ${fileObject.name || 'blob.mp3'}... (大小: ${(fileObject.size / 1024 / 1024).toFixed(2)} MB)`);
 
     try {
-      const formData = new FormData();
-      formData.append('reqtype', 'fileupload');
-      formData.append('userhash', userHash);
-      formData.append('fileToUpload', fileObject, fileObject.name || 'track.mp3'); // 提供文件名
+      const buildFormData = () => {
+        const formData = new FormData();
+        formData.append('reqtype', 'fileupload');
+        formData.append('userhash', userHash);
+        formData.append('fileToUpload', fileObject, fileObject.name || 'track.mp3');
+        return formData;
+      };
+      let formData = buildFormData();
 
-      // ▼▼▼ 【核心修复】 ▼▼▼
-      // 1. 定义 Catbox API URL
-      let apiUrl = 'https://catbox.moe/user/api.php';
-
-      // 2. 获取 CORS 代理设置 (复用 NovelAI 的设置)
-      const proxySettings = getNovelAISettings(); // This function is around line 4504
-      let corsProxy = proxySettings.cors_proxy;
-      if (corsProxy === 'custom') {
-        corsProxy = proxySettings.custom_proxy_url || '';
+      // 本地 serve.py 提供同源 /catbox-proxy，绕过 Catbox 缺失 CORS 响应头的问题。
+      let response = null;
+      if (typeof location !== 'undefined' && /^https?:$/.test(location.protocol)) {
+        try {
+          response = await fetch(`${location.origin}/catbox-proxy`, {
+            method: 'POST',
+            body: formData
+          });
+          if ([404, 405, 501].includes(response.status)) {
+            response = null;
+          } else {
+            console.log('[Catbox] 使用本地 /catbox-proxy 上传。');
+          }
+        } catch (localProxyError) {
+          console.warn('[Catbox] 本地代理不可用，尝试外部 CORS 代理:', localProxyError.message);
+          response = null;
+        }
       }
 
-      // 3. 如果代理存在, 则使用代理
-      if (corsProxy && corsProxy !== '') {
-        // 【重要】Catbox API URL 不需要编码，而 NovelAI 需要，这里我们直接拼接
-        apiUrl = corsProxy + apiUrl;
-        console.log(`[Catbox] 检测到CORS代理，使用代理上传: ${apiUrl}`);
-      } else {
-        console.log("[Catbox] 未配置CORS代理，尝试直连... (这很可能会失败)");
-      }
-      // ▲▲▲ 【修复结束】 ▲▲▲
+      if (!response) {
+        formData = buildFormData();
+        // 1. 定义 Catbox API URL
+        let apiUrl = 'https://catbox.moe/user/api.php';
 
-      const response = await fetch(apiUrl, { // <-- 替换为 apiUrl
-        method: 'POST',
-        body: formData
-      });
+        // 2. 获取 CORS 代理设置 (复用 NovelAI 的设置)
+        const proxySettings = getNovelAISettings();
+        let corsProxy = proxySettings.cors_proxy;
+        if (corsProxy === 'custom') {
+          corsProxy = proxySettings.custom_proxy_url || '';
+        }
+
+        // 3. 如果代理存在, 则使用代理
+        if (corsProxy && corsProxy !== '') {
+          apiUrl = corsProxy + apiUrl;
+          console.log(`[Catbox] 检测到CORS代理，使用代理上传: ${apiUrl}`);
+        } else {
+          console.log("[Catbox] 未配置CORS代理，尝试直连... (这很可能会失败)");
+        }
+
+        response = await fetch(apiUrl, {
+          method: 'POST',
+          body: formData
+        });
+      }
 
       const responseText = await response.text();
 
@@ -1748,7 +1771,7 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
   function replaceTemplateVars(template, contextMap) {
     if (!template) return '';
     let p = template;
-    
+
     // 1. 粗犷替换旧版的复杂 ${...} 表达式，映射为新版 {{...}}
     p = p.replace(/\$\{chat\.originalName\}/g, '{{chat.originalName}}');
     p = p.replace(/\$\{chat\.name\}/g, '{{chat.name}}');
@@ -1765,13 +1788,13 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
     p = p.replace(/\$\{myNickname\}/g, '{{myNickname}}');
     p = p.replace(/\$\{myOriginalName\}/g, '{{myOriginalName}}');
     p = p.replace(/\$\{chat\.settings\.myPersona[^\}]*\}/g, '{{myPersona}}');
-    
+
     // 特别处理连着两个 ${} 的 status，如 ${chat.settings.userStatus ? ...} ${chat...}
     p = p.replace(/\$\{chat\.settings\.userStatus[^\n]*?\}\s*(?:\$\{chat\.settings\.userStatus[^\}]*\})?/g, '{{userStatus}}');
-    
+
     p = p.replace(/\$\{userProfileContext\}/g, '{{userProfileContext}}');
     p = p.replace(/\$\{nameHistoryContext\}/g, '{{nameHistoryContext}}');
-    
+
     p = p.replace(/\$\{chat\.settings\.enableTimePerception[^\n]*\}/g, '{{timePerceptionContext}}');
     p = p.replace(/\$\{weatherContext\}/g, '{{weatherContext}}');
     p = p.replace(/\$\{timeContext\}/g, '{{timeContext}}');
@@ -1831,9 +1854,9 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
     // 2. 将 {{xxx}} 变量映射到 contextMap 真实数据
     return p.replace(/\{\{([^{}]+)\}\}/g, (match, key) => {
       const k = key.trim();
-      
+
       if (contextMap[k] !== undefined) return contextMap[k];
-      
+
       // 支持自定义心声变量替换
       const activeChatId = state.activeChatId;
       if (activeChatId && state.chats[activeChatId]) {
@@ -1842,7 +1865,7 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
           return currentChat.customThoughts[k];
         }
       }
-      
+
       // 模糊匹配兜底（防用户写错变量名）
       if (k === 'chat.originalName') return contextMap['chat.originalName'] !== undefined ? contextMap['chat.originalName'] : match;
       if (k === 'chat.name') return contextMap['chat.name'] !== undefined ? contextMap['chat.name'] : match;
@@ -1863,7 +1886,7 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
       if (k === 'user_name') return contextMap['user_name'] !== undefined ? contextMap['user_name'] : match;
       if (k === 'user_nickname') return contextMap['user_nickname'] !== undefined ? contextMap['user_nickname'] : match;
       if (k.includes('myNickname')) return contextMap['myNickname'] !== undefined ? contextMap['myNickname'] : match;
-      
+
       return match;
     });
   }
@@ -2080,13 +2103,13 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
           model: chat.apiOverride.model || state.apiConfig.model
         };
       }
-      
+
       const {
         proxyUrl,
         apiKey,
         model
       } = apiConfig;
-      
+
       if (!proxyUrl || !apiKey || !model) {
         throw new Error('API未配置，无法生成对话。');
       }
@@ -2157,7 +2180,7 @@ ${linkedContents}
         if (memberChat) {
           const memMode = memberChat.settings?.memoryMode || (memberChat.settings?.enableStructuredMemory ? 'structured' : 'diary');
           let memberMemContent = '';
-          
+
           if (memMode === 'vector' && window.vectorMemoryManager) {
             memberMemContent = await window.vectorMemoryManager.serializeForPrompt(memberChat, queryTextForVector, [], {
               activeEventSource: window.vectorMemoryManager.createActiveEventSourceContext(chat, filteredHistory.slice(-5), memberChat)
@@ -2193,7 +2216,7 @@ ${linkedContents}
       let currencyExchangeContext = chat.settings.enableDynamicCurrency ? getCurrencyExchangeContext() : '';
 
       let systemPromptTemplate = window.getActiveChatPrompt ? window.getActiveChatPrompt('spectator') : '';
-      
+
       const contextMap = {
         'thoughtChainContextHead': thoughtChainContextHead,
         'thoughtChainContextMiddle': thoughtChainContextMiddle,
@@ -2213,7 +2236,7 @@ ${linkedContents}
         'membersList': membersList,
         'stickerContext': stickerContext
       };
-      
+
       systemPrompt = replaceTemplateVars(systemPromptTemplate, contextMap);
 
       systemPrompt = processPromptWithSettings(systemPrompt, 'spectator');
@@ -2314,6 +2337,9 @@ ${linkedContents}
           } else if (isImageGenerationProviderAvailable('imagen', 'chat')) {
             msgData.type = 'googleimag';
             msgData.prompt = msgData.image_prompt || msgData.description || 'a beautiful scene';
+          } else if (isImageGenerationProviderAvailable('openai', 'chat')) {
+            msgData.type = 'openaiimag';
+            msgData.prompt = msgData.image_prompt || msgData.description || 'A beautiful scene';
           }
         }
 
@@ -2349,8 +2375,57 @@ ${linkedContents}
               ...baseMessage,
               type: 'ai_image',
               content: msgData.description,
-              image_prompt: msgData.image_prompt
+              image_prompt: composePromptForSubjects(msgData.image_prompt, chat.id, msgData.subjects),
+              subjects: msgData.subjects || ['char']
             };
+            break;
+          case 'naiimag':
+            try {
+              const naiResult = await generateNaiImageFromPrompt(msgData.prompt || msgData.image_prompt || 'a beautiful scene', chat.id, msgData.subjects);
+              aiMessage = {
+                ...baseMessage,
+                type: 'naiimag',
+                imageUrl: naiResult.imageUrl,
+                prompt: msgData.prompt || msgData.image_prompt,
+                fullPrompt: naiResult.fullPrompt,
+                subjects: msgData.subjects || ['char']
+              };
+            } catch (error) {
+              aiMessage = { ...baseMessage, content: `[NovelAI图片生成失败: ${error.message}]` };
+            }
+            break;
+          case 'googleimag':
+            try {
+              const googleResult = await generateGoogleImagenFromPrompt(msgData.prompt || msgData.image_prompt || 'a beautiful scene', chat.id, { subjects: msgData.subjects });
+              aiMessage = {
+                ...baseMessage,
+                type: 'googleimag',
+                imageUrl: googleResult.imageUrl,
+                prompt: msgData.prompt || msgData.image_prompt,
+                fullPrompt: googleResult.fullPrompt,
+                subjects: msgData.subjects || ['char']
+              };
+            } catch (error) {
+              aiMessage = { ...baseMessage, content: `[Google Imagen图片生成失败: ${error.message}]` };
+            }
+            break;
+          case 'openaiimag':
+            try {
+              const openAIResult = await generateOpenAIImageFromPrompt(msgData.prompt || msgData.image_prompt || 'A beautiful scene', chat.id, { subjects: msgData.subjects });
+              aiMessage = {
+                ...baseMessage,
+                type: 'openaiimag',
+                imageUrl: openAIResult.imageUrl,
+                prompt: msgData.prompt || msgData.image_prompt,
+                fullPrompt: openAIResult.fullPrompt,
+                model: openAIResult.model,
+                mimeType: openAIResult.mimeType,
+                requestId: openAIResult.requestId,
+                subjects: msgData.subjects || ['char']
+              };
+            } catch (error) {
+              aiMessage = { ...baseMessage, content: `[GPT 图片生成失败: ${error.message}]` };
+            }
             break;
           case 'voice_message':
 
@@ -2528,13 +2603,13 @@ ${linkedContents}
           model: chat.apiOverride.model || state.apiConfig.model
         };
       }
-      
+
       const {
         proxyUrl,
         apiKey,
         model
       } = apiConfig;
-      
+
       if (!proxyUrl || !apiKey || !model) {
         alert('请先在API设置中配置反代地址、密钥并选择模型。');
         if (chat.isGroup) {
@@ -2915,7 +2990,7 @@ ${linkedContents}
         # 供你决策的上下文信息:
         - **你的角色设定**: ${chat.settings.aiPersona}
         - **用户发送的申请理由**: “${chat.relationship.applicationReason}”
-        - **被拉黑前的最后对话摘要**: 
+        - **被拉黑前的最后对话摘要**:
         ${contextSummary || "（无有效对话记录）"}
         # 你的唯一指令
         根据以上所有信息，你【必须】做出决定，并给出符合你人设的理由。你的回复【必须且只能】是一个JSON对象，格式如下:
@@ -3017,7 +3092,7 @@ ${linkedContents}
       let currentTime, localizedDate, timeOfDayGreeting;
       const customTimeInfo = window.getCustomTime ? window.getCustomTime() : null;
       const customTimeEnabled = customTimeInfo && customTimeInfo.enabled;
-      
+
       if (customTimeEnabled) {
         const weekDays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
         const weekDay = weekDays[customTimeInfo.date.getDay()];
@@ -3035,7 +3110,7 @@ ${linkedContents}
           timeZone: selectedTimeZone
         }));
       }
-      
+
       timeOfDayGreeting = getTimeOfDayGreeting(localizedDate);
       let systemPrompt, messagesPayload;
       const lastHiddenMessage = chat.history.filter(m => m.isHidden).pop();
@@ -3162,6 +3237,7 @@ ${linkedContents}
           else if (msg.type === 'ai_image') contentText = `[图片: ${msg.description}]`;
           else if (msg.type === 'naiimag') contentText = `[NovelAI图片: ${msg.prompt}]`;
           else if (msg.type === 'googleimag') contentText = `[Google Imagen图片: ${msg.prompt}]`;
+          else if (msg.type === 'openaiimag') contentText = `[GPT图片: ${msg.prompt}]`;
           else contentText = String(msg.content);
           return `${sender}: ${contentText}`;
         }).join('\n');
@@ -3309,7 +3385,7 @@ ${linkedContents}
           if (memberChat) {
             const memMode = memberChat.settings?.memoryMode || (memberChat.settings?.enableStructuredMemory ? 'structured' : 'diary');
             let memberMemContent = '';
-            
+
             if (memMode === 'vector' && window.vectorMemoryManager) {
               memberMemContent = await window.vectorMemoryManager.serializeForPrompt(memberChat, queryTextForVector, [], {
                 activeEventSource: window.vectorMemoryManager.createActiveEventSourceContext(chat, filteredHistory.slice(-5), memberChat)
@@ -3447,7 +3523,7 @@ ${linkedContents}
     - **notes**: 一个包含音符对象的数组。每个对象包含:
         - **n (音高)**: 如 "C4", "D#5", "Ab3"。请遵循C大调或A小调等调性。
         - **d (时长)**: 决定节奏快慢。可选值: "1n"(全音符/很慢), "2n"(二分音符/慢), "4n"(四分音符/中), "8n"(八分音符/快), "16n"(十六分音符/很快)。
-    - **作曲技巧**: 
+    - **作曲技巧**:
       - 请将长音符("2n", "1n")放在乐句的结尾。
       - 用短音符("8n", "16n")作为过渡。
       - 模仿人类呼吸，不要全是快板。
@@ -3465,7 +3541,7 @@ ${linkedContents}
 `;
         }
         let systemPromptTemplate = window.getActiveChatPrompt ? window.getActiveChatPrompt(chat.settings.isOfflineMode ? 'group_offline' : 'group') : '';
-        
+
         let bilingualModeGroupContext = '';
         if (chat.settings.enableBilingualMode) {
           if (chat.settings.bilingualCharacters && chat.settings.bilingualCharacters.length > 0) {
@@ -3508,7 +3584,7 @@ ${linkedContents}
           }
         }
         let groupTimePerceptionInstruction = chat.settings.enableTimePerception ? `5.  **情景感知**: 你的对话【必须】自然地体现出对当前时间 (${currentTime}) 和情景的感知。${longTimeNoSee ? `【重要提示】${timeContextText} 你应该让角色们主动开启新话题来打破沉默。` : ''}` : '';
-        
+
         let groupCrossChatInstruction = (() => {
           const enableCrossChat = state.globalSettings.enableCrossChat;
           return enableCrossChat !== false ? `# 【跨聊天私信 (悄悄话) 指令】
@@ -3519,7 +3595,7 @@ ${linkedContents}
 -   【多条私信示例】: \\\`{"type": "send_private_message", "name": "你的角色本名", "recipient": "${myOriginalName}", "content": ["第一条私信", "第二条...", "最后一条。"]}\\\`
 ` : '';
         })();
-        
+
         let groupTimeContextText = chat.settings.enableTimePerception ? `- **对话状态**: 上次互动于 ${timeContextText}` : '';
         let groupLongTimeNoSeeContext = longTimeNoSee ? `
 # 【行为铁律：回应时间差】
@@ -3535,9 +3611,10 @@ ${linkedContents}
           if (memMode === 'structured' && window.structuredMemoryManager) return window.structuredMemoryManager.serializeForPrompt(chat);
           return chat.longTermMemory && chat.longTermMemory.length > 0 ? chat.longTermMemory.map(mem => `- ${mem.content}`).join('\n') : '- (暂无)';
         })();
-        
-        let novelAiImageGroupContext = localStorage.getItem('novelai-enabled') === 'true' ? `-   **NovelAI图片分享**: \`{"type": "naiimag", "name": "你的角色名", "prompt": "详细的英文描述词..."}\` 
+
+        let novelAiImageGroupContext = localStorage.getItem('novelai-enabled') === 'true' ? `-   **NovelAI图片分享**: \`{"type": "naiimag", "name": "你的角色名", "prompt": "详细的英文描述词...", "subjects": ["char"]}\`
         - 【禁止暴露这是novelai生成的图片!】
+        - subjects 表示画面中出现谁：只画角色填 ["char"]，只画用户填 ["user"]，两人都画填 ["char","user"]。
         - **【重要】关于prompt的撰写**：
           * 禁止暴露这是novelai生成的图片！
           * 你可以根据当前对话上下文、你的角色人设、或你想表达的情感和氛围，来撰写可能详细而具体的prompt。
@@ -3546,9 +3623,10 @@ ${linkedContents}
           * 专注于描述内容本身即可。
         - 使用场景：当你想要基于当前对话情景、你的性格或上下文分享一张图片时使用。
         - 不要频繁使用，只在真正想分享图片的时候使用。` : '';
-        
-        let googleImagenGroupContext = localStorage.getItem('google-imagen-enabled') === 'true' ? `-   **Google Imagen真实图片分享**: \`{"type": "googleimag", "name": "你的角色名", "prompt": "详细的英文描述词..."}\` 
+
+        let googleImagenGroupContext = localStorage.getItem('google-imagen-enabled') === 'true' ? `-   **Google Imagen真实图片分享**: \`{"type": "googleimag", "name": "你的角色名", "prompt": "详细的英文描述词...", "subjects": ["char"]}\`
         - 【禁止暴露这是AI生成的图片!】
+        - subjects 表示画面中出现谁：只画角色填 ["char"]，只画用户填 ["user"]，两人都画填 ["char","user"]。
         - **【重要】关于prompt的撰写**：
           * 禁止暴露这是Google Imagen生成的图片！
           * 你可以根据当前对话上下文、你的角色人设、或你想表达的情感和氛围，来撰写详细而具体的prompt。
@@ -3557,7 +3635,14 @@ ${linkedContents}
           * 专注于描述内容本身即可，使用英文撰写prompt。
         - 使用场景：当你想要分享一张写实风格的高质量图片时使用。
         - 不要频繁使用，只在真正想分享图片的时候使用。` : '';
-        
+
+        let openAIImageGroupContext = localStorage.getItem('openai-image-enabled') === 'true' ? `-   **GPT 图片分享**: \`{"type": "openaiimag", "name": "你的角色名", "prompt": "详细的画面描述...", "subjects": ["char"]}\`
+        - 【禁止暴露这是AI生成的图片】
+        - subjects 表示画面中出现谁：只画角色填 ["char"]，只画用户填 ["user"]，两人都画填 ["char","user"]。
+        - 根据当前对话、角色人设、情绪和场景撰写具体提示词。
+        - 可使用中文或英文自然语言，明确主体、环境、构图、光线、风格和氛围。
+        - 不要频繁使用，只在真正想分享图片的时候使用。` : '';
+
         let bilingualAlertVoice = chat.settings.enableBilingualMode ? ' ⚠️ 必须使用双语格式：外语〖中文〗' : '';
 
           const contextMap = {
@@ -3599,6 +3684,7 @@ ${linkedContents}
           'narratorInstruction': narratorInstruction,
           'novelAiImageGroupContext': novelAiImageGroupContext,
           'googleImagenGroupContext': googleImagenGroupContext,
+          'openAIImageGroupContext': openAIImageGroupContext,
           'bilingualAlertVoice': bilingualAlertVoice
         };
 
@@ -3637,6 +3723,7 @@ ${linkedContents}
           else if (msg.type === 'ai_image') content = `[${sender} 发送了一张图片，图片内容描述为：'${msg.content}']`;
           else if (msg.type === 'naiimag') content = `[${sender} 分享了一张NovelAI图片，prompt: ${msg.prompt}]`;
           else if (msg.type === 'googleimag') content = `[${sender} 分享了一张Google Imagen图片，prompt: ${msg.prompt}]`;
+          else if (msg.type === 'openaiimag') content = `[${sender} 分享了一张GPT图片，prompt: ${msg.prompt}]`;
           else if (msg.type === 'voice_message') content = `[${sender} 发送了一条语音，内容是：'${msg.content}']`;
           else if (msg.type === 'transfer') {
             // --- 修复开始：明确转账状态和方向 ---
@@ -3824,9 +3911,10 @@ ${linkedContents}
         if (isOfflineMode) {
           const novelaiEnabled = localStorage.getItem('novelai-enabled') === 'true';
           const googleImagenEnabled = localStorage.getItem('google-imagen-enabled') === 'true';
-          const imageGenEnabled = novelaiEnabled || googleImagenEnabled;
-          const imageType = novelaiEnabled ? 'naiimag' : 'googleimag';
-          const imageTypeName = novelaiEnabled ? 'NovelAI' : 'Google Imagen';
+          const openAIImageEnabled = localStorage.getItem('openai-image-enabled') === 'true';
+          const imageGenEnabled = novelaiEnabled || googleImagenEnabled || openAIImageEnabled;
+          const imageType = novelaiEnabled ? 'naiimag' : (googleImagenEnabled ? 'googleimag' : 'openaiimag');
+          const imageTypeName = novelaiEnabled ? 'NovelAI' : (googleImagenEnabled ? 'Google Imagen' : 'GPT 生图');
           const minLength = chat.settings.offlineMinLength || 100;
           const maxLength = chat.settings.offlineMaxLength || 300;
           const myNickname = chat.settings.myNickname || '我';
@@ -3861,7 +3949,7 @@ ${enabledEntries}
 1.  **【格式】**: 你的回复【必须】是一个JSON数组，且数组中【必须包含且只能包含两个】元素，【严格按照】以下顺序:
     1.  第一个元素：一个 \`offline_text\` 对象，包含场景和对话。
     2.  第二个元素：一个 \`${imageType}\` 对象，用于生成该场景的图片。
-2.  **【【【绝对禁止】】】**: 
+2.  **【【【绝对禁止】】】**:
     -   【绝对禁止】只返回一个 \`offline_text\` 元素。
     -   【绝对禁止】只返回一个 \`${imageType}\` 元素。
     -   【绝对禁止】返回任何其他组合。你【必须】同时返回文字和图片。
@@ -3874,11 +3962,12 @@ ${enabledEntries}
       },
       {
         "type": "${imageType}",
+        "subjects": ["char"],
         "prompt": "${imageType === 'naiimag' ? '1girl, solo, detailed anime art style, (smiling:1.2), sitting in a cafe, looking at viewer, masterpiece, best quality, ... (根据上面的文字内容生成详细的英文prompt)' : 'A detailed photorealistic scene based on the text content above, high quality, 4K...'}"
       }
     ]
     \`\`\`
-4.  **【内容风格 (offline_text)】**: 
+4.  **【内容风格 (offline_text)】**:
     -   在 \`content\` 字段中，角色的对话【必须】使用中文引号「」或“ ”包裹。
     -   所有在引号之外的文字都将被视为动作/环境描写。
     -   **内心独白语法**: 当你需要描写角色的【内心想法或心理活动】时，你【必须】使用 Markdown 的斜体语法，即用星号将那段文字包裹起来，例如：\`*这到底是怎么回事？* 我心里一惊。\`
@@ -3889,8 +3978,8 @@ ${enabledEntries}
             formatRules = `
 # 【格式铁律 (最高优先级：常规模式)】
 1.  **【格式】**: 你的回复【必须】是一个JSON数组，且数组中【永远只能包含一个】元素，即 \`offline_text\` 对象。
-2.  **【【【绝对禁止】】】**: 
-    -   【绝对禁止】返回 "naiimag" 或 "googleimag" 对象。
+2.  **【【【绝对禁止】】】**:
+    -   【绝对禁止】返回 "naiimag"、"googleimag" 或 "openaiimag" 对象。
     -   【绝对禁止】返回纯文本（即没有JSON包装的文字）。
     -   【绝对禁止】在JSON数组前后添加任何 markdown 标记 (如 \`\`\`json)。
 3.  **【输出示例 (必须遵守)】**:
@@ -3902,7 +3991,7 @@ ${enabledEntries}
       }
     ]
     \`\`\`
-4.  **【内容风格 (offline_text)】**: 
+4.  **【内容风格 (offline_text)】**:
     -   在 \`content\` 字段中，角色的对话【必须】使用中文引号「」或“ ”包裹。
     -   所有在引号之外的文字都将被视为动作/环境描写。
     -   **内心独白语法**: 当你需要描写角色的【内心想法或心理活动】时，你【必须】使用 Markdown 的斜体语法，即用星号将那段文字包裹起来，例如：\`*这到底是怎么回事？* 我心里一惊。\`
@@ -3912,7 +4001,7 @@ ${enabledEntries}
 
 
           let systemPromptTemplate = window.getActiveChatPrompt ? window.getActiveChatPrompt('offline') : '';
-          
+
           let longTermMemoryContextOffline = '';
           const memModeOffline = chat.settings.memoryMode || (chat.settings.enableStructuredMemory ? 'structured' : 'diary');
           if (memModeOffline === 'vector' && window.vectorMemoryManager) {
@@ -3935,10 +4024,10 @@ ${enabledEntries}
           } else {
             longTermMemoryContextOffline = chat.longTermMemory && chat.longTermMemory.length > 0 ? chat.longTermMemory.map(mem => `- ${mem.content}`).join('\n') : '- (暂无)';
           }
-          
+
           let aiAgeContext = getDynamicAgeContext(chat);
           let currencyExchangeContext = chat.settings.enableDynamicCurrency ? getCurrencyExchangeContext() : '';
-          
+
           let historySliceStrOffline = historySlice.map(msg => {
             let line = `${msg.role === 'user' ? myNickname : chat.name}: `;
             if (msg.type === 'offline_text') {
@@ -3948,7 +4037,7 @@ ${enabledEntries}
             }
             return line;
           }).join('\n');
-          
+
           const contextMapOffline = {
             'thoughtChainContextHead': thoughtChainContextHead,
             'thoughtChainContextMiddle': thoughtChainContextMiddle,
@@ -3990,7 +4079,7 @@ ${enabledEntries}
               systemPrompt += '\n\n' + coupleSpaceContextOffline;
             }
           }
-          
+
           if (window.getPeriodPromptForChat && chat?.id) {
             const periodPrompt = await window.getPeriodPromptForChat(chat.id);
             if (periodPrompt) {
@@ -4242,6 +4331,8 @@ ${enabledEntries}
                 contentSummary = (post.publicText || '') + ` [包含${prompts.length}张NovelAI图片: ${prompts.join(', ')}]`;
               } else if (post.type === 'googleimag' && post.prompt) {
                 contentSummary = (post.publicText || '') + ` [包含1张Google Imagen图片: ${post.prompt}]`;
+              } else if (post.type === 'openaiimag' && post.prompt) {
+                contentSummary = (post.publicText || '') + ` [包含1张GPT图片: ${post.prompt}]`;
               } else {
 
                 contentSummary = String(post.publicText || post.content || "一条动态").substring(0, 50) + '...';
@@ -4372,7 +4463,7 @@ ${enabledEntries}
     - **notes**: 一个包含音符对象的数组。每个对象包含:
         - **n (音高)**: 如 "C4", "D#5", "Ab3"。请遵循C大调或A小调等调性。
         - **d (时长)**: 决定节奏快慢。可选值: "1n"(全音符/很慢), "2n"(二分音符/慢), "4n"(四分音符/中), "8n"(八分音符/快), "16n"(十六分音符/很快)。
-    - **作曲技巧**: 
+    - **作曲技巧**:
       - 请将长音符("2n", "1n")放在乐句的结尾。
       - 用短音符("8n", "16n")作为过渡。
       - 模仿人类呼吸，不要全是快板。
@@ -4640,8 +4731,9 @@ ${getActiveThoughtsPrompt()}
 ### C. 社交与动态 (Qzone)
 -   **发动态(说说)**: \`[{"type": "qzone_post", "postType": "shuoshuo", "content": "文字内容"}]\`
 -   **发动态(文字图)**: \`[{"type": "qzone_post", "postType": "text_image", "publicText": "(可选)公开文字", "hiddenContent": "图片描述", "image_prompt": "图片的【英文】关键词, 用%20分隔, 风格为风景/动漫/插画/二次元等, 禁止真人"}]\`
-\${localStorage.getItem('novelai-enabled') === 'true' ? \`-   **公开发布NovelAI真实图片动态**: \\\`{"type": "qzone_post", "postType": "naiimag", "publicText": "(可选)动态的配文", "prompt": "详细的英文描述词..."}\\\`\` : ''}
-\${localStorage.getItem('google-imagen-enabled') === 'true' ? \`-   **公开发布Google Imagen真实图片动态**: \\\`{"type": "qzone_post", "postType": "googleimag", "publicText": "(可选)动态的配文", "prompt": "详细的英文描述词..."}\\\`\` : ''}
+\${localStorage.getItem('novelai-enabled') === 'true' ? \`-   **公开发布NovelAI真实图片动态**: \\\`{"type": "qzone_post", "postType": "naiimag", "publicText": "(可选)动态的配文", "prompt": "详细的英文描述词...", "subjects": ["char"]}\\\`\` : ''}
+\${localStorage.getItem('google-imagen-enabled') === 'true' ? \`-   **公开发布Google Imagen真实图片动态**: \\\`{"type": "qzone_post", "postType": "googleimag", "publicText": "(可选)动态的配文", "prompt": "详细的英文描述词...", "subjects": ["char"]}\\\`\` : ''}
+\${localStorage.getItem('openai-image-enabled') === 'true' ? \`-   **公开发布GPT图片动态**: \\\`{"type": "qzone_post", "postType": "openaiimag", "publicText": "(可选)动态的配文", "prompt": "详细的画面描述...", "subjects": ["char"]}\\\`\` : ''}
 -   **转发动态**: \`[{"type": "repost", "postId": 动态ID, "comment": "转发评论"}]\`
 -   **评论动态**: \`[{"type": "qzone_comment", "name": "\${chat.originalName}", "postId": 123, "commentText": "评论内容"}]\` (name必须填你自己的本名"\${chat.originalName}"，绝对不能填用户的名字)
 -   **点赞动态**: \`{"type": "qzone_like", "postId": 456}\`
@@ -4726,7 +4818,7 @@ ${getActiveThoughtsPrompt()}
           }
 
           let systemPromptTemplate = window.getActiveChatPrompt ? window.getActiveChatPrompt('single') : '';
-          
+
           let bilingualModeContext = chat.settings.enableBilingualMode ? `
 # 【双语输出铁律 - 最高优先级】
 你的每条文本和语音消息都【必须】使用格式：外语〖中文〗
@@ -4744,8 +4836,9 @@ ${getActiveThoughtsPrompt()}
 - 【绝对禁止】只发外语或只发中文！
 ` : '';
 
-          let novelAiImageContext = localStorage.getItem('novelai-enabled') === 'true' ? `-   **NovelAI真实图片分享 (在聊天中直接发送)**: \`{"type": "naiimag", "prompt": "详细的英文描述词..."}\` 
+          let novelAiImageContext = localStorage.getItem('novelai-enabled') === 'true' ? `-   **NovelAI真实图片分享 (在聊天中直接发送)**: \`{"type": "naiimag", "prompt": "详细的英文描述词...", "subjects": ["char"]}\`
     - **【绝不能暴露是novelai生成的图片！】
+    - subjects 表示画面中出现谁：只画角色填 ["char"]，只画用户填 ["user"]，两人都画填 ["char","user"]。
     - **【重要】关于prompt的撰写**：
       * 禁止暴露这是novelai生成的图片！
       * 你可以根据当前对话上下文、你的角色人设、或你想表达的情感和氛围，来撰写可能详细而具体的prompt。
@@ -4755,9 +4848,10 @@ ${getActiveThoughtsPrompt()}
     - 使用场景：当你想要在【私聊对话中】直接给用户发送一张图片时使用。
     - 不要频繁使用，只在真正想分享图片的时候使用。
     - 注意：这会直接在聊天记录中显示图片，而不是发布到动态。` : '';
-    
-          let googleImagenContext = localStorage.getItem('google-imagen-enabled') === 'true' ? `-   **Google Imagen真实图片分享 (在聊天中直接发送)**: \`{"type": "googleimag", "prompt": "详细的英文描述词..."}\` 
+
+          let googleImagenContext = localStorage.getItem('google-imagen-enabled') === 'true' ? `-   **Google Imagen真实图片分享 (在聊天中直接发送)**: \`{"type": "googleimag", "prompt": "详细的英文描述词...", "subjects": ["char"]}\`
     - **【绝不能暴露是AI生成的图片！】
+    - **subjects**：人物数组；只画角色用 ["char"]，只画用户用 ["user"]，两人都画用 ["char","user"]。
     - **【重要】关于prompt的撰写**：
       * 禁止暴露这是Google Imagen生成的图片！
       * 你可以根据当前对话上下文、你的角色人设、或你想表达的情感和氛围，来撰写详细而具体的prompt。
@@ -4767,16 +4861,24 @@ ${getActiveThoughtsPrompt()}
     - 使用场景：当你想要在【私聊对话中】直接给用户发送一张写实风格的高质量图片时使用。
     - 不要频繁使用，只在真正想分享图片的时候使用。
     - 注意：这会直接在聊天记录中显示图片，而不是发布到动态。` : '';
-    
+
+          let openAIImageContext = localStorage.getItem('openai-image-enabled') === 'true' ? `-   **GPT 图片分享 (在聊天中直接发送)**: \`{"type": "openaiimag", "prompt": "详细的画面描述...", "subjects": ["char"]}\`
+    - 【绝不能暴露这是AI生成的图片】
+    - subjects 表示画面中出现谁：只画角色填 ["char"]，只画用户填 ["user"]，两人都画填 ["char","user"]；不要省略。
+    - 根据当前对话、角色人设、情绪和场景撰写具体提示词。
+    - 可使用中文或英文自然语言，明确主体、环境、构图、光线、风格和氛围。
+    - 不要频繁使用，只在真正想分享图片的时候使用。
+    - 注意：这会直接在聊天记录中显示图片，而不是发布到动态。` : '';
+
           let crossChatInstruction = (() => {
             const enableCrossChat = chat.settings.enableCrossChat !== null ? chat.settings.enableCrossChat : state.globalSettings.enableCrossChat;
             return enableCrossChat !== false ? `- **发消息到群聊**: \\\`{"type": "send_group_message", "targetGroupName": "...", "content": ["..."]}\\\`(content 字段【必须】是数组，当你想在私聊中，突然提及或回应某个你也在的群聊里的事情时，你可以用 \\\`send_group_message\\\` 直接给那个群聊发送消息。)
 ` : '';
           })();
-          
+
           let aiAvatarLibrary = chat.settings.aiAvatarLibrary && chat.settings.aiAvatarLibrary.length > 0 ? chat.settings.aiAvatarLibrary.map(avatar => `- ${avatar.name}`).join('\n') : '- (空)';
           let myAvatarLibrary = chat.settings.myAvatarLibrary && chat.settings.myAvatarLibrary.length > 0 ? chat.settings.myAvatarLibrary.map(avatar => `- ${avatar.name}`).join('\n') : '- (空)';
-          
+
           let aiAgeContext = getDynamicAgeContext(chat);
           let currencyExchangeContext = chat.settings.enableDynamicCurrency ? getCurrencyExchangeContext() : '';
 
@@ -4838,6 +4940,7 @@ ${getActiveThoughtsPrompt()}
             'bilingualAlertVoice': chat.settings.enableBilingualMode ? ' ⚠️ 必须使用双语格式：外语〖中文〗（播放时只读外语，但用户可以查看翻译）' : '',
             'novelAiImageContext': novelAiImageContext,
             'googleImagenContext': googleImagenContext,
+            'openAIImageContext': openAIImageContext,
             'qzoneActionsPrompt': qzoneActionsPrompt,
             'viewMyPhonePrompt': viewMyPhonePrompt,
             'crossChatInstruction': crossChatInstruction,
@@ -5978,6 +6081,9 @@ ${getActiveThoughtsPrompt()}
           } else if (localStorage.getItem('google-imagen-enabled') === 'true') {
             msgData.type = 'googleimag';
             msgData.prompt = msgData.image_prompt || msgData.description || 'a beautiful scene';
+          } else if (localStorage.getItem('openai-image-enabled') === 'true') {
+            msgData.type = 'openaiimag';
+            msgData.prompt = msgData.image_prompt || msgData.description || 'A beautiful scene';
           }
         }
 
@@ -6308,11 +6414,11 @@ ${getActiveThoughtsPrompt()}
           }
           case 'couple_invite_request': {
             if ((chat.settings.enableCoupleSpacePrompt ?? chat.settings.coupleSpacePrompt) !== true) break;
-            
+
             const coupleSpaces = getCoupleSpaces();
             const hasCoupleSpace = coupleSpaces.find(s => s.charId === chatId);
             const pendingInvite = chat.history.findLast(m => m.type === 'couple_invite' && m.status === 'pending');
-            
+
             if (!hasCoupleSpace && !pendingInvite) {
               const inviteMsg = {
                 role: 'assistant',
@@ -6322,7 +6428,7 @@ ${getActiveThoughtsPrompt()}
                 timestamp: messageTimestamp++
               };
               chat.history.push(inviteMsg);
-              
+
               if (isViewingThisChat) {
                 appendMessage(inviteMsg, chat);
               }
@@ -6332,20 +6438,20 @@ ${getActiveThoughtsPrompt()}
           }
           case 'couple_space_unbind': {
             if ((chat.settings.enableCoupleSpacePrompt ?? chat.settings.coupleSpacePrompt) !== true) break;
-            
+
             const coupleSpaces = getCoupleSpaces();
             const hasCoupleSpace = coupleSpaces.find(s => s.charId === chatId);
-            
+
             if (hasCoupleSpace) {
               const newSpaces = coupleSpaces.filter(s => s.charId !== chatId);
               saveCoupleSpaces(newSpaces);
-              
+
               if (localStorage.getItem('coupleSpaceLastId') === chatId) {
                 localStorage.removeItem('coupleSpaceLastId');
               }
-              
+
               const myNickname = chat.settings.myNickname || '我';
-              
+
               const unbindMsg = {
                 role: 'system',
                 type: 'system_notification',
@@ -6353,11 +6459,11 @@ ${getActiveThoughtsPrompt()}
                 timestamp: messageTimestamp++
               };
               chat.history.push(unbindMsg);
-              
+
               if (isViewingThisChat) {
                 appendMessage(unbindMsg, chat);
               }
-              
+
               // 关闭情侣空间UI（如果处于打开状态）
               try {
                 if (document.getElementById('couple-space-screen') && document.getElementById('couple-space-screen').classList.contains('active')) {
@@ -6365,7 +6471,7 @@ ${getActiveThoughtsPrompt()}
                 }
               } catch(e) {}
             }
-            
+
             aiMessage = null;
             break;
           }
@@ -6417,7 +6523,7 @@ ${getActiveThoughtsPrompt()}
             const enableCrossChat = chat.settings.enableCrossChat !== null
               ? chat.settings.enableCrossChat
               : state.globalSettings.enableCrossChat;
-            
+
             if (enableCrossChat === false) {
               console.log(`[跨聊天消息] 群聊→私聊功能已关闭，已拦截 send_private_message 指令`);
               aiMessage = null;
@@ -6431,7 +6537,7 @@ ${getActiveThoughtsPrompt()}
             const userNickname = chat.settings.myNickname || '我';
 
             // 兼容多种写法：接受本名、昵称、"我"、"{{user}}"
-            if (recipientOriginalName === userOriginalName || 
+            if (recipientOriginalName === userOriginalName ||
                 recipientOriginalName === userNickname ||
                 recipientOriginalName === '我' ||
                 recipientOriginalName === '{{user}}') {
@@ -6493,7 +6599,7 @@ ${getActiveThoughtsPrompt()}
             const enableCrossChat = chat.settings.enableCrossChat !== null
               ? chat.settings.enableCrossChat
               : state.globalSettings.enableCrossChat;
-            
+
             if (enableCrossChat === false) {
               console.log(`[跨聊天消息] 私聊→群聊功能已关闭，已拦截 send_group_message 指令`);
               aiMessage = null;
@@ -6731,7 +6837,7 @@ ${getActiveThoughtsPrompt()}
               if (msgData.random_jottings) {
                 chat.randomJottings = String(msgData.random_jottings);
               }
-              
+
               // 动态收集自定义心声变量
               if (!chat.customThoughts) {
                 chat.customThoughts = {};
@@ -6745,14 +6851,14 @@ ${getActiveThoughtsPrompt()}
               if (!Array.isArray(chat.thoughtsHistory)) {
                 chat.thoughtsHistory = [];
               }
-              
+
               const currentThought = {
                 heartfeltVoice: chat.heartfeltVoice,
                 randomJottings: chat.randomJottings,
                 customThoughts: JSON.parse(JSON.stringify(chat.customThoughts)),
                 timestamp: Date.now()
               };
-              
+
               chat.thoughtsHistory.push(currentThought);
               if (chat.thoughtsHistory.length > 50) {
                 chat.thoughtsHistory.shift();
@@ -6906,7 +7012,8 @@ ${getActiveThoughtsPrompt()}
               content: msgData.content || '',
               publicText: msgData.publicText || '',
               hiddenContent: msgData.hiddenContent || '',
-              image_prompt: msgData.image_prompt || '',
+              image_prompt: composePromptForSubjects(msgData.image_prompt || '', chat.id, msgData.subjects),
+              subjects: msgData.subjects || ['char'],
               timestamp: Date.now(),
               authorId: chatId,
               authorGroupId: chat.groupId,
@@ -6930,11 +7037,15 @@ ${getActiveThoughtsPrompt()}
                   console.log(`生成第${i + 1}张图片，prompt:`, aiPrompt);
 
 
-                  const naiPrompts = getCharacterNAIPrompts(chat.id);
-
-
-                  const finalPositivePrompt = aiPrompt + ', ' + naiPrompts.positive;
-                  const finalNegativePrompt = naiPrompts.negative;
+                  const normalizedSubjects = normalizeImageSubjects(msgData.subjects);
+                  const includeCharacter = normalizedSubjects === null || normalizedSubjects.includes('char');
+                  const includeUser = normalizedSubjects !== null && normalizedSubjects.includes('user');
+                  const naiPrompts = includeCharacter
+                    ? getCharacterNAIPrompts(chat.id)
+                    : { positive: '', negative: '', source: 'none' };
+                  const userPrompts = includeUser ? getUserImagePrompts() : { positive: '', negative: '' };
+                  const finalPositivePrompt = sanitizeImagePrompt([aiPrompt, naiPrompts.positive, userPrompts.positive].filter(Boolean).join(', '));
+                  const finalNegativePrompt = sanitizeImagePrompt([naiPrompts.negative, userPrompts.negative].filter(Boolean).join(', '));
 
                   console.log(`📝 使用${naiPrompts.source === 'character' ? '角色专属' : '系统'}提示词配置`);
                   console.log('最终正面提示词:', finalPositivePrompt);
@@ -7237,6 +7348,7 @@ ${getActiveThoughtsPrompt()}
                 }
 
                 newPost.prompt = msgData.prompt;
+                newPost.subjects = msgData.subjects || ['char'];
                 newPost.imageCount = generatedImageUrls.length;
                 console.log(`✅ 动态NovelAI图片全部生成完成: ${generatedImageUrls.length}张`);
               } catch (error) {
@@ -7252,15 +7364,36 @@ ${getActiveThoughtsPrompt()}
                 const googlePrompt = msgData.prompt || 'a beautiful scene';
                 console.log(`📸 动态Google Imagen图片生成开始，prompt:`, googlePrompt);
 
-                const googleResult = await generateGoogleImagenFromPrompt(googlePrompt);
+                const googleResult = await generateGoogleImagenFromPrompt(googlePrompt, chat.id, { subjects: msgData.subjects });
                 newPost.imageUrls = [googleResult.imageUrl];
                 newPost.imageUrl = googleResult.imageUrl;
                 newPost.prompt = googlePrompt;
+                newPost.subjects = msgData.subjects || ['char'];
                 newPost.imageCount = 1;
                 console.log(`✅ 动态Google Imagen图片生成完成`);
               } catch (error) {
                 console.error('❌ 动态Google Imagen图片生成失败:', error);
                 newPost.content = (newPost.content || newPost.publicText || '') + `\n[Google Imagen图片生成失败: ${error.message}]`;
+              }
+            }
+
+            // GPT 动态图片生成
+            if (msgData.postType === 'openaiimag' && isImageGenerationProviderAvailable('openai', 'qzone') && msgData.prompt) {
+              try {
+                const openAIPrompt = msgData.prompt || 'A beautiful scene';
+                const openAIResult = await generateOpenAIImageFromPrompt(openAIPrompt, chat.id, { subjects: msgData.subjects });
+                newPost.imageUrls = [openAIResult.imageUrl];
+                newPost.imageUrl = openAIResult.imageUrl;
+                newPost.prompt = openAIPrompt;
+                newPost.subjects = msgData.subjects || ['char'];
+                newPost.fullPrompt = openAIResult.fullPrompt;
+                newPost.model = openAIResult.model;
+                newPost.mimeType = openAIResult.mimeType;
+                newPost.requestId = openAIResult.requestId;
+                newPost.imageCount = 1;
+              } catch (error) {
+                console.error('❌ 动态 GPT 图片生成失败:', error);
+                newPost.content = (newPost.content || newPost.publicText || '') + `\n[GPT 图片生成失败: ${error.message}]`;
               }
             }
 
@@ -7763,7 +7896,7 @@ ${getActiveThoughtsPrompt()}
                 note: '已收款',
                 timestamp: messageTimestamp++
               };
-              
+
               if (isViewingThisChat) {
                 const bubble = document.querySelector(`.message-bubble[data-timestamp="${msgData.for_timestamp}"]`);
                 if (bubble) {
@@ -8052,7 +8185,8 @@ ${getActiveThoughtsPrompt()}
               ...baseMessage,
               type: 'ai_image',
               content: msgData.description,
-              image_prompt: msgData.image_prompt
+              image_prompt: composePromptForSubjects(msgData.image_prompt, chat.id, msgData.subjects),
+              subjects: msgData.subjects || ['char']
             };
             break;
           case 'voice_message':
@@ -8114,12 +8248,16 @@ ${getActiveThoughtsPrompt()}
               console.log('📸 NovelAI图片生成开始，AI提供的prompt:', msgData.prompt);
 
 
-              const naiPrompts = getCharacterNAIPrompts(chat.id);
-
-
+              const normalizedSubjects = normalizeImageSubjects(msgData.subjects);
+              const includeCharacter = normalizedSubjects === null || normalizedSubjects.includes('char');
+              const includeUser = normalizedSubjects !== null && normalizedSubjects.includes('user');
+              const naiPrompts = includeCharacter
+                ? getCharacterNAIPrompts(chat.id)
+                : { positive: '', negative: '', source: 'none' };
+              const userPrompts = includeUser ? getUserImagePrompts() : { positive: '', negative: '' };
               const aiPrompt = msgData.prompt || 'a beautiful scene';
-              const finalPositivePrompt = aiPrompt + ', ' + naiPrompts.positive;
-              const finalNegativePrompt = naiPrompts.negative;
+              const finalPositivePrompt = sanitizeImagePrompt([aiPrompt, naiPrompts.positive, userPrompts.positive].filter(Boolean).join(', '));
+              const finalNegativePrompt = sanitizeImagePrompt([naiPrompts.negative, userPrompts.negative].filter(Boolean).join(', '));
 
               console.log(`📝 使用${naiPrompts.source === 'character' ? '角色专属' : '系统'}提示词配置`);
               console.log('最终正面提示词:', finalPositivePrompt);
@@ -8418,7 +8556,8 @@ ${getActiveThoughtsPrompt()}
                 type: 'naiimag',
                 imageUrl: imageDataUrl,
                 prompt: aiPrompt,
-                fullPrompt: finalPositivePrompt // 保存完整提示词供查看
+                fullPrompt: finalPositivePrompt, // 保存完整提示词供查看
+                subjects: msgData.subjects || ['char']
               };
             } catch (error) {
               console.error('❌ NAI图片生成失败:', error);
@@ -8436,20 +8575,46 @@ ${getActiveThoughtsPrompt()}
               console.log('📸 Google Imagen图片生成开始，AI提供的prompt:', msgData.prompt);
               const googlePrompt = msgData.prompt || 'a beautiful scene';
 
-              const googleResult = await generateGoogleImagenFromPrompt(googlePrompt);
+              const googleResult = await generateGoogleImagenFromPrompt(googlePrompt, chat.id, { subjects: msgData.subjects });
 
               aiMessage = {
                 ...baseMessage,
                 type: 'googleimag',
                 imageUrl: googleResult.imageUrl,
                 prompt: googlePrompt,
-                fullPrompt: googleResult.fullPrompt
+                fullPrompt: googleResult.fullPrompt,
+                subjects: msgData.subjects || ['char']
               };
             } catch (error) {
               console.error('❌ Google Imagen图片生成失败:', error);
               aiMessage = {
                 ...baseMessage,
                 content: `[Google Imagen图片生成失败: ${error.message}]`
+              };
+            }
+            break;
+
+          case 'openaiimag':
+            if (!isImageGenerationProviderAvailable('openai', 'chat')) break;
+            try {
+              const openAIPrompt = msgData.prompt || msgData.image_prompt || msgData.description || 'A beautiful scene';
+              const openAIResult = await generateOpenAIImageFromPrompt(openAIPrompt, chat.id, { subjects: msgData.subjects });
+              aiMessage = {
+                ...baseMessage,
+                type: 'openaiimag',
+                imageUrl: openAIResult.imageUrl,
+                prompt: openAIPrompt,
+                fullPrompt: openAIResult.fullPrompt,
+                model: openAIResult.model,
+                mimeType: openAIResult.mimeType,
+                requestId: openAIResult.requestId,
+                subjects: msgData.subjects || ['char']
+              };
+            } catch (error) {
+              console.error('❌ GPT 图片生成失败:', error);
+              aiMessage = {
+                ...baseMessage,
+                content: `[GPT 图片生成失败: ${error.message}]`
               };
             }
             break;
@@ -8478,6 +8643,7 @@ ${getActiveThoughtsPrompt()}
                 break;
               case 'ai_image':
               case 'googleimag':
+              case 'openaiimag':
                 notificationText = `[图片]`;
                 break;
               case 'voice_message':
@@ -8507,6 +8673,7 @@ ${getActiveThoughtsPrompt()}
                 break;
               case 'ai_image':
               case 'googleimag':
+              case 'openaiimag':
                 notificationText = `[图片]`;
                 break;
               case 'voice_message':
@@ -8843,7 +9010,7 @@ ${linkedContents}
         const vm = window.vectorMemoryManager.getVariableMemory(chat);
         const retrievalStrategy = vm.settings.retrievalStrategy || 'user-only';
         const userMsgCount = vm.settings.retrievalUserMsgCount || 3;
-        
+
         let queryText = '';
         let queryVariantsForVector = [];
         const getMessageContentForVector = (m) => (m && typeof m.content === 'string') ? m.content.trim() : '';
@@ -8887,7 +9054,7 @@ ${linkedContents}
       let currencyExchangeContext = chat.settings.enableDynamicCurrency ? getCurrencyExchangeContext() : '';
 
       let systemPromptTemplate = window.getActiveChatPrompt ? window.getActiveChatPrompt(chat.isGroup && chat.settings.isOfflineMode ? 'group_offline' : 'single') : '';
-      
+
       const contextMapPropel = {
         'aiAgeContext': aiAgeContext,
         'currencyExchangeContext': currencyExchangeContext,
@@ -9058,7 +9225,7 @@ ${linkedContents}
           if (!chat.isGroup) {
             if (msgData.heartfelt_voice) chat.heartfeltVoice = String(msgData.heartfelt_voice);
             if (msgData.random_jottings) chat.randomJottings = String(msgData.random_jottings);
-            
+
             // 推进时也动态收集自定义心声变量
             if (!chat.customThoughts) {
               chat.customThoughts = {};
