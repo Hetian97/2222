@@ -3484,6 +3484,9 @@ function toggleAlbumFab() {
       '<div class="album-fab-option" onclick="openAlbumUpload(\'text\')">' +
         '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' +
         '文字描述</div>' +
+      '<div class="album-fab-option" onclick="openAlbumUpload(\'gen\')">' +
+        '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>' +
+        '文字生图</div>' +
       '<div class="album-fab-option" onclick="requestCharAlbumPost()">' +
         '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>' +
         '让TA发一张</div>' +
@@ -3522,15 +3525,15 @@ function openAlbumUpload(mode) {
   } else {
     previewContent = '<div class="album-upload-preview" id="album-upload-preview" style="pointer-events:none;border-style:solid;background:#f0efed">' +
       '<svg style="width:32px;height:32px;color:#d6d3d1" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>' +
-      '<span style="color:#a8a29e;font-size:12px">文字描述模式（无图片）</span></div>';
+      '<span style="color:#a8a29e;font-size:12px">' + (mode === 'gen' ? '根据描述生成图片' : '文字描述模式（无图片）') + '</span></div>';
   }
 
   overlay.innerHTML = '<div class="album-upload-sheet animate-slide-up">' +
     '<div class="album-upload-handle"></div>' +
-    '<div class="album-upload-title">' + (mode === 'local' ? '上传照片' : '文字描述') + '</div>' +
+    '<div class="album-upload-title">' + (mode === 'local' ? '上传照片' : (mode === 'gen' ? '文字生图' : '文字描述')) + '</div>' +
     previewContent +
-    '<textarea class="album-upload-desc-input" id="album-upload-desc" placeholder="写点什么描述这张照片...（可选）" maxlength="500"></textarea>' +
-    '<button class="album-upload-btn" id="album-upload-submit" onclick="submitAlbumUpload(\'' + mode + '\')">发布</button>' +
+    '<textarea class="album-upload-desc-input" id="album-upload-desc" placeholder="' + (mode === 'gen' ? '描述想生成的照片，例如：我和他在海边看日落' : '写点什么描述这张照片...（可选）') + '" maxlength="500"></textarea>' +
+    '<button class="album-upload-btn" id="album-upload-submit" onclick="submitAlbumUpload(\'' + mode + '\')">' + (mode === 'gen' ? '生成并发布' : '发布') + '</button>' +
     '</div>';
 
   overlay.addEventListener('click', function(e) { if (e.target === overlay) closeAlbumUpload(); });
@@ -3555,14 +3558,27 @@ function handleAlbumFileSelect(e) {
   reader.readAsDataURL(file);
 }
 
-function submitAlbumUpload(mode) {
+async function submitAlbumUpload(mode) {
   var desc = document.getElementById('album-upload-desc').value.trim();
   if (mode === 'local' && !albumUploadImageData) {
     showAlbumToast('请先选择一张图片');
     return;
   }
-  if (mode === 'text' && !desc) {
+  if ((mode === 'text' || mode === 'gen') && !desc) {
     showAlbumToast('请输入描述');
+    return;
+  }
+
+  if (mode === 'gen') {
+    var genBtn = document.getElementById('album-upload-submit');
+    if (genBtn) { genBtn.disabled = true; genBtn.textContent = '生成中...'; }
+    showAlbumToast('正在根据描述生成照片...');
+    window.parent.postMessage({
+      type: 'coupleSpaceAlbumUserImageRequest',
+      charId: currentCharId,
+      prompt: desc,
+      description: desc
+    }, '*');
     return;
   }
 
@@ -4149,6 +4165,24 @@ window.addEventListener('message', function(e) {
     if (e.data.photoId === currentAlbumPhotoId) {
       openAlbumDetail(currentAlbumPhotoId);
       showAlbumToast('照片已重新生成');
+    }
+    return;
+  }
+  if (e.data && e.data.type === 'coupleSpaceAlbumUserImageResult') {
+    var genBtn = document.getElementById('album-upload-submit');
+    if (genBtn) { genBtn.disabled = false; genBtn.textContent = '生成并发布'; }
+    if (e.data.error) {
+      showAlbumToast('生成失败：' + e.data.error);
+      return;
+    }
+    if (e.data.photo) {
+      var photos = getAlbumPhotos();
+      photos.push(e.data.photo);
+      saveAlbumPhotos(photos);
+      closeAlbumUpload();
+      renderAlbumList();
+      showAlbumToast('已生成并发布');
+      requestAiAlbumComment(e.data.photo);
     }
     return;
   }

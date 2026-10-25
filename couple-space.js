@@ -861,6 +861,9 @@ window.addEventListener('message', function(e) {
   if (e.data && e.data.type === 'coupleSpaceAlbumPhotoRegenerateRequest') {
     handleCoupleSpaceAlbumPhotoRegenerateRequest(e.data);
   }
+  if (e.data && e.data.type === 'coupleSpaceAlbumUserImageRequest') {
+    handleCoupleSpaceAlbumUserImageRequest(e.data);
+  }
   if (e.data && e.data.type === 'coupleSpaceAlbumSettingsChanged') {
     handleCoupleSpaceAlbumSettingsChanged(e.data);
   }
@@ -1842,6 +1845,53 @@ if (typeof setTimeout !== 'undefined') {
 }
 
 // ========== Album AI Integration ==========
+
+async function handleCoupleSpaceAlbumUserImageRequest(data) {
+  const iframe = document.getElementById('couple-space-iframe');
+  if (!iframe || !iframe.contentWindow) return;
+  try {
+    const prompt = String(data?.prompt || '').trim();
+    if (!data?.charId || !prompt) throw new Error('缺少照片描述');
+    if (typeof generateImageForScene !== 'function') throw new Error('生图函数尚未加载');
+
+    let subjects = typeof inferImageSubjects === 'function'
+      ? await inferImageSubjects(prompt, data.charId, ['user'])
+      : ['user'];
+    if (!Array.isArray(subjects)) subjects = ['user'];
+
+    const generated = await generateImageForScene(prompt, 'coupleSpace', data.charId, null, subjects);
+    if (!generated || !generated.imageUrl) {
+      throw new Error('当前情侣空间供应商未启用或没有返回图片');
+    }
+
+    const photo = {
+      id: 'ap_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+      author: 'user',
+      timestamp: Date.now(),
+      description: String(data.description || prompt),
+      imageData: generated.imageUrl,
+      type: 'ai_gen',
+      tags: [],
+      imagePrompt: prompt,
+      subjects
+    };
+    await db.coupleAlbumPhotos.add({
+      chatId: data.charId,
+      timestamp: photo.timestamp,
+      photo
+    });
+    iframe.contentWindow.postMessage({
+      type: 'coupleSpaceAlbumUserImageResult',
+      photo
+    }, '*');
+  } catch (error) {
+    console.error('[情侣空间] 用户文字生图失败:', error);
+    iframe.contentWindow.postMessage({
+      type: 'coupleSpaceAlbumUserImageResult',
+      error: error.message
+    }, '*');
+  }
+}
 
 async function handleCoupleSpaceAlbumPhotoRegenerateRequest(data) {
   const iframe = document.getElementById('couple-space-iframe');
