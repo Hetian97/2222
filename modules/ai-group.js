@@ -948,6 +948,8 @@ ${linkedContents}
           contentSummary = (post.publicText || '') + ` [包含${prompts.length}张NovelAI图片: ${prompts.join(', ')}]`;
         } else if (post.type === 'googleimag' && post.prompt) {
           contentSummary = (post.publicText || '') + ` [包含1张Google Imagen图片: ${post.prompt}]`;
+        } else if (post.type === 'openaiimag' && post.prompt) {
+          contentSummary = (post.publicText || '') + ` [包含1张GPT图片: ${post.prompt}]`;
         } else {
 
           contentSummary = String(post.publicText || post.content || "一条动态").substring(0, 50) + '...';

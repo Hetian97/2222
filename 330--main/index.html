@@ -1344,6 +1344,9 @@
       </button>
       <span style="font-weight:600;color:#1c1917;letter-spacing:0.1em;font-size:16px;">照片详情</span>
       <div style="display:flex;gap:8px">
+        <button class="icon-btn" id="album-regenerate-btn" onclick="regenerateCurrentAlbumPhoto()" title="重新生成这张照片" style="display:none;">
+          <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>
+        </button>
         <button class="icon-btn" onclick="shareCurrentAlbumPhotoToChat()" title="分享到聊天">
           <svg class="icon-md" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
         </button>
@@ -3615,6 +3618,11 @@ async function openAlbumDetail(photoId) {
   if (!photo) return;
   currentAlbumPhotoId = photoId;
 
+  var regenerateBtn = document.getElementById('album-regenerate-btn');
+  if (regenerateBtn) {
+    regenerateBtn.style.display = (photo.type === 'ai_gen' && photo.imagePrompt) ? 'flex' : 'none';
+  }
+
   var scroll = document.getElementById('album-detail-scroll');
   var authorName = photo.author === 'user' ? (csUserName || '我') : (csCharName || 'TA');
   var avatarUrl = photo.author === 'user' ? (csUserAvatar || '') : (csCharAvatar || '');
@@ -3679,6 +3687,31 @@ async function openAlbumDetail(photoId) {
 
   document.getElementById('album-detail-page').classList.add('active');
   document.getElementById('feature-wrapper').classList.remove('active');
+}
+
+async function regenerateCurrentAlbumPhoto() {
+  if (!currentAlbumPhotoId) return;
+  var photos = await getAlbumPhotos();
+  var photo = (photos || []).find(function(p) { return p.id === currentAlbumPhotoId; });
+  if (!photo || !photo.imagePrompt) {
+    showAlbumToast('这张照片没有可用于重新生成的提示词');
+    return;
+  }
+  var button = document.getElementById('album-regenerate-btn');
+  if (button) button.disabled = true;
+  showAlbumToast('正在重新生成照片...');
+  if (window._albumRegenerateTimeout) clearTimeout(window._albumRegenerateTimeout);
+  window._albumRegenerateTimeout = setTimeout(function() {
+    if (button) button.disabled = false;
+    showAlbumToast('重新生成超时，请稍后重试');
+  }, 185000);
+  window.parent.postMessage({
+    type: 'coupleSpaceAlbumPhotoRegenerateRequest',
+    charId: currentCharId,
+    photoId: photo.id,
+    imagePrompt: photo.imagePrompt,
+    subjects: photo.subjects || ['char']
+  }, '*');
 }
 
 async function shareCurrentAlbumPhotoToChat() {
@@ -3953,19 +3986,6 @@ function openAlbumSettings() {
     '<div class="diary-settings-title">相册设置</div>' +
     buildCoupleChatContextSetting('album', settings.chatContextEnabled === true) +
 
-    '<div style="padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid #f0efed">' +
-      '<div class="diary-setting-item">' +
-        '<div><div class="diary-setting-label">角色生图方式</div>' +
-        '<div class="diary-setting-desc">角色发照片时使用的图片生成方式</div></div>' +
-        '<select class="diary-time-select" id="album-image-gen-mode" onchange="updateAlbumGenMode()">' +
-          '<option value="none"' + (imageGenMode === 'none' ? ' selected' : '') + '>无（灰色占位）</option>' +
-          '<option value="pollinations"' + (imageGenMode === 'pollinations' ? ' selected' : '') + '>通用AI生图</option>' +
-          '<option value="nai"' + (imageGenMode === 'nai' ? ' selected' : '') + '>NovelAI</option>' +
-          '<option value="imagen"' + (imageGenMode === 'imagen' ? ' selected' : '') + '>Google Imagen</option>' +
-        '</select>' +
-      '</div>' +
-    '</div>' +
-
     '<div class="diary-setting-item">' +
       '<div><div class="diary-setting-label">定时自动发照片</div>' +
       '<div class="diary-setting-desc">角色会在设定时间自动发一张照片</div></div>' +
@@ -4031,8 +4051,10 @@ function closeAlbumSettings() {
 }
 
 function updateAlbumGenMode() {
+  var el = document.getElementById('album-image-gen-mode');
+  if (!el) return;
   var settings = getAlbumSettings();
-  settings.imageGenMode = document.getElementById('album-image-gen-mode').value;
+  settings.imageGenMode = el.value;
   saveAlbumSettings(settings);
   notifyAlbumSettingsChanged();
 }
@@ -4113,6 +4135,23 @@ function showAlbumToast(msg) {
 
 // --- Handle AI album result from parent ---
 window.addEventListener('message', function(e) {
+  if (e.data && e.data.type === 'coupleSpaceAlbumPhotoRegenerateResult') {
+    if (window._albumRegenerateTimeout) {
+      clearTimeout(window._albumRegenerateTimeout);
+      window._albumRegenerateTimeout = null;
+    }
+    var regenBtn = document.getElementById('album-regenerate-btn');
+    if (regenBtn) regenBtn.disabled = false;
+    if (e.data.error) {
+      showAlbumToast('重新生成失败：' + (e.data.error || '未知错误'));
+      return;
+    }
+    if (e.data.photoId === currentAlbumPhotoId) {
+      openAlbumDetail(currentAlbumPhotoId);
+      showAlbumToast('照片已重新生成');
+    }
+    return;
+  }
   if (e.data && e.data.type === 'coupleSpaceAlbumAiResult') {
     if (e.data.error) {
       showAlbumToast('生成失败，请重试');
@@ -4126,7 +4165,8 @@ window.addEventListener('message', function(e) {
       imageData: e.data.imageData || null,
       type: e.data.imageData ? 'ai_gen' : 'text',
       tags: e.data.tags || [],
-      imagePrompt: e.data.imagePrompt || ''
+      imagePrompt: e.data.imagePrompt || '',
+      subjects: e.data.subjects || ['char']
     };
     if (window.parent.db && window.parent.db.coupleAlbumPhotos) {
       window.parent.db.coupleAlbumPhotos.add({
@@ -4154,7 +4194,8 @@ renderAlbumList();
       imageData: e.data.imageData || null,
       type: e.data.imageData ? 'ai_gen' : 'text',
       tags: e.data.tags || [],
-      imagePrompt: e.data.imagePrompt || ''
+      imagePrompt: e.data.imagePrompt || '',
+      subjects: e.data.subjects || ['char']
     };
     if (window.parent.db && window.parent.db.coupleAlbumPhotos) {
       window.parent.db.coupleAlbumPhotos.add({

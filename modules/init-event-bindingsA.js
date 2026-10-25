@@ -2269,6 +2269,9 @@ window.initEventBindingsA = async function(state, db) {
       // 保存Google Imagen配置到localStorage
       saveGoogleImagenSettings();
 
+      if (typeof saveOpenAIImageSettings === 'function') saveOpenAIImageSettings();
+      if (typeof saveUserImageAppearancePrompts === 'function') saveUserImageAppearancePrompts();
+
       alert('所有API与后台设置已保存!');
     });
 
@@ -2760,6 +2763,18 @@ window.initEventBindingsA = async function(state, db) {
           const timestamp = parseInt(bubble.dataset.timestamp);
           if (!isNaN(timestamp)) {
             await handleRegenerateNaiImage(timestamp, regenBtn);
+          }
+        }
+        return;
+      }
+      const openaiRegenBtn = e.target.closest('.openai-regenerate-btn');
+      if (openaiRegenBtn) {
+        e.stopPropagation();
+        const bubble = e.target.closest('.message-bubble');
+        if (bubble) {
+          const timestamp = parseInt(bubble.dataset.timestamp);
+          if (!isNaN(timestamp)) {
+            await handleRegenerateOpenAIImage(timestamp, openaiRegenBtn);
           }
         }
         return;

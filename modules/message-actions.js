@@ -572,6 +572,14 @@
         type: 'naiimag',
         prompt: '1girl, best quality, masterpiece, ...'
       },
+      google: {
+        type: 'googleimag',
+        prompt: 'A detailed cinematic scene, realistic lighting, high quality'
+      },
+      openai: {
+        type: 'openaiimag',
+        prompt: 'A detailed cinematic scene, realistic lighting, high quality'
+      },
       // 【关键修改】：添加旁白模板
       narration: {
         type: 'narration',
@@ -591,6 +599,8 @@
             <button class="format-btn" data-template='${JSON.stringify(templates.offline)}'>线下</button>
             <button class="format-btn" data-template='${JSON.stringify(templates.quote)}'>引用</button>
             <button class="format-btn" data-template='${JSON.stringify(templates.nai)}' style="color: #6a329f; border-color: #6a329f;">NAI生图</button>
+            <button class="format-btn" data-template='${JSON.stringify(templates.google)}' style="color: #1677ff; border-color: #1677ff;">谷歌图</button>
+            <button class="format-btn" data-template='${JSON.stringify(templates.openai)}' style="color: #0f9d58; border-color: #0f9d58;">GPT图</button>
             <button class="format-btn" data-template='${JSON.stringify(templates.narration)}' style="color: #888; border-color: #ccc;">旁白</button>
             </div>
     `;
@@ -656,7 +666,7 @@
     }
 
 
-    else if (message.type && ['voice_message', 'ai_image', 'transfer', 'offline_text', 'share_link', 'naiimag', 'narration'].includes(message.type)) {
+    else if (message.type && ['voice_message', 'ai_image', 'transfer', 'offline_text', 'share_link', 'naiimag', 'googleimag', 'openaiimag', 'narration'].includes(message.type)) {
       let fullMessageObject = {
         type: message.type
       };
@@ -679,10 +689,13 @@
         fullMessageObject.content = message.content;
       }
 
-      else if (message.type === 'naiimag') {
+      else if (message.type === 'naiimag' || message.type === 'googleimag' || message.type === 'openaiimag') {
         fullMessageObject.prompt = message.prompt;
-
         fullMessageObject.fullPrompt = message.fullPrompt;
+        if (message.imageUrl) fullMessageObject.imageUrl = message.imageUrl;
+        if (message.model) fullMessageObject.model = message.model;
+        if (message.mimeType) fullMessageObject.mimeType = message.mimeType;
+        if (message.requestId) fullMessageObject.requestId = message.requestId;
       }
       else if (message.type === 'narration') {
         fullMessageObject.content = message.content;
@@ -878,7 +891,7 @@
             await showCustomAlert("请稍候...", "检测到提示词已修改，正在重新生成 NovelAI 图片...");
             try {
 
-              const generatedData = await generateNaiImageFromPrompt(newPrompt, chat.id);
+              const generatedData = await generateNaiImageFromPrompt(newPrompt, chat.id, originalMsg?.subjects);
               newImageUrl = generatedData.imageUrl;
               newFullPrompt = generatedData.fullPrompt;
               await showCustomAlert("成功", "图片已根据新提示词重新生成！");
@@ -916,7 +929,7 @@
           if (googlePromptChanged) {
             await showCustomAlert("请稍候...", "检测到提示词已修改，正在重新生成 Google Imagen 图片...");
             try {
-              const googleResult = await generateGoogleImagenFromPrompt(googlePrompt);
+              const googleResult = await generateGoogleImagenFromPrompt(googlePrompt, chat.id, { subjects: originalGoogleMsg?.subjects });
               googleImageUrl = googleResult.imageUrl;
               googleFullPrompt = googleResult.fullPrompt;
               await showCustomAlert("成功", "图片已根据新提示词重新生成！");
@@ -931,6 +944,45 @@
           newMessage.imageUrl = googleImageUrl;
           newMessage.prompt = googlePrompt;
           newMessage.fullPrompt = googleFullPrompt;
+          break;
+        }
+
+        case 'openaiimag': {
+          const originalOpenAIMsg = chat.history[messageIndex];
+          let openAIPrompt = parsedResult.prompt || parsedResult.image_prompt || parsedResult.description;
+          let openAIImageUrl = parsedResult.imageUrl;
+          let openAIFullPrompt = parsedResult.fullPrompt;
+          let openAIPromptChanged = false;
+
+          if (openAIPrompt && typeof openAIPrompt === 'string' && originalOpenAIMsg.prompt !== openAIPrompt) {
+            openAIPromptChanged = true;
+          } else {
+            openAIPrompt = originalOpenAIMsg.prompt;
+            openAIFullPrompt = originalOpenAIMsg.fullPrompt;
+            openAIImageUrl = originalOpenAIMsg.imageUrl;
+          }
+
+          if (openAIPromptChanged) {
+            await showCustomAlert("请稍候...", "检测到提示词已修改，正在重新生成 GPT 图片...");
+            try {
+              const openAIResult = await generateOpenAIImageFromPrompt(openAIPrompt, chat.id, { subjects: originalOpenAIMsg?.subjects });
+              openAIImageUrl = openAIResult.imageUrl;
+              openAIFullPrompt = openAIResult.fullPrompt;
+              newMessage.model = openAIResult.model;
+              newMessage.mimeType = openAIResult.mimeType;
+              newMessage.requestId = openAIResult.requestId;
+              await showCustomAlert("成功", "图片已根据新提示词重新生成！");
+            } catch (error) {
+              console.error("编辑时重新生成GPT图片失败:", error);
+              await showCustomAlert("生成失败", `无法重新生成图片: ${error.message}. \n\n将保留旧图片，但提示词会更新。`);
+              openAIImageUrl = originalOpenAIMsg.imageUrl;
+            }
+          }
+
+          newMessage.type = 'openaiimag';
+          newMessage.imageUrl = openAIImageUrl || originalOpenAIMsg.imageUrl;
+          newMessage.prompt = openAIPrompt;
+          newMessage.fullPrompt = openAIFullPrompt;
           break;
         }
 
@@ -1129,6 +1181,14 @@
         type: 'naiimag',
         prompt: '1girl, best quality, masterpiece, ...'
       },
+      google: {
+        type: 'googleimag',
+        prompt: 'A detailed cinematic scene, realistic lighting, high quality'
+      },
+      openai: {
+        type: 'openaiimag',
+        prompt: 'A detailed cinematic scene, realistic lighting, high quality'
+      },
       narration: {
         type: 'narration',
         content: '在这里输入环境或心理描写...'
@@ -1149,6 +1209,8 @@
             <button class="format-btn" data-template='${JSON.stringify(templates.offline)}'>线下</button>
             <button class="format-btn" data-template='${JSON.stringify(templates.quote)}'>引用</button>
             <button class="format-btn" data-template='${JSON.stringify(templates.nai)}' style="color: #6a329f; border-color: #6a329f;">NAI生图</button>
+            <button class="format-btn" data-template='${JSON.stringify(templates.google)}' style="color: #1677ff; border-color: #1677ff;">谷歌图</button>
+            <button class="format-btn" data-template='${JSON.stringify(templates.openai)}' style="color: #0f9d58; border-color: #0f9d58;">GPT图</button>
             <button class="format-btn" data-template='${JSON.stringify(templates.narration)}' style="color: #888; border-color: #ccc;">旁白</button>
             
             </div>
@@ -1598,7 +1660,7 @@
             await showCustomAlert("请稍候...", alertMessage);
 
             try {
-              const generatedData = await generateNaiImageFromPrompt(newPrompt, chat.id);
+              const generatedData = await generateNaiImageFromPrompt(newPrompt, chat.id, originalMsg?.subjects);
               newImageUrl = generatedData.imageUrl;
               newFullPrompt = generatedData.fullPrompt;
               await showCustomAlert("成功", "图片已生成！");
@@ -1633,7 +1695,7 @@
           let googleFullPrompt = null;
 
           try {
-            const googleResult = await generateGoogleImagenFromPrompt(googlePrompt);
+            const googleResult = await generateGoogleImagenFromPrompt(googlePrompt, chat.id, { subjects: msgData.subjects });
             googleImageUrl = googleResult.imageUrl;
             googleFullPrompt = googleResult.fullPrompt;
           } catch (error) {
@@ -1652,6 +1714,30 @@
             prompt: googlePrompt,
             fullPrompt: googleFullPrompt
           };
+          break;
+        }
+
+        case 'openaiimag': {
+          const openAIPrompt = msgData.prompt || msgData.image_prompt || msgData.description || 'A beautiful scene';
+          try {
+            const openAIResult = await generateOpenAIImageFromPrompt(openAIPrompt, chat.id, { subjects: msgData.subjects });
+            aiMessage = {
+              ...baseMessage,
+              type: 'openaiimag',
+              imageUrl: openAIResult.imageUrl,
+              prompt: openAIPrompt,
+              fullPrompt: openAIResult.fullPrompt,
+              model: openAIResult.model,
+              mimeType: openAIResult.mimeType,
+              requestId: openAIResult.requestId
+            };
+          } catch (error) {
+            console.error('❌ 后台GPT图片生成失败:', error);
+            aiMessage = {
+              ...baseMessage,
+              content: `[GPT 图片生成失败: ${error.message}]`
+            };
+          }
           break;
         }
 

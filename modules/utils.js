@@ -4,10 +4,17 @@
 // ============================================================
 // 全局工具函数：生成 Pollinations 图片 URL
 // ============================================================
+function sanitizeImagePrompt(value) {
+  return String(value || '')
+    .replace(/[\u200B-\u200D\u2060\uFEFF\u00AD]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function getPollinationsImageUrl(prompt) {
   const key = localStorage.getItem('pollinations-api-key') || '';
   const model = localStorage.getItem('pollinations-model') || 'flux';
-  const encoded = encodeURIComponent(prompt);
+  const encoded = encodeURIComponent(sanitizeImagePrompt(prompt));
   let url = `https://gen.pollinations.ai/image/${encoded}?model=${model}&nologo=true`;
   if (key) url += `&key=${encodeURIComponent(key)}`;
   return url;
@@ -56,6 +63,7 @@ function qqUndefinedFilter(content) {
 }
 
 const IMAGE_GENERATION_SCENE_SETTINGS_KEY = 'image-generation-scene-settings';
+const IMAGE_GENERATION_SCENE_ROUTING_KEY = 'image-generation-scene-routing';
 const IMAGE_GENERATION_SCENES = [
   ['chat', '聊天内生图'],
   ['qzone', 'QQ动态生图'],
@@ -63,11 +71,26 @@ const IMAGE_GENERATION_SCENES = [
   ['shopping', '购物中心生图'],
   ['coupleSpace', '情侣空间生图']
 ];
+const IMAGE_GENERATION_PROVIDERS = [
+  ['pollinations', 'Pollinations'],
+  ['nai', 'Novel AI'],
+  ['imagen', 'Google Imagen'],
+  ['openai', 'GPT']
+];
 const DEFAULT_IMAGE_GENERATION_SCENE_SETTINGS = {
   pollinations: { chat: true, qzone: true, auction: true, shopping: true, coupleSpace: true },
   nai: { chat: true, qzone: true, auction: false, shopping: false, coupleSpace: true },
-  imagen: { chat: true, qzone: true, auction: false, shopping: false, coupleSpace: true }
+  imagen: { chat: true, qzone: true, auction: false, shopping: false, coupleSpace: true },
+  openai: { chat: true, qzone: true, auction: true, shopping: true, coupleSpace: true }
 };
+
+function isImageProviderGloballyEnabled(provider) {
+  if (provider === 'pollinations') return typeof state !== 'undefined' && state.globalSettings?.enableAiDrawing === true;
+  if (provider === 'nai') return localStorage.getItem('novelai-enabled') === 'true';
+  if (provider === 'imagen') return localStorage.getItem('google-imagen-enabled') === 'true';
+  if (provider === 'openai') return localStorage.getItem('openai-image-enabled') === 'true';
+  return false;
+}
 
 function getImageGenerationSceneSettings() {
   let saved = {};
@@ -79,33 +102,94 @@ function getImageGenerationSceneSettings() {
   return result;
 }
 
+function getImageGenerationSceneProviders() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(IMAGE_GENERATION_SCENE_ROUTING_KEY) || '{}') || {}; } catch (_) {}
+  const legacy = getImageGenerationSceneSettings();
+  const result = {};
+  IMAGE_GENERATION_SCENES.forEach(([scene]) => {
+    if (IMAGE_GENERATION_PROVIDERS.some(([provider]) => provider === saved[scene])) {
+      result[scene] = saved[scene];
+      return;
+    }
+    // 旧版是每个供应商各自勾选场景，迁移时优先保留 Pollinations，其次 NAI/Imagen/GPT。
+    result[scene] = IMAGE_GENERATION_PROVIDERS.find(([provider]) => legacy[provider]?.[scene])?.[0] || 'none';
+  });
+  return result;
+}
+
+function setImageGenerationSceneProvider(scene, provider) {
+  const current = getImageGenerationSceneProviders();
+  current[scene] = provider;
+  localStorage.setItem(IMAGE_GENERATION_SCENE_ROUTING_KEY, JSON.stringify(current));
+}
+
 function isImageGenerationSceneEnabled(provider, scene) {
-  return getImageGenerationSceneSettings()[provider]?.[scene] === true;
+  return getImageGenerationSceneProviders()[scene] === provider;
 }
 
 function isImageGenerationProviderAvailable(provider, scene) {
   if (!isImageGenerationSceneEnabled(provider, scene)) return false;
-  if (provider === 'pollinations') return typeof state !== 'undefined' && state.globalSettings?.enableAiDrawing === true;
-  if (provider === 'nai') return localStorage.getItem('novelai-enabled') === 'true';
-  if (provider === 'imagen') return localStorage.getItem('google-imagen-enabled') === 'true';
-  return false;
+  return isImageProviderGloballyEnabled(provider);
 }
 
-async function generateImageForScene(prompt, scene, chatId, preferredProvider) {
-  const providers = preferredProvider ? [preferredProvider] : ['pollinations', 'nai', 'imagen'];
-  const provider = providers.find(item => isImageGenerationProviderAvailable(item, scene));
-  if (!provider) return null;
-  if (provider === 'pollinations') return { provider, imageUrl: getPollinationsImageUrl(prompt) };
-  if (provider === 'nai') return { provider, ...(await generateNaiImageFromPrompt(prompt, chatId)) };
-  return { provider, ...(await generateGoogleImagenFromPrompt(prompt)) };
+/**
+ * 图片持久化策略：
+ * 1. 已经是 http(s) URL 时直接复用，不重复上传；
+ * 2. 生图返回 data URL/base64 时，优先上传 ImgBB，保存返回的 URL；
+ * 3. ImgBB 未开启、上传失败或超时时，回退保存原始 data URL。
+ */
+async function persistGeneratedImage(imageUrl, label = '图片') {
+  if (!imageUrl || typeof imageUrl !== 'string') return imageUrl;
+  if (/^https?:\/\//i.test(imageUrl)) return imageUrl;
+  if (!imageUrl.startsWith('data:image')) return imageUrl;
+  if (typeof state === 'undefined' || !state.apiConfig?.imgbbEnable || !state.apiConfig?.imgbbApiKey) {
+    return imageUrl;
+  }
+  if (typeof uploadImageToImgBB !== 'function') {
+    console.warn('[图片持久化] 未找到 ImgBB 上传函数，回退保存 data URL。');
+    return imageUrl;
+  }
+  try {
+    const uploadPromise = uploadImageToImgBB(imageUrl);
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('ImgBB 上传超时')), 45000);
+    });
+    const hostedUrl = await Promise.race([uploadPromise, timeoutPromise]);
+    if (typeof hostedUrl === 'string' && /^https?:\/\//i.test(hostedUrl)) {
+      console.log(`[图片持久化] ${label}已上传 ImgBB，改为保存 URL。`);
+      return hostedUrl;
+    }
+  } catch (error) {
+    console.warn(`[图片持久化] ${label}上传 ImgBB 失败，回退保存 data URL:`, error);
+  }
+  return imageUrl;
+}
+
+function composePromptForSubjects(prompt, chatId, subjects) {
+  const cleanPrompt = sanitizeImagePrompt(prompt);
+  if (typeof getSharedImagePrompts !== 'function') return cleanPrompt;
+  const subjectPrompts = getSharedImagePrompts(chatId, subjects);
+  let result = [cleanPrompt, subjectPrompts.positive].filter(Boolean).join(', ');
+  if (subjectPrompts.negative) result += `. Avoid: ${subjectPrompts.negative}`;
+  return sanitizeImagePrompt(result);
+}
+
+async function generateImageForScene(prompt, scene, chatId, preferredProvider, subjects = null) {
+  const provider = preferredProvider || getImageGenerationSceneProviders()[scene];
+  if (!provider || provider === 'none' || !isImageGenerationProviderAvailable(provider, scene)) return null;
+  if (provider === 'pollinations') return { provider, imageUrl: getPollinationsImageUrl(composePromptForSubjects(prompt, chatId, subjects)) };
+  if (provider === 'nai') return { provider, ...(await generateNaiImageFromPrompt(prompt, chatId, subjects)) };
+  if (provider === 'openai') return { provider, ...(await generateOpenAIImageFromPrompt(prompt, chatId, { subjects })) };
+  return { provider, ...(await generateGoogleImagenFromPrompt(prompt, chatId, { subjects })) };
 }
 
 function renderImageGenerationSceneSettings() {
-  const settings = getImageGenerationSceneSettings();
   const providerLayouts = [
     ['enable-ai-drawing-switch', 'pollinations-details', 'Pollinations 生图'],
     ['novelai-switch', 'novelai-details', 'Novel AI 生图'],
-    ['google-imagen-switch', 'google-imagen-details', 'Google Imagen']
+    ['google-imagen-switch', 'google-imagen-details', 'Google Imagen'],
+    ['openai-image-switch', 'openai-image-details', 'GPT 生图']
   ];
   const imageSettingsSection = document.getElementById('enable-ai-drawing-switch')?.closest('.settings-section');
   providerLayouts.forEach(([switchId, detailsId, title]) => {
@@ -117,19 +201,46 @@ function renderImageGenerationSceneSettings() {
     if (titleLabel) titleLabel.textContent = title;
     imageSettingsSection.append(switchRow, details);
   });
+
+  // 每个场景只选择一个生图供应商，避免在多个供应商下重复勾选。
+  if (imageSettingsSection) {
+    let routing = document.getElementById('image-generation-scene-routing');
+    if (!routing) {
+      routing = document.createElement('div');
+      routing.id = 'image-generation-scene-routing';
+      routing.className = 'settings-item-block';
+    }
+    const userAppearanceSection = document.getElementById('user-appearance-prompts-section');
+    // 固定顺序：四个供应商配置 → 各场景生图方式 → 我的形象提示词。
+    imageSettingsSection.appendChild(routing);
+    if (userAppearanceSection && userAppearanceSection.parentElement === imageSettingsSection) {
+      imageSettingsSection.appendChild(userAppearanceSection);
+    }
+    const selected = getImageGenerationSceneProviders();
+    routing.innerHTML = `
+      <label style="font-weight:600;">各场景使用的生图方式</label>
+      <div style="padding:8px 0 4px;color:#888;font-size:11px;line-height:1.6;">每个场景只选一种。供应商开关只负责启用和配置，不再重复勾选场景。</div>
+      ${IMAGE_GENERATION_SCENES.map(([scene, label]) => `
+        <div class="settings-item">
+          <label>${label}</label>
+          <div class="settings-right">
+            <select class="settings-select" data-image-scene-provider-select="${scene}">
+              <option value="none"${selected[scene] === 'none' ? ' selected' : ''}>不生成</option>
+              ${IMAGE_GENERATION_PROVIDERS.map(([provider, providerLabel]) => `<option value="${provider}"${selected[scene] === provider ? ' selected' : ''}>${providerLabel}</option>`).join('')}
+            </select>
+          </div>
+        </div>`).join('')}`;
+    routing.querySelectorAll('[data-image-scene-provider-select]').forEach(select => {
+      select.addEventListener('change', () => {
+        setImageGenerationSceneProvider(select.dataset.imageSceneProviderSelect, select.value);
+        renderImageGenerationSceneSettings();
+      });
+    });
+  }
+
+  // 清空旧版按供应商渲染的场景勾选容器，避免重复 UI。
   document.querySelectorAll('[data-image-scene-provider]').forEach(container => {
-    const provider = container.dataset.imageSceneProvider;
-    container.parentElement?.appendChild(container);
-    container.innerHTML = IMAGE_GENERATION_SCENES.map(([scene, label]) => `
-      <div class="settings-item">
-        <label>${label}</label>
-        <label class="toggle-switch"><input type="checkbox" data-image-scene="${scene}" ${settings[provider]?.[scene] ? 'checked' : ''}><span class="slider"></span></label>
-      </div>`).join('') + '<div style="padding:8px 15px;color:#888;font-size:11px;">同一场景请自行只开启一种提供商；测试生成不受限制。</div>';
-    container.querySelectorAll('[data-image-scene]').forEach(input => input.addEventListener('change', () => {
-      const latest = getImageGenerationSceneSettings();
-      latest[provider][input.dataset.imageScene] = input.checked;
-      localStorage.setItem(IMAGE_GENERATION_SCENE_SETTINGS_KEY, JSON.stringify(latest));
-    }));
+    container.innerHTML = '';
   });
 }
 
@@ -1186,6 +1297,7 @@ function getDoNotDisturbPauseReason(settings = window.state?.globalSettings) {
   return `免打扰中（${config.startTime}–${config.endTime}）`;
 }
 
+window.persistGeneratedImage = persistGeneratedImage;
 window.getDoNotDisturbConfig = getDoNotDisturbConfig;
 window.isTimestampInDoNotDisturb = isTimestampInDoNotDisturb;
 window.doesIntervalOverlapDoNotDisturb = doesIntervalOverlapDoNotDisturb;

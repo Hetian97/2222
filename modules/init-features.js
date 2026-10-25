@@ -2174,6 +2174,35 @@ window.initFeatures = function(state, db) {
 
     document.getElementById('google-imagen-fetch-models-btn').addEventListener('click', fetchGoogleImagenModels);
 
+    // GPT 生图开关与事件
+    document.getElementById('openai-image-switch')?.addEventListener('change', (e) => {
+      const detailsDiv = document.getElementById('openai-image-details');
+      if (detailsDiv) detailsDiv.style.display = e.target.checked ? 'block' : 'none';
+      saveOpenAIImageSettings();
+    });
+    document.getElementById('openai-image-key-toggle')?.addEventListener('click', function () {
+      const input = document.getElementById('openai-image-api-key');
+      if (!input) return;
+      if (input.type === 'password') {
+        input.type = 'text';
+        this.textContent = '🙈';
+      } else {
+        input.type = 'password';
+        this.textContent = '🧐';
+      }
+    });
+    const syncOpenAICompressionRow = () => {
+      const format = document.getElementById('openai-image-output-format')?.value;
+      const row = document.getElementById('openai-image-compression-row');
+      if (row) row.style.display = (format === 'jpeg' || format === 'webp') ? '' : 'none';
+    };
+    document.getElementById('openai-image-output-format')?.addEventListener('change', syncOpenAICompressionRow);
+    document.getElementById('openai-image-test-btn')?.addEventListener('click', testOpenAIImageGeneration);
+    document.getElementById('openai-image-fetch-models-btn')?.addEventListener('click', fetchOpenAIImageModels);
+    document.getElementById('user-appearance-positive')?.addEventListener('input', saveUserImageAppearancePrompts);
+    document.getElementById('user-appearance-negative')?.addEventListener('input', saveUserImageAppearancePrompts);
+    syncOpenAICompressionRow();
+
     document.getElementById('novelai-key-toggle').addEventListener('click', function () {
       const input = document.getElementById('novelai-api-key');
       if (input.type === 'password') {
@@ -2317,6 +2346,46 @@ window.initFeatures = function(state, db) {
       }
     });
 
+
+    let characterImagePromptProvider = 'imagen';
+    const openCharacterImagePrompts = (provider) => {
+      if (!state.activeChatId) return;
+      const chat = state.chats[state.activeChatId];
+      characterImagePromptProvider = provider;
+      const titleMap = { imagen: '角色专属 Google Imagen 提示词', openai: '角色专属 GPT 生图提示词' };
+      const descMap = {
+        imagen: '💡 这里配置的提示词仅用于当前角色的 Google Imagen 出图。',
+        openai: '💡 这里配置的提示词仅用于当前角色的 GPT 生图。'
+      };
+      const settingsKey = provider === 'openai' ? 'characterOpenAIPrompts' : 'characterImagenPrompts';
+      const saved = chat.settings?.[settingsKey] || {};
+      document.getElementById('character-image-prompts-title').textContent = titleMap[provider];
+      document.getElementById('character-image-prompts-desc').textContent = descMap[provider];
+      document.getElementById('character-image-positive').value = saved.positive || '';
+      document.getElementById('character-image-negative').value = saved.negative || '';
+      document.getElementById('character-image-prompts-modal').style.display = 'flex';
+    };
+    document.getElementById('character-imagen-prompts-btn')?.addEventListener('click', () => openCharacterImagePrompts('imagen'));
+    document.getElementById('character-openai-prompts-btn')?.addEventListener('click', () => openCharacterImagePrompts('openai'));
+    document.getElementById('close-character-image-prompts')?.addEventListener('click', () => {
+      document.getElementById('character-image-prompts-modal').style.display = 'none';
+    });
+    document.getElementById('save-character-image-prompts')?.addEventListener('click', async () => {
+      if (!state.activeChatId) return;
+      const chat = state.chats[state.activeChatId];
+      const settingsKey = characterImagePromptProvider === 'openai' ? 'characterOpenAIPrompts' : 'characterImagenPrompts';
+      chat.settings[settingsKey] = {
+        positive: document.getElementById('character-image-positive').value.trim(),
+        negative: document.getElementById('character-image-negative').value.trim()
+      };
+      await db.chats.put(chat);
+      document.getElementById('character-image-prompts-modal').style.display = 'none';
+      window.showToast?.('角色专属生图提示词已保存');
+    });
+    document.getElementById('reset-character-image-prompts')?.addEventListener('click', () => {
+      document.getElementById('character-image-positive').value = '';
+      document.getElementById('character-image-negative').value = '';
+    });
 
     document.getElementById('group-character-nai-prompts-btn').addEventListener('click', () => {
       if (!state.activeChatId) return;
@@ -5966,6 +6035,74 @@ ${linkedContents}
         this.textContent = '🧐';
       }
     });
+    async function testImgBBConnection() {
+      const key = document.getElementById('imgbb-api-key')?.value.trim();
+      const button = document.getElementById('imgbb-test-btn');
+      const result = document.getElementById('imgbb-test-result');
+      if (!key) {
+        alert('\u8bf7\u5148\u586b\u5199 ImgBB API Key\uff01');
+        return;
+      }
+      if (button) { button.disabled = true; button.textContent = '\u23f3 \u6d4b\u8bd5\u4e2d...'; }
+      if (result) { result.textContent = ''; result.style.color = '#888'; }
+      const previousEnabled = state.apiConfig.imgbbEnable;
+      const previousKey = state.apiConfig.imgbbApiKey;
+      state.apiConfig.imgbbEnable = true;
+      state.apiConfig.imgbbApiKey = key;
+      try {
+        const testImage = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6ZQAAAABJRU5ErkJggg==';
+        const url = await uploadImageToImgBB(testImage);
+        if (!/^https?:\/\//i.test(url)) throw new Error('\u63a5\u53e3\u6ca1\u6709\u8fd4\u56de\u56fe\u7247 URL');
+        if (result) { result.textContent = '\u2705 \u8fde\u63a5\u6210\u529f'; result.style.color = '#16a34a'; result.title = url; }
+      } catch (error) {
+        if (result) { result.textContent = '\u274c \u8fde\u63a5\u5931\u8d25'; result.style.color = '#dc2626'; result.title = error.message; }
+        alert('ImgBB \u6d4b\u8bd5\u5931\u8d25\uff1a' + error.message);
+      } finally {
+        state.apiConfig.imgbbEnable = previousEnabled;
+        state.apiConfig.imgbbApiKey = previousKey;
+        if (button) { button.disabled = false; button.textContent = '\ud83d\udd17 \u6d4b\u8bd5\u8fde\u63a5'; }
+      }
+    }
+
+    async function testCatboxConnection() {
+      const userHash = document.getElementById('catbox-userhash')?.value.trim();
+      const button = document.getElementById('catbox-test-btn');
+      const result = document.getElementById('catbox-test-result');
+      if (!userHash) {
+        alert('\u8bf7\u5148\u586b\u5199 Catbox User Hash\uff01');
+        return;
+      }
+      if (button) { button.disabled = true; button.textContent = '\u23f3 \u6d4b\u8bd5\u4e2d...'; }
+      if (result) { result.textContent = ''; result.style.color = '#888'; }
+      const previousEnabled = state.apiConfig.catboxEnable;
+      const previousHash = state.apiConfig.catboxUserHash;
+      state.apiConfig.catboxEnable = true;
+      state.apiConfig.catboxUserHash = userHash;
+      try {
+        // Catbox 是通用文件托管，用 txt 测试可排除图片格式/扩展名限制。
+        const testText = 'EPhone Catbox connection test ' + Date.now();
+        const file = new File([testText], 'ephone-connection-test.txt', { type: 'text/plain' });
+        const url = await uploadFileToCatbox(file);
+        if (!url || !/^https?:\/\//i.test(url)) throw new Error('\u63a5\u53e3\u6ca1\u6709\u8fd4\u56de\u6587\u4ef6 URL');
+        if (result) { result.textContent = '\u2705 \u8fde\u63a5\u6210\u529f'; result.style.color = '#16a34a'; result.title = url; }
+      } catch (error) {
+        const isNetworkError = /failed to fetch|networkerror|load failed/i.test(error.message || '');
+        if (isNetworkError) {
+          if (result) { result.textContent = '\u26a0\ufe0f \u4e0a\u4f20\u5df2\u9001\u8fbe\uff0c\u54cd\u5e94\u88ab CORS \u62e6\u622a'; result.style.color = '#d97706'; result.title = error.message; }
+          alert('Catbox \u8bf7\u6c42\u672a\u80fd\u8bfb\u53d6\u54cd\u5e94\u3002\n\n\u672c\u5730\u6d4b\u8bd5\u8bf7\u786e\u8ba4\u4f7f\u7528 python serve.py \u542f\u52a8\uff0c\u5e76\u5f3a\u5237\u65b0\u9875\u9762\uff1bGitHub \u9759\u6001\u9875\u9762\u6ca1\u6709 /catbox-proxy\uff0c\u9700\u8981\u90e8\u7f72\u8fdc\u7a0b\u4ee3\u7406\u3002');
+        } else {
+          if (result) { result.textContent = '\u274c \u8fde\u63a5\u5931\u8d25'; result.style.color = '#dc2626'; result.title = error.message; }
+          alert('Catbox \u6d4b\u8bd5\u5931\u8d25\uff1a' + error.message);
+        }
+      } finally {
+        state.apiConfig.catboxEnable = previousEnabled;
+        state.apiConfig.catboxUserHash = previousHash;
+        if (button) { button.disabled = false; button.textContent = '\ud83d\udd17 \u6d4b\u8bd5\u8fde\u63a5'; }
+      }
+    }
+
+    document.getElementById('imgbb-test-btn')?.addEventListener('click', testImgBBConnection);
+    document.getElementById('catbox-test-btn')?.addEventListener('click', testCatboxConnection);
     const biliSearchBtn = document.getElementById('char-bilibili-search-btn');
     if (biliSearchBtn) {
       biliSearchBtn.addEventListener('click', handleCharBilibiliSearch);

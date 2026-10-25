@@ -101,6 +101,88 @@
 
 
 
+  async function fetchImageAsDataUrl(url) {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`读取原图失败 (${response.status})`);
+    const blob = await response.blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function saveQzoneTextImageUrl(postId, imageUrl, provider) {
+    const post = await db.qzonePosts.get(postId);
+    if (!post) throw new Error('动态不存在');
+    post.imageUrl = imageUrl;
+    post.imageUrls = [imageUrl];
+    post.image_provider = provider || post.image_provider || 'pollinations';
+    post.image_regeneratedAt = Date.now();
+    await db.qzonePosts.put(post);
+    if (typeof updateSinglePostInDOM === 'function') {
+      await updateSinglePostInDOM(postId);
+    }
+  }
+
+  async function convertQzonePostToHostedUrl(postId, buttonElement) {
+    if (typeof state === 'undefined' || !state.apiConfig?.imgbbEnable || !state.apiConfig?.imgbbApiKey) {
+      alert('请先在“云服务与存储”中开启 ImgBB 图床并填写 API Key。');
+      return;
+    }
+    if (typeof getPollinationsImageUrl !== 'function' || typeof persistGeneratedImage !== 'function') {
+      alert('图片迁移函数尚未加载完成，请刷新页面。');
+      return;
+    }
+    if (buttonElement) { buttonElement.disabled = true; buttonElement.textContent = '上传中...'; }
+    try {
+      const post = await db.qzonePosts.get(postId);
+      if (!post || !post.image_prompt) throw new Error('这条动态没有可用的图片提示词');
+      const sourceUrl = getPollinationsImageUrl(post.image_prompt);
+      const dataUrl = await fetchImageAsDataUrl(sourceUrl);
+      const hostedUrl = await persistGeneratedImage(dataUrl, 'QQ动态原图');
+      if (!/^https?:\/\//i.test(hostedUrl)) throw new Error('ImgBB 上传失败，未拿到 URL');
+      await saveQzoneTextImageUrl(postId, hostedUrl, 'pollinations');
+    } catch (error) {
+      console.error('[QQ动态] Pollinations 转 URL 失败:', error);
+      alert(`原图转 URL 失败：${error.message}`);
+    } finally {
+      if (buttonElement) { buttonElement.disabled = false; buttonElement.textContent = '原图转URL'; }
+    }
+  }
+
+  async function regenerateQzonePostImage(postId, buttonElement) {
+    if (typeof generateImageForScene !== 'function') {
+      alert('生图函数尚未加载完成，请刷新页面。');
+      return;
+    }
+    if (typeof state === 'undefined' || !state.apiConfig?.imgbbEnable || !state.apiConfig?.imgbbApiKey) {
+      alert('请先在“云服务与存储”中开启 ImgBB 图床并填写 API Key。');
+      return;
+    }
+    if (buttonElement) { buttonElement.disabled = true; buttonElement.textContent = '生成中...'; }
+    try {
+      const post = await db.qzonePosts.get(postId);
+      if (!post || !post.image_prompt) throw new Error('这条动态没有可用的图片提示词');
+      const chatId = post.authorId && state.chats?.[post.authorId] ? post.authorId : null;
+      const generated = await generateImageForScene(post.image_prompt, 'qzone', chatId, null, post.subjects);
+      if (!generated || !generated.imageUrl) throw new Error('当前 QQ 动态供应商不可用');
+      let imageUrl = generated.imageUrl;
+      if (/pollinations\.ai/i.test(imageUrl)) {
+        const dataUrl = await fetchImageAsDataUrl(imageUrl);
+        imageUrl = await persistGeneratedImage(dataUrl, 'QQ动态新图');
+      }
+      if (!/^https?:\/\//i.test(imageUrl)) throw new Error('生成结果没有可保存的 URL');
+      await saveQzoneTextImageUrl(postId, imageUrl, generated.provider);
+    } catch (error) {
+      console.error('[QQ动态] 重新生成失败:', error);
+      alert(`重新生成失败：${error.message}`);
+    } finally {
+      if (buttonElement) { buttonElement.disabled = false; buttonElement.textContent = '重新生成'; }
+    }
+  }
+
   async function createOrUpdatePostElement(post) {
     const existingPostContainer = document.querySelector(`.qzone-post-container[data-post-id="${post.id}"]`);
     const isUpdating = !!existingPostContainer;
@@ -159,9 +241,10 @@
         innerContentHtml = publicTextHtml ? `${publicTextHtml}<div style="margin-top:10px;"><img src="${targetPost.imageUrl}" class="chat-image"></div>` : `<img src="${targetPost.imageUrl}" class="chat-image">`;
       } else if (targetPost.type === 'text_image') {
 
-        const postImageUrl = isImageGenerationProviderAvailable('pollinations', 'qzone') && targetPost.image_prompt ? getPollinationsImageUrl(targetPost.image_prompt) : 'https://i.postimg.cc/KYr2qRCK/1.jpg';
+        const savedTextImageUrl = targetPost.imageUrl || (Array.isArray(targetPost.imageUrls) && targetPost.imageUrls[0]);
+        const postImageUrl = savedTextImageUrl || (isImageGenerationProviderAvailable('pollinations', 'qzone') && targetPost.image_prompt ? getPollinationsImageUrl(targetPost.image_prompt) : 'https://i.postimg.cc/KYr2qRCK/1.jpg');
         innerContentHtml = publicTextHtml ? `${publicTextHtml}<div style="margin-top:10px;"><img src="${postImageUrl}" class="chat-image" style="cursor: pointer;" data-hidden-text="${targetPost.hiddenContent}"></div>` : `<img src="${postImageUrl}" class="chat-image" style="cursor: pointer;" data-hidden-text="${targetPost.hiddenContent}">`;
-      } else if (targetPost.type === 'naiimag' || targetPost.type === 'googleimag') {
+      } else if (targetPost.type === 'naiimag' || targetPost.type === 'googleimag' || targetPost.type === 'openaiimag') {
 
         const imageUrls = targetPost.imageUrls || (targetPost.imageUrl ? [targetPost.imageUrl] : []);
 
@@ -293,6 +376,11 @@
                     <div class="post-actions-btn">…</div>
                 </div>
                 ${mainContentHtml}
+                ${post.type === 'text_image' ? `
+                <div class="qzone-image-convert-actions" style="display:flex;gap:8px;margin-top:8px;">
+                    ${!(post.imageUrl || (Array.isArray(post.imageUrls) && post.imageUrls.length)) ? `<button class="settings-mini-btn qzone-image-url-btn" data-post-id="${post.id}" type="button">原图转URL</button>` : ''}
+                    <button class="settings-mini-btn qzone-image-regenerate-btn" data-post-id="${post.id}" type="button">重新生成</button>
+                </div>` : ''}
                 <div class="post-feedback-icons">
                     ${repostIconHtml}
                     <span class="action-icon like ${isLikedByUser ? 'active' : ''}"><svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg></span>
@@ -317,6 +405,17 @@
                     <button class="comment-send-btn">发送</button>
                 </div>
             `;
+
+    if (post.type === 'text_image') {
+      postEl.querySelector('.qzone-image-url-btn')?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        convertQzonePostToHostedUrl(post.id, event.currentTarget);
+      });
+      postEl.querySelector('.qzone-image-regenerate-btn')?.addEventListener('click', (event) => {
+        event.stopPropagation();
+        regenerateQzonePostImage(post.id, event.currentTarget);
+      });
+    }
 
     if (!isUpdating) {
       const deleteAction = document.createElement('div');
@@ -634,10 +733,11 @@
         if (post.type === 'shuoshuo') {
           contentHtml = `<div class="post-content">${post.content.replace(/\n/g, '<br>')}</div>`;
         } else if (post.type === 'image_post' && post.imageUrl) {
-          const postImageUrl = isImageGenerationProviderAvailable('pollinations', 'qzone') && post.image_prompt ? getPollinationsImageUrl(post.image_prompt) : 'https://i.postimg.cc/KYr2qRCK/1.jpg';
+          const postImageUrl = post.imageUrl;
           contentHtml = publicTextHtml ? `${publicTextHtml}<div style="margin-top:10px;"><img src="${postImageUrl}" class="chat-image"></div>` : `<img src="${postImageUrl}" class="chat-image">`;
         } else if (post.type === 'text_image') {
-          const postImageUrl = isImageGenerationProviderAvailable('pollinations', 'qzone') && post.image_prompt ? getPollinationsImageUrl(post.image_prompt) : 'https://i.postimg.cc/KYr2qRCK/1.jpg';
+          const savedTextImageUrl = post.imageUrl || (Array.isArray(post.imageUrls) && post.imageUrls[0]);
+          const postImageUrl = savedTextImageUrl || (isImageGenerationProviderAvailable('pollinations', 'qzone') && post.image_prompt ? getPollinationsImageUrl(post.image_prompt) : 'https://i.postimg.cc/KYr2qRCK/1.jpg');
           contentHtml = publicTextHtml ? `${publicTextHtml}<div style="margin-top:10px;"><img src="${postImageUrl}" class="chat-image" style="cursor: pointer;" data-hidden-text="${post.hiddenContent}"></div>` : `<img src="${postImageUrl}" class="chat-image" style="cursor: pointer;" data-hidden-text="${post.hiddenContent}">`;
         }
 
