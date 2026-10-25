@@ -1486,7 +1486,7 @@
         if (state.apiConfig.imgbbEnable && state.apiConfig.imgbbApiKey) {
           const uploadBtn = bubble.querySelector('.user-upload-imgbb-btn');
           if (uploadBtn) {
-            // uploadBtn.style.display = 'flex'; // 显示上传按钮
+            uploadBtn.style.display = 'flex';
           }
         }
       }

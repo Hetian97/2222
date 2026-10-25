@@ -1104,16 +1104,18 @@ window.initEventBindingsB = function(state, db) {
       if (description && description.trim()) {
         const chat = state.chats[state.activeChatId];
         const basePrompt = description.trim();
+        let subjects = await inferImageSubjects(basePrompt, chat.id, ['user']);
+        if (!Array.isArray(subjects)) subjects = ['user'];
         const msg = {
           role: 'user',
           type: 'user_photo',
           content: basePrompt,
           image_prompt: basePrompt,
-          subjects: ['user'],
+          subjects,
           timestamp: Date.now()
         };
         try {
-          const generated = await generateImageForScene(basePrompt, 'chat', chat.id, null, ['user']);
+          const generated = await generateImageForScene(basePrompt, 'chat', chat.id, null, subjects);
           if (generated && generated.imageUrl) {
             msg.imageUrl = generated.imageUrl;
             msg.image_provider = generated.provider;
@@ -1686,16 +1688,18 @@ window.initEventBindingsB = function(state, db) {
             alert('请输入文字图描述！');
             return;
           }
+          let qzoneSubjects = await inferImageSubjects(hiddenText, state.activeChatId || null, ['user']);
+          if (!Array.isArray(qzoneSubjects)) qzoneSubjects = ['user'];
           newPost = {
             ...basePostData,
             type: 'text_image',
             publicText: publicText,
             hiddenContent: hiddenText,
             image_prompt: hiddenText,
-            subjects: ['user'],
+            subjects: qzoneSubjects,
           };
           try {
-            const generated = await generateImageForScene(hiddenText, 'qzone', null, null, ['user']);
+            const generated = await generateImageForScene(hiddenText, 'qzone', state.activeChatId || null, null, qzoneSubjects);
             if (generated && generated.imageUrl) {
               newPost.imageUrl = generated.imageUrl;
               newPost.imageUrls = [generated.imageUrl];

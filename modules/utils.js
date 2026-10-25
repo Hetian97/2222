@@ -166,6 +166,53 @@ async function persistGeneratedImage(imageUrl, label = '图片') {
   return imageUrl;
 }
 
+async function inferImageSubjects(description, chatId = null, fallback = ['user']) {
+  const prompt = sanitizeImagePrompt(description);
+  const { proxyUrl, apiKey, model } = (typeof state !== 'undefined' && state.apiConfig) || {};
+  if (!prompt || !proxyUrl || !apiKey || !model) return fallback;
+  const chat = chatId && typeof state !== 'undefined' ? state.chats?.[chatId] : null;
+  const charName = chat?.originalName || chat?.name || '角色';
+  const userName = chat?.settings?.myNickname || '用户';
+  const system = '你是画面人物识别器。根据描述判断画面里实际出现谁。只输出一个 JSON 对象，不要解释：{"subjects":["char"]}。char 表示角色，user 表示用户；只出现角色用 char，只出现用户用 user，两人都出现用 char 和 user，没有人物用空数组。';
+  const user = `角色名：${charName}\n用户名：${userName}\n描述：${prompt}\n请判断 subjects。`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  try {
+    let response;
+    if (proxyUrl.includes('generativelanguage.googleapis.com') && typeof toGeminiRequestData === 'function') {
+      const cfg = toGeminiRequestData(model, apiKey, system, [{ role: 'user', content: user }]);
+      response = await fetch(cfg.url, { ...cfg.data, signal: controller.signal });
+    } else {
+      response = await fetch(`${proxyUrl.replace(/\/+$/, '')}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+          temperature: 0,
+          max_tokens: 60
+        }),
+        signal: controller.signal
+      });
+    }
+    if (!response.ok) return fallback;
+    const raw = typeof getGeminiResponseText === 'function'
+      ? getGeminiResponseText(await response.json())
+      : await response.text();
+    const match = String(raw).match(/\{[\s\S]*\}/);
+    if (!match) return fallback;
+    const parsed = JSON.parse(match[0]);
+    const values = Array.isArray(parsed.subjects) ? parsed.subjects : [];
+    const normalized = values.map(value => String(value).toLowerCase()).filter(value => value === 'char' || value === 'user');
+    return normalized;
+  } catch (error) {
+    console.warn('[人物识别] 判断 subjects 失败，使用默认值:', error);
+    return fallback;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 function composePromptForSubjects(prompt, chatId, subjects) {
   const cleanPrompt = sanitizeImagePrompt(prompt);
   if (typeof getSharedImagePrompts !== 'function') return cleanPrompt;
