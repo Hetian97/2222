@@ -892,9 +892,11 @@
         const altText = msg.type === 'user_photo' ? "用户描述的照片" : "AI生成的图片";
 
 
-        const imageUrl = isImageGenerationProviderAvailable('pollinations', 'chat') && msg.image_prompt ?
-          getPollinationsImageUrl(msg.image_prompt) :
-          'https://i.postimg.cc/KYr2qRCK/1.jpg';
+        const imageUrl = msg.imageUrl || (
+          msg.image_prompt && (msg.type === 'user_photo' || isImageGenerationProviderAvailable('pollinations', 'chat'))
+            ? getPollinationsImageUrl(msg.image_prompt)
+            : 'https://i.postimg.cc/KYr2qRCK/1.jpg'
+        );
 
 
         contentHtml = `<img src="${imageUrl}" class="ai-generated-image" alt="${altText}" data-description="${msg.content}">`;

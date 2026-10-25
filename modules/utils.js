@@ -108,7 +108,7 @@ function getImageGenerationSceneProviders() {
   const legacy = getImageGenerationSceneSettings();
   const result = {};
   IMAGE_GENERATION_SCENES.forEach(([scene]) => {
-    if (IMAGE_GENERATION_PROVIDERS.some(([provider]) => provider === saved[scene])) {
+    if (saved[scene] === 'none' || IMAGE_GENERATION_PROVIDERS.some(([provider]) => provider === saved[scene])) {
       result[scene] = saved[scene];
       return;
     }

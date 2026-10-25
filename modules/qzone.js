@@ -138,8 +138,8 @@
     if (buttonElement) { buttonElement.disabled = true; buttonElement.textContent = '上传中...'; }
     try {
       const post = await db.qzonePosts.get(postId);
-      if (!post || !post.image_prompt) throw new Error('这条动态没有可用的图片提示词');
-      const sourceUrl = getPollinationsImageUrl(post.image_prompt);
+      if (!post || !(post.image_prompt || post.hiddenContent)) throw new Error('这条动态没有可用的图片提示词');
+      const sourceUrl = getPollinationsImageUrl(post.image_prompt || post.hiddenContent);
       const dataUrl = await fetchImageAsDataUrl(sourceUrl);
       const hostedUrl = await persistGeneratedImage(dataUrl, 'QQ动态原图');
       if (!/^https?:\/\//i.test(hostedUrl)) throw new Error('ImgBB 上传失败，未拿到 URL');
@@ -164,9 +164,9 @@
     if (buttonElement) { buttonElement.disabled = true; buttonElement.textContent = '生成中...'; }
     try {
       const post = await db.qzonePosts.get(postId);
-      if (!post || !post.image_prompt) throw new Error('这条动态没有可用的图片提示词');
+      if (!post || !(post.image_prompt || post.hiddenContent)) throw new Error('这条动态没有可用的图片提示词');
       const chatId = post.authorId && state.chats?.[post.authorId] ? post.authorId : null;
-      const generated = await generateImageForScene(post.image_prompt, 'qzone', chatId, null, post.subjects);
+      const generated = await generateImageForScene(post.image_prompt || post.hiddenContent, 'qzone', chatId, null, post.subjects);
       if (!generated || !generated.imageUrl) throw new Error('当前 QQ 动态供应商不可用');
       let imageUrl = generated.imageUrl;
       if (/pollinations\.ai/i.test(imageUrl)) {
