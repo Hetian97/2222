@@ -1103,12 +1103,27 @@ window.initEventBindingsB = function(state, db) {
       const description = await showCustomPrompt("发送照片", "请用文字描述您要发送的照片：");
       if (description && description.trim()) {
         const chat = state.chats[state.activeChatId];
+        const basePrompt = description.trim();
         const msg = {
           role: 'user',
           type: 'user_photo',
-          content: description.trim(),
+          content: basePrompt,
+          image_prompt: basePrompt,
+          subjects: ['user'],
           timestamp: Date.now()
         };
+        try {
+          const generated = await generateImageForScene(basePrompt, 'chat', chat.id, null, ['user']);
+          if (generated && generated.imageUrl) {
+            msg.imageUrl = generated.imageUrl;
+            msg.image_provider = generated.provider;
+          } else {
+            alert('当前聊天生图供应商不可用或选择了“不生成”，本次只发送文字描述。');
+          }
+        } catch (error) {
+          console.error('用户照片生成失败:', error);
+          alert(`照片生成失败，本次只发送文字描述：${error.message}`);
+        }
         chat.history.push(msg);
         await db.chats.put(chat);
         appendMessage(msg, chat);
@@ -1676,7 +1691,22 @@ window.initEventBindingsB = function(state, db) {
             type: 'text_image',
             publicText: publicText,
             hiddenContent: hiddenText,
+            image_prompt: hiddenText,
+            subjects: ['user'],
           };
+          try {
+            const generated = await generateImageForScene(hiddenText, 'qzone', null, null, ['user']);
+            if (generated && generated.imageUrl) {
+              newPost.imageUrl = generated.imageUrl;
+              newPost.imageUrls = [generated.imageUrl];
+              newPost.image_provider = generated.provider;
+            } else {
+              alert('当前 QQ 动态生图供应商不可用或选择了“不生成”，本次只保存文字图描述。');
+            }
+          } catch (error) {
+            console.error('用户动态图片生成失败:', error);
+            alert(`动态图片生成失败，本次只保存文字图描述：${error.message}`);
+          }
         }
       }
 
