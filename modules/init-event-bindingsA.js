@@ -926,6 +926,7 @@ window.initEventBindingsA = async function(state, db) {
     window.renderWorldBookScreenProxy = renderWorldBookScreen;
 
     await loadAllDataFromDB();
+    await window.ensureUnifiedApiKeyStorage?.();
     await initFunds();
 
     // 初始化提示词管理器

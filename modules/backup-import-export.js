@@ -282,6 +282,50 @@
     'floating-ball-state'
   ];
 
+  const BACKUP_API_KEY_STORAGE_KEYS = [
+    'pollinations-api-key',
+    'google-imagen-api-key',
+    'novelai-api-key',
+    'openai-image-api-key',
+    'imgbb-api-key',
+    'minimax-api-key',
+    'couplespace-api-key',
+    'catbox-userhash',
+    'github-token',
+    'vm_external_memory_bearer_token'
+  ];
+
+  function exportBackupApiKeys() {
+    const keys = {};
+    for (const key of BACKUP_API_KEY_STORAGE_KEYS) {
+      const value = localStorage.getItem(key);
+      if (value !== null && value !== '') keys[key] = value;
+    }
+    return keys;
+  }
+
+  function restoreBackupApiKeys(keys) {
+    if (!keys || typeof keys !== 'object') return;
+    const stateFieldMap = {
+      'pollinations-api-key': 'pollinationsApiKey',
+      'google-imagen-api-key': 'googleImagenApiKey',
+      'novelai-api-key': 'novelaiApiKey',
+      'openai-image-api-key': 'openaiImageApiKey',
+      'imgbb-api-key': 'imgbbApiKey',
+      'minimax-api-key': 'minimaxApiKey',
+      'couplespace-api-key': 'couplespaceApiKey',
+      'catbox-userhash': 'catboxUserHash',
+      'github-token': 'githubToken',
+      'vm_external_memory_bearer_token': 'externalMemoryBearerToken'
+    };
+    for (const [key, value] of Object.entries(keys)) {
+      if (!BACKUP_API_KEY_STORAGE_KEYS.includes(key) || typeof value !== 'string' || !value) continue;
+      localStorage.setItem(key, value);
+      const field = stateFieldMap[key];
+      if (field && typeof state !== 'undefined' && state.apiConfig) state.apiConfig[field] = value;
+    }
+  }
+
   function exportContextLocalStorage(keys, label) {
     const localStorageData = {};
 
@@ -542,6 +586,9 @@
         mailPublicBoxes,
         mailSettings,
         
+        // 明文 API Key（仅用于本地完整备份，请勿公开分享备份文件）
+        apiKeys: exportBackupApiKeys(),
+
         // 情侣空间 localStorage 数据
         localStorage: coupleSpaceLocalStorage,
 
@@ -565,7 +612,7 @@
       link.click();
       URL.revokeObjectURL(url);
 
-      await showCustomAlert('导出成功', '已成功导出所有数据！');
+      await showCustomAlert('导出成功', '已成功导出所有数据！备份包含明文 API Key，请勿公开分享。');
 
     } catch (error) {
       console.error("导出数据时出错:", error);
@@ -938,6 +985,7 @@
       });
       
       restoreContextLocalStorageFromBackupData(backupData.data || backupData);
+      restoreBackupApiKeys(backupData.apiKeys || backupData.data?.apiKeys);
 
       // 3. 如果备份中有 localStorage 分类数据，则恢复
       if (backupData.localStorage) {
@@ -1401,6 +1449,7 @@
         contextDataToRestore.globalSettings = dataToMerge.globalSettings;
       }
       restoreContextLocalStorageFromBackupData(contextDataToRestore);
+      restoreBackupApiKeys(dataToMerge.apiKeys || dataToMerge.data?.apiKeys);
 
       // 处理数据库表
       await db.transaction('rw', db.tables, async () => {
@@ -1546,6 +1595,7 @@
       });
       
       restoreContextLocalStorageFromBackupData(backupData.data || backupData);
+      restoreBackupApiKeys(backupData.apiKeys || backupData.data?.apiKeys);
 
       // 3. 如果备份中有 localStorage 分类数据，则恢复
       if (backupData.localStorage) {
@@ -1963,7 +2013,7 @@
       link.click();
       URL.revokeObjectURL(url);
 
-      await showCustomAlert('导出成功', '已成功导出所有数据！');
+      await showCustomAlert('导出成功', '已成功导出所有数据！备份包含明文 API Key，请勿公开分享。');
 
     } catch (error) {
       console.error("传统导出数据时出错:", error);
