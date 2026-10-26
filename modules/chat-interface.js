@@ -1803,6 +1803,12 @@
         groupNai.style.display = 'none';
       }
     }
+    if (chat) {
+      const imageGenSwitch = document.getElementById('character-image-generation-switch');
+      const imageGenLabel = document.getElementById('character-image-generation-label');
+      if (imageGenSwitch) imageGenSwitch.checked = chat.settings?.enableCharacterImageGeneration !== false;
+      if (imageGenLabel) imageGenLabel.textContent = chat.isGroup ? '允许群聊主动发送图片' : '允许角色主动发送图片';
+    }
   }
   window.openChatSettings = openChatSettings;
 
