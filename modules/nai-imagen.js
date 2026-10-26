@@ -38,13 +38,13 @@
 
     if (hasSelection) {
       updateBtn.style.display = 'block';
-      bindBtn.style.display = 'block';
+      if (bindBtn) bindBtn.style.display = 'block';
       deleteBtn.style.display = 'block';
       // 改动：选中状态下显示"另存" (2个字)
       saveBtn.textContent = '另存';
     } else {
       updateBtn.style.display = 'none';
-      bindBtn.style.display = 'none';
+      if (bindBtn) bindBtn.style.display = 'none';
       deleteBtn.style.display = 'none';
       // 改动：未选中状态下显示"新增" (2个字)
       saveBtn.textContent = '新增';
@@ -527,6 +527,18 @@
     return 'image/png';
   }
 
+  async function getEffectiveOpenAIImageSettings(chatId) {
+    let settings = getOpenAIImageSettings();
+    const presetId = chatId && typeof state !== 'undefined' ? state.chats?.[chatId]?.settings?.openaiImagePresetId : null;
+    if (presetId) {
+      const preset = await db.imagePresets.get(Number(presetId));
+      if (preset?.provider === 'openai' && preset.settings) {
+        settings = { ...settings, ...preset.settings };
+      }
+    }
+    return settings;
+  }
+
   async function generateOpenAIImageFromPrompt(aiPrompt, chatId = null, options = {}) {
     const prompt = sanitizeImagePrompt(aiPrompt) || 'A beautiful scene';
     const apiKey = localStorage.getItem('openai-image-api-key');
@@ -534,8 +546,8 @@
       throw new Error('GPT 生图 API Key 未配置。请在 GPT 生图设置中填写 API Key。');
     }
 
-    const settings = getOpenAIImageSettings();
-    const model = localStorage.getItem('openai-image-model') || settings.model || 'gpt-image-2';
+    const settings = await getEffectiveOpenAIImageSettings(chatId);
+    const model = settings.model || localStorage.getItem('openai-image-model') || 'gpt-image-2';
     const subjectPrompts = getSharedImagePrompts(chatId, options.subjects);
     let finalPrompt = prompt;
     if (settings.positivePrompt) finalPrompt += `, ${settings.positivePrompt}`;
@@ -689,6 +701,18 @@
     localStorage.setItem('google-imagen-settings', JSON.stringify(settings));
   }
 
+  async function getEffectiveGoogleImagenSettings(chatId) {
+    let settings = getGoogleImagenSettings();
+    const presetId = chatId && typeof state !== 'undefined' ? state.chats?.[chatId]?.settings?.imagenPresetId : null;
+    if (presetId) {
+      const preset = await db.imagePresets.get(Number(presetId));
+      if (preset?.provider === 'imagen' && preset.settings) {
+        settings = { ...settings, ...preset.settings };
+      }
+    }
+    return settings;
+  }
+
   async function generateGoogleImagenFromPrompt(aiPrompt, chatId = null, options = {}) {
     console.log(`🎨 [Google Imagen] 开始生成... Prompt: "${aiPrompt}"`);
 
@@ -697,8 +721,8 @@
       throw new Error('Google Imagen API Key未配置。请在Google Imagen设置中填写API Key。');
     }
 
-    const settings = getGoogleImagenSettings();
-    const model = localStorage.getItem('google-imagen-model') || settings.model;
+    const settings = await getEffectiveGoogleImagenSettings(chatId);
+    const model = settings.model || localStorage.getItem('google-imagen-model');
     const baseEndpoint = (settings.endpoint || 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
     const isGemini = baseEndpoint.includes('generativelanguage.googleapis.com');
 

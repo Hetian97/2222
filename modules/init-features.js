@@ -7723,7 +7723,7 @@ ${finalInstruction}
     document.getElementById('save-nai-preset-btn').addEventListener('click', () => handleSaveNaiPreset(false));
     document.getElementById('update-nai-preset-btn').addEventListener('click', () => handleSaveNaiPreset(true));
     document.getElementById('delete-nai-preset-btn').addEventListener('click', handleDeleteNaiPreset);
-    document.getElementById('bind-nai-preset-btn').addEventListener('click', openNaiBindingModal);
+    document.getElementById('bind-nai-preset-btn')?.addEventListener('click', openNaiBindingModal);
 
     document.getElementById('save-nai-binding-btn').addEventListener('click', saveNaiBinding);
     document.getElementById('cancel-nai-binding-btn').addEventListener('click', () => {
