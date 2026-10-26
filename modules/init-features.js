@@ -1207,9 +1207,16 @@ window.initFeatures = function(state, db) {
       const input = document.getElementById('pollinations-api-key');
       input.type = input.type === 'password' ? 'text' : 'password';
     });
+    // Minimax TTS Key 显示/隐藏切换
+    document.getElementById('minimax-key-toggle')?.addEventListener('click', () => {
+      const input = document.getElementById('minimax-api-key');
+      if (input) input.type = input.type === 'password' ? 'text' : 'password';
+    });
     // Pollinations Key 保存
     document.getElementById('pollinations-api-key')?.addEventListener('change', (e) => {
-      localStorage.setItem('pollinations-api-key', e.target.value.trim());
+      const value = e.target.value.trim();
+      localStorage.setItem('pollinations-api-key', value);
+      window.setUnifiedApiKey?.('pollinationsApiKey', value);
     });
     // Pollinations 模型保存
     document.getElementById('pollinations-model')?.addEventListener('change', (e) => {

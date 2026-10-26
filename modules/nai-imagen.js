@@ -266,6 +266,7 @@
     localStorage.setItem('novelai-enabled', novelaiEnabled);
     localStorage.setItem('novelai-model', novelaiModel);
     localStorage.setItem('novelai-api-key', novelaiApiKey);
+    window.setUnifiedApiKey?.('novelaiApiKey', novelaiApiKey);
 
 
     const settings = {
@@ -440,6 +441,7 @@
     localStorage.setItem('openai-image-model', model);
     localStorage.setItem('openai-image-api-key', apiKey);
     localStorage.setItem('openai-image-settings', JSON.stringify(settings));
+    window.setUnifiedApiKey?.('openaiImageApiKey', apiKey);
   }
 
   async function fetchOpenAIImageModels() {
@@ -696,6 +698,7 @@
     localStorage.setItem('google-imagen-enabled', enabled);
     localStorage.setItem('google-imagen-model', model);
     localStorage.setItem('google-imagen-api-key', apiKey);
+    window.setUnifiedApiKey?.('googleImagenApiKey', apiKey);
 
     const settings = { model, endpoint: endpoint || 'https://generativelanguage.googleapis.com', aspectRatio, positivePrompt, negativePrompt };
     localStorage.setItem('google-imagen-settings', JSON.stringify(settings));

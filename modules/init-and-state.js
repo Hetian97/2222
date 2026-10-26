@@ -522,6 +522,11 @@ document.addEventListener('DOMContentLoaded', () => {
       minimaxModel: 'speech-01',
       imgbbEnable: false,
       imgbbApiKey: '',
+      pollinationsApiKey: '',
+      googleImagenApiKey: '',
+      novelaiApiKey: '',
+      openaiImageApiKey: '',
+      externalMemoryBearerToken: '',
 
       catboxEnable: false,
       catboxUserHash: '',
@@ -642,7 +647,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof initFloatingBall === 'function') {
       initFloatingBall();
     }
-    
+
+    // 再执行一次，避免其他初始化流程覆盖刚迁移的 key
+    await window.ensureUnifiedApiKeyStorage?.();
+
     showScreen('home-screen');
   }
 
