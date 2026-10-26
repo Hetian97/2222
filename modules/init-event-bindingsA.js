@@ -3107,6 +3107,10 @@ window.initEventBindingsA = async function(state, db) {
         charNaiGroup.style.display = isGroup ? 'none' : 'block';
         groupNaiGroup.style.display = isGroup ? 'block' : 'none';
       }
+      const imageGenSwitch = document.getElementById('character-image-generation-switch');
+      const imageGenLabel = document.getElementById('character-image-generation-label');
+      if (imageGenSwitch) imageGenSwitch.checked = chat.settings?.enableCharacterImageGeneration !== false;
+      if (imageGenLabel) imageGenLabel.textContent = isGroup ? '允许群聊主动发送图片' : '允许角色主动发送图片';
 
       const weatherSection = document.getElementById('weather-settings-section');
       if (isGroup) {

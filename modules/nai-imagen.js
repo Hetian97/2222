@@ -333,6 +333,55 @@
     return values.map(value => String(value).trim().toLowerCase()).filter(Boolean);
   }
 
+  function getNaiPromptBundle(chatId, subjects, settings) {
+    const normalized = normalizeImageSubjects(subjects);
+    const includeChar = normalized === null || normalized.includes('char');
+    const includeUser = normalized !== null && normalized.includes('user');
+    const charPrompts = includeChar ? getCharacterImagePrompts(chatId) : { positive: '', negative: '' };
+    const userPrompts = includeUser ? getUserImagePrompts() : { positive: '', negative: '' };
+    const stylePositive = String(settings?.default_positive || '').trim();
+    const styleNegative = String(settings?.default_negative || '').trim();
+    return {
+      positive: [stylePositive, charPrompts.positive, userPrompts.positive].filter(Boolean).join(', '),
+      negative: [styleNegative, charPrompts.negative, userPrompts.negative].filter(Boolean).join(', '),
+      stylePositive,
+      styleNegative,
+      characterPositive: charPrompts.positive,
+      characterNegative: charPrompts.negative,
+      userPositive: userPrompts.positive,
+      userNegative: userPrompts.negative,
+      includeChar,
+      includeUser
+    };
+  }
+
+  function applyNaiCharacterPayload(requestBody, promptBundle, aiPrompt) {
+    if (!requestBody?.parameters?.v4_prompt || !promptBundle?.includeChar || !promptBundle?.includeUser) return;
+    if (!promptBundle.characterPositive || !promptBundle.userPositive) return;
+    const centers = [{ x: 0.35, y: 0.5 }, { x: 0.65, y: 0.5 }];
+    const basePositive = sanitizeImagePrompt([aiPrompt, promptBundle.stylePositive].filter(Boolean).join(', '));
+    const baseNegative = sanitizeImagePrompt(promptBundle.styleNegative);
+    requestBody.input = basePositive;
+    const params = requestBody.parameters;
+    params.v4_prompt.caption.base_caption = basePositive;
+    params.v4_prompt.caption.char_captions = [
+      { char_caption: promptBundle.characterPositive, centers: [centers[0]] },
+      { char_caption: promptBundle.userPositive, centers: [centers[1]] }
+    ];
+    params.v4_prompt.use_coords = true;
+    params.v4_negative_prompt.caption.base_caption = baseNegative;
+    params.v4_negative_prompt.caption.char_captions = [
+      { char_caption: promptBundle.characterNegative, centers: [centers[0]] },
+      { char_caption: promptBundle.userNegative, centers: [centers[1]] }
+    ];
+    params.negative_prompt = baseNegative;
+    params.use_coords = true;
+    params.characterPrompts = [
+      { prompt: promptBundle.characterPositive, uc: promptBundle.characterNegative, center: centers[0], enabled: true },
+      { prompt: promptBundle.userPositive, uc: promptBundle.userNegative, center: centers[1], enabled: true }
+    ];
+  }
+
   function getSharedImagePrompts(chatId, subjects) {
     const normalized = normalizeImageSubjects(subjects);
     // 旧消息没有 subjects 时保持兼容：默认只追加角色形象。
@@ -932,6 +981,16 @@
     return defaultSettings;
   }
 
+  async function getEffectiveNovelAISettings(chatId) {
+    let settings = getNovelAISettings();
+    if (chatId && typeof state !== 'undefined' && state.chats?.[chatId]?.settings?.naiPresetId) {
+      const presetId = state.chats[chatId].settings.naiPresetId;
+      const preset = await db.naiPresets.get(presetId);
+      if (preset?.settings) settings = { ...settings, ...preset.settings };
+    }
+    return settings;
+  }
+
   async function generateNaiImageFromPrompt(aiPrompt, chatId, subjects = null) {
       console.log(`🎨 [NAI核心生成] 开始... Prompt: "${aiPrompt}", ChatID: ${chatId}`);
 
@@ -955,34 +1014,11 @@
       }
 
       // 【第2步】决定提示词，优先级：角色专属画师串 > 绑定预设画师串 > 全局默认
-      const normalizedSubjects = normalizeImageSubjects(subjects);
-      const includeCharacter = normalizedSubjects === null || normalizedSubjects.includes('char');
-      const includeUser = normalizedSubjects !== null && normalizedSubjects.includes('user');
-      const naiPrompts = includeCharacter
-        ? getCharacterNAIPrompts(chatId)
-        : { positive: '', negative: '', source: 'none' };
-      let positiveBase = naiPrompts.positive;
-      let negativeBase = naiPrompts.negative;
+      const promptBundle = getNaiPromptBundle(chatId, subjects, settings);
+      const finalPositivePrompt = sanitizeImagePrompt([aiPrompt, promptBundle.positive].filter(Boolean).join(', '));
+      const finalNegativePrompt = sanitizeImagePrompt(promptBundle.negative);
 
-      // 如果角色没有专属画师串，但绑定了预设且预设里有画师串，用预设的
-      if (includeCharacter && naiPrompts.source !== 'character' && boundPresetSettings) {
-        if (boundPresetSettings.default_positive) {
-          positiveBase = boundPresetSettings.default_positive;
-          console.log('📝 使用绑定预设的正面提示词:', positiveBase);
-        }
-        if (boundPresetSettings.default_negative) {
-          negativeBase = boundPresetSettings.default_negative;
-          console.log('📝 使用绑定预设的负面提示词:', negativeBase);
-        }
-      }
-
-      const userPrompts = includeUser ? getUserImagePrompts() : { positive: '', negative: '' };
-      if (userPrompts.positive) positiveBase = [positiveBase, userPrompts.positive].filter(Boolean).join(', ');
-      if (userPrompts.negative) negativeBase = [negativeBase, userPrompts.negative].filter(Boolean).join(', ');
-      const finalPositivePrompt = sanitizeImagePrompt([aiPrompt, positiveBase].filter(Boolean).join(', '));
-      const finalNegativePrompt = sanitizeImagePrompt(negativeBase);
-
-      console.log(`📝 提示词来源: ${naiPrompts.source === 'character' ? '角色专属' : (boundPresetSettings ? '绑定预设' : '系统默认')}`);
+      console.log('📝 提示词来源: 全局风格 + 角色/用户形象');
       console.log('   [+] 最终正面提示词:', finalPositivePrompt);
       console.log('   [-] 最终负面提示词:', finalNegativePrompt);
 
@@ -993,10 +1029,23 @@
       const [width, height] = settings.resolution.split('x').map(Number);
 
 
+      const useCharacterCaptions = promptBundle.includeChar && promptBundle.includeUser &&
+        !!promptBundle.characterPositive && !!promptBundle.userPositive;
+      const basePositive = useCharacterCaptions
+        ? sanitizeImagePrompt([aiPrompt, promptBundle.stylePositive].filter(Boolean).join(', '))
+        : finalPositivePrompt;
+      const baseNegative = useCharacterCaptions
+        ? sanitizeImagePrompt(promptBundle.styleNegative)
+        : finalNegativePrompt;
+      const characterCenters = [
+        { x: 0.35, y: 0.5 },
+        { x: 0.65, y: 0.5 }
+      ];
+
       let requestBody;
       if (model.includes('nai-diffusion-4')) {
         requestBody = {
-          input: finalPositivePrompt,
+          input: basePositive,
           model: model,
           action: 'generate',
           parameters: {
@@ -1014,20 +1063,26 @@
             noise_schedule: 'karras',
             v4_prompt: {
               caption: {
-                base_caption: finalPositivePrompt,
-                char_captions: []
+                base_caption: basePositive,
+                char_captions: useCharacterCaptions ? [
+                  { char_caption: promptBundle.characterPositive, centers: [characterCenters[0]] },
+                  { char_caption: promptBundle.userPositive, centers: [characterCenters[1]] }
+                ] : []
               },
-              use_coords: false,
+              use_coords: useCharacterCaptions,
               use_order: true
             },
             v4_negative_prompt: {
               caption: {
-                base_caption: finalNegativePrompt,
-                char_captions: []
+                base_caption: baseNegative,
+                char_captions: useCharacterCaptions ? [
+                  { char_caption: promptBundle.characterNegative, centers: [characterCenters[0]] },
+                  { char_caption: promptBundle.userNegative, centers: [characterCenters[1]] }
+                ] : []
               },
               legacy_uc: false
             },
-            negative_prompt: finalNegativePrompt,
+            negative_prompt: baseNegative,
             autoSmea: false,
             dynamic_thresholding: false,
             controlnet_strength: 1,
@@ -1035,11 +1090,14 @@
             cfg_rescale: 0,
             legacy_v3_extend: false,
             skip_cfg_above_sigma: null,
-            use_coords: false,
+            use_coords: useCharacterCaptions,
             legacy_uc: false,
             normalize_reference_strength_multiple: true,
             inpaintImg2ImgStrength: 1,
-            characterPrompts: [],
+            characterPrompts: useCharacterCaptions ? [
+              { prompt: promptBundle.characterPositive, uc: promptBundle.characterNegative, center: characterCenters[0], enabled: true },
+              { prompt: promptBundle.userPositive, uc: promptBundle.userNegative, center: characterCenters[1], enabled: true }
+            ] : [],
             deliberate_euler_ancestral_bug: false,
             prefer_brownian: true
           }
@@ -1073,6 +1131,7 @@
         };
       }
 
+      applyNaiCharacterPayload(requestBody, promptBundle, aiPrompt);
       console.log('🚀 发送NAI请求:', requestBody);
 
 

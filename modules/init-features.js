@@ -2284,6 +2284,14 @@ window.initFeatures = function(state, db) {
     });
 
 
+    document.getElementById('character-image-generation-switch')?.addEventListener('change', async (event) => {
+      if (!state.activeChatId) return;
+      const chat = state.chats[state.activeChatId];
+      if (!chat) return;
+      chat.settings.enableCharacterImageGeneration = !!event.target.checked;
+      await db.chats.put(chat);
+    });
+
     document.getElementById('character-nai-prompts-btn').addEventListener('click', () => {
       if (!state.activeChatId) return;
       const chat = state.chats[state.activeChatId];

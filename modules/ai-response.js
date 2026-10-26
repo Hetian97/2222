@@ -2343,6 +2343,11 @@ ${linkedContents}
           }
         }
 
+        if (['naiimag', 'googleimag', 'openaiimag', 'ai_image'].includes(msgData.type) &&
+            !isCharacterImageGenerationAllowed(chat)) {
+          continue;
+        }
+
         switch (msgData.type) {
           case 'text':
             aiMessage = {
@@ -6087,6 +6092,11 @@ ${getActiveThoughtsPrompt()}
           }
         }
 
+        if (['naiimag', 'googleimag', 'openaiimag', 'ai_image'].includes(msgData.type) &&
+            !isCharacterImageGenerationAllowed(chat)) {
+          continue;
+        }
+
         switch (msgData.type) {
           case 'add_todo': {
             if (!chat.settings.enableTodoList) continue;
@@ -7037,24 +7047,18 @@ ${getActiveThoughtsPrompt()}
                   console.log(`生成第${i + 1}张图片，prompt:`, aiPrompt);
 
 
-                  const normalizedSubjects = normalizeImageSubjects(msgData.subjects);
-                  const includeCharacter = normalizedSubjects === null || normalizedSubjects.includes('char');
-                  const includeUser = normalizedSubjects !== null && normalizedSubjects.includes('user');
-                  const naiPrompts = includeCharacter
-                    ? getCharacterNAIPrompts(chat.id)
-                    : { positive: '', negative: '', source: 'none' };
-                  const userPrompts = includeUser ? getUserImagePrompts() : { positive: '', negative: '' };
-                  const finalPositivePrompt = sanitizeImagePrompt([aiPrompt, naiPrompts.positive, userPrompts.positive].filter(Boolean).join(', '));
-                  const finalNegativePrompt = sanitizeImagePrompt([naiPrompts.negative, userPrompts.negative].filter(Boolean).join(', '));
+                  const promptBundle = getNaiPromptBundle(chat.id, msgData.subjects, await getEffectiveNovelAISettings(chat.id));
+                  const finalPositivePrompt = sanitizeImagePrompt([aiPrompt, promptBundle.positive].filter(Boolean).join(', '));
+                  const finalNegativePrompt = sanitizeImagePrompt(promptBundle.negative);
 
-                  console.log(`📝 使用${naiPrompts.source === 'character' ? '角色专属' : '系统'}提示词配置`);
+                  console.log('📝 使用全局风格 + 角色/用户形象');
                   console.log('最终正面提示词:', finalPositivePrompt);
                   console.log('最终负面提示词:', finalNegativePrompt);
 
 
                   const apiKey = localStorage.getItem('novelai-api-key');
                   const model = localStorage.getItem('novelai-model') || 'nai-diffusion-4-5-full';
-                  const settings = getNovelAISettings();
+                  const settings = await getEffectiveNovelAISettings(chat.id);
 
                   if (!apiKey) {
                     throw new Error('NovelAI API Key未配置。请在NovelAI设置中填写API Key。');
@@ -7148,6 +7152,7 @@ ${getActiveThoughtsPrompt()}
                     };
                   }
 
+                  applyNaiCharacterPayload(requestBody, promptBundle, aiPrompt);
                   console.log('🚀 发送NAI请求:', requestBody);
 
 
@@ -8248,25 +8253,19 @@ ${getActiveThoughtsPrompt()}
               console.log('📸 NovelAI图片生成开始，AI提供的prompt:', msgData.prompt);
 
 
-              const normalizedSubjects = normalizeImageSubjects(msgData.subjects);
-              const includeCharacter = normalizedSubjects === null || normalizedSubjects.includes('char');
-              const includeUser = normalizedSubjects !== null && normalizedSubjects.includes('user');
-              const naiPrompts = includeCharacter
-                ? getCharacterNAIPrompts(chat.id)
-                : { positive: '', negative: '', source: 'none' };
-              const userPrompts = includeUser ? getUserImagePrompts() : { positive: '', negative: '' };
+              const promptBundle = getNaiPromptBundle(chat.id, msgData.subjects, await getEffectiveNovelAISettings(chat.id));
               const aiPrompt = msgData.prompt || 'a beautiful scene';
-              const finalPositivePrompt = sanitizeImagePrompt([aiPrompt, naiPrompts.positive, userPrompts.positive].filter(Boolean).join(', '));
-              const finalNegativePrompt = sanitizeImagePrompt([naiPrompts.negative, userPrompts.negative].filter(Boolean).join(', '));
+              const finalPositivePrompt = sanitizeImagePrompt([aiPrompt, promptBundle.positive].filter(Boolean).join(', '));
+              const finalNegativePrompt = sanitizeImagePrompt(promptBundle.negative);
 
-              console.log(`📝 使用${naiPrompts.source === 'character' ? '角色专属' : '系统'}提示词配置`);
+              console.log('📝 使用全局风格 + 角色/用户形象');
               console.log('最终正面提示词:', finalPositivePrompt);
               console.log('最终负面提示词:', finalNegativePrompt);
 
 
               const apiKey = localStorage.getItem('novelai-api-key');
               const model = localStorage.getItem('novelai-model') || 'nai-diffusion-4-5-full';
-              const settings = getNovelAISettings();
+              const settings = await getEffectiveNovelAISettings(chat.id);
 
               if (!apiKey) {
                 throw new Error('NovelAI API Key未配置。请在NovelAI设置中填写API Key。');
@@ -8360,6 +8359,7 @@ ${getActiveThoughtsPrompt()}
                 };
               }
 
+              applyNaiCharacterPayload(requestBody, promptBundle, aiPrompt);
               console.log('🚀 发送NAI请求:', requestBody);
 
 

@@ -213,6 +213,11 @@ async function inferImageSubjects(description, chatId = null, fallback = ['user'
   }
 }
 
+function isCharacterImageGenerationAllowed(chat) {
+  if (!chat) return true;
+  return chat.settings?.enableCharacterImageGeneration !== false;
+}
+
 function composePromptForSubjects(prompt, chatId, subjects) {
   const cleanPrompt = sanitizeImagePrompt(prompt);
   if (typeof getSharedImagePrompts !== 'function') return cleanPrompt;
