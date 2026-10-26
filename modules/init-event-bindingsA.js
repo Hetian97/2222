@@ -3111,6 +3111,10 @@ window.initEventBindingsA = async function(state, db) {
       const imageGenLabel = document.getElementById('character-image-generation-label');
       if (imageGenSwitch) imageGenSwitch.checked = chat.settings?.enableCharacterImageGeneration !== false;
       if (imageGenLabel) imageGenLabel.textContent = isGroup ? '允许群聊主动发送图片' : '允许角色主动发送图片';
+      const imageGenDesc = document.getElementById('character-image-generation-desc');
+      if (imageGenDesc) imageGenDesc.textContent = isGroup
+        ? '只控制群聊主动生图，不影响你主动发送照片'
+        : '只控制角色主动生图，不影响你主动发送照片';
 
       const weatherSection = document.getElementById('weather-settings-section');
       if (isGroup) {
