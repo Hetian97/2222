@@ -145,6 +145,11 @@ db.version(63).stores({
   focusEvents: '++id, sessionId, type, timestamp'
 });
 
+// Google Imagen / GPT 生图预设
+db.version(64).stores({
+  imagePresets: '++id, provider, name'
+});
+
 window.db = db;
 
 // Every chat save stamps newly-created messages with the time zone in which

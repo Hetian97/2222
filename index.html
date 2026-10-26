@@ -35,7 +35,7 @@
   <link rel="stylesheet" href="css/social/green-river-comments.css?v=0.0.53-upstream">
   <link rel="stylesheet" href="css/living-space.css?v=0.0.4">
   <link rel="stylesheet" href="extra.css?v=0.0.37">
-  <link rel="stylesheet" href="css/frontend-upstream-controls.css?v=0.0.94-gpt">
+  <link rel="stylesheet" href="css/frontend-upstream-controls.css?v=0.0.95-gpt">
   <link rel="stylesheet" href="css/ui/free-home-layout.css?v=0.0.2">
   <link rel="stylesheet" href="css/ui/custom-widget-studio.css?v=0.0.1">
   <link rel="apple-touch-icon" href="https://i.postimg.cc/nMbyyt1t/D7CD735A73F5FD1D7B8407E0EB8BBAC0.png">
@@ -71,32 +71,33 @@
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <!-- 拆分后的模块（按依赖顺序加载） -->
   <!-- 第一层：全局工具函数（DOMContentLoaded 之前） -->
-  <script src="modules/utils.js?v=0.0.94-gpt" defer></script>
+  <script src="modules/utils.js?v=0.0.95-gpt" defer></script>
   <script src="modules/external-wake.js?v=0.0.1" defer></script>
   <script src="modules/translations.js?v=0.0.36" defer></script>
   <!-- 第二层：UI 通用组件 -->
   <script src="modules/ui-modals.js?v=0.0.36" defer></script>
   <script src="modules/ui-loaders.js?v=0.0.38" defer></script>
   <!-- 第三层：核心聊天功能 -->
-  <script src="modules/chat-list.js?v=0.0.94-gpt" defer></script>
-  <script src="modules/chat-interface.js?v=0.0.94-gpt" defer></script>
+  <script src="modules/chat-list.js?v=0.0.95-gpt" defer></script>
+  <script src="modules/chat-interface.js?v=0.0.95-gpt" defer></script>
   <script src="modules/chat-input.js?v=0.0.37" defer></script>
   <script src="modules/mcp-guide-cache.js?v=0.0.1" defer></script>
   <!-- 第四层：AI 核心 -->
   <script src="modules/chat/remark-names.js?v=0.0.54-remark" defer></script>
-  <script src="modules/ai-response.js?v=0.0.94-gpt" defer></script>
-  <script src="modules/ai-group.js?v=0.0.94-gpt" defer></script>
+  <script src="modules/ai-response.js?v=0.0.95-gpt" defer></script>
+  <script src="modules/ai-group.js?v=0.0.95-gpt" defer></script>
   <!-- 第五层：功能模块 -->
   <script src="modules/music-online-services.js?v=0.0.54-upstream" defer></script>
   <script src="modules/music-player.js?v=0.0.54-upstream" defer></script>
-  <script src="modules/qzone.js?v=0.0.94-gpt" defer></script>
+  <script src="modules/qzone.js?v=0.0.95-gpt" defer></script>
   <script src="modules/sticker-manager.js?v=0.0.36" defer></script>
   <script src="modules/memory-summary.js?v=0.0.55-remark" defer></script>
   <script src="modules/video-voice-call.js?v=0.0.36" defer></script>
-  <script src="modules/message-actions.js?v=0.0.94-gpt" defer></script>
-  <script src="modules/nai-imagen.js?v=0.0.94-gpt" defer></script>
-  <script src="modules/backup-import-export.js?v=0.0.94-gpt" defer></script>
-  <script src="modules/settings-presets.js?v=0.0.94-gpt" defer></script>
+  <script src="modules/message-actions.js?v=0.0.95-gpt" defer></script>
+  <script src="modules/nai-imagen.js?v=0.0.95-gpt" defer></script>
+  <script src="modules/image-presets.js?v=0.0.95-gpt" defer></script>
+  <script src="modules/backup-import-export.js?v=0.0.95-gpt" defer></script>
+  <script src="modules/settings-presets.js?v=0.0.95-gpt" defer></script>
   <script src="modules/settings/font-presets.js?v=0.0.56-font-upstream" defer></script>
   <script src="modules/chat-settings-presets.js?v=0.0.37" defer></script>
   <script src="modules/shopping.js?v=0.0.56" defer></script>
@@ -132,9 +133,9 @@
   <script src="modules/background-activity.js?v=0.0.37" defer></script>
   <script src="modules/card-import.js?v=0.0.57-worldbook" defer></script>
   <script src="modules/character-export.js?v=0.0.55-rules" defer></script>
-  <script src="modules/data-management.js?v=0.0.94-gpt" defer></script>
-  <script src="modules/local-image-migration.js?v=0.0.94-gpt" defer></script>
-  <script src="modules/local-music-migration.js?v=0.0.94-gpt" defer></script>
+  <script src="modules/data-management.js?v=0.0.95-gpt" defer></script>
+  <script src="modules/local-image-migration.js?v=0.0.95-gpt" defer></script>
+  <script src="modules/local-music-migration.js?v=0.0.95-gpt" defer></script>
   <script src="modules/data/custom-fonts.js?v=0.0.56-font-fix" defer></script>
   <script src="modules/worldbook-header.js?v=0.0.56-worldbook" defer></script>
   <script src="modules/misc-features.js?v=0.0.58-sparkpet" defer></script>
@@ -150,9 +151,9 @@
   <!-- PIN/城市（依赖 DOM） -->
   <script src="modules/init-pin-city.js?v=0.0.36" defer></script>
   <!-- 事件绑定和功能（依赖 state, db） -->
-  <script src="modules/init-event-bindingsA.js?v=0.0.94-gpt" defer></script>
-  <script src="modules/init-event-bindingsB.js?v=0.0.94-gpt" defer></script>
-  <script src="modules/init-features.js?v=0.0.94-gpt" defer></script>
+  <script src="modules/init-event-bindingsA.js?v=0.0.95-gpt" defer></script>
+  <script src="modules/init-event-bindingsB.js?v=0.0.95-gpt" defer></script>
+  <script src="modules/init-features.js?v=0.0.95-gpt" defer></script>
   <!-- 自由桌面 / 经典桌面切换与桌面小组件 -->
   <script src="modules/ui/free-home-layout.js?v=0.0.2" defer></script>
   <script src="modules/ui/custom-widget-studio.js?v=0.0.1" defer></script>
@@ -167,7 +168,7 @@
   <script src="period-tracker.js?v=0.0.37" defer></script>
   <script src="modules/productivity/focus-timer.js?v=0.0.53-upstream" defer></script>
   <!-- 情侣空间（从内联 script 拆分） -->
-  <script src="couple-space.js?v=0.0.94-gpt"></script>
+  <script src="couple-space.js?v=0.0.95-gpt"></script>
   <script src="helper-assistant.js?v=0.0.36" defer></script>
   <script src="force-update.js?v=0.0.36" defer></script>
   <script src="modules/floating-ball.js?v=0.0.59-sparkpet" defer></script>
@@ -176,8 +177,8 @@
   <link rel="stylesheet" href="css/keep-alive-player.css?v=0.0.36">
   <!-- 验证界面 + 开场动画样式（从内联 style 拆分） -->
   <link rel="stylesheet" href="css/auth-intro.css?v=0.0.36">
-  <link rel="stylesheet" href="css/clean-chat-detail.css?v=0.0.94-gpt">
-  <link rel="stylesheet" href="css/clean-api-settings.css?v=0.0.94-gpt">
+  <link rel="stylesheet" href="css/clean-chat-detail.css?v=0.0.95-gpt">
+  <link rel="stylesheet" href="css/clean-api-settings.css?v=0.0.95-gpt">
   <link rel="stylesheet" href="css/couple-invite.css?v=0.0.63-couple">
   <link rel="stylesheet" href="css/floating-ball.css?v=0.0.59-sparkpet">
 </head>
@@ -2958,6 +2959,17 @@
                         <button id="google-imagen-fetch-models-btn" class="settings-mini-btn" style="white-space:nowrap; padding:4px 8px; font-size:12px;">🔄 拉取</button>
                     </div>
                 </div>
+                <div class="settings-item-block">
+                    <label style="font-size:13px;">Google Imagen 出图预设</label>
+                    <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
+                        <select id="imagen-preset-select" class="settings-select" style="flex:1;"></select>
+                    </div>
+                    <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px;">
+                        <button id="save-imagen-preset-btn" class="settings-mini-btn">新增</button>
+                        <button id="update-imagen-preset-btn" class="settings-mini-btn" style="display:none;">更新</button>
+                        <button id="delete-imagen-preset-btn" class="settings-mini-btn" style="display:none;color:#ff3b30;border-color:#ff3b30;">删除</button>
+                    </div>
+                </div>
                 <div class="settings-item">
                     <label>宽高比</label>
                     <div class="settings-right">
@@ -3029,6 +3041,17 @@
                             <option value="gpt-image-1-mini">gpt-image-1-mini</option>
                         </select>
                         <button id="openai-image-fetch-models-btn" class="settings-mini-btn" type="button" style="white-space:nowrap; padding:4px 8px; font-size:12px;">🔄 拉取</button>
+                    </div>
+                </div>
+                <div class="settings-item-block">
+                    <label style="font-size:13px;">GPT 生图预设</label>
+                    <div style="display:flex;gap:6px;align-items:center;margin-top:6px;">
+                        <select id="openai-preset-select" class="settings-select" style="flex:1;"></select>
+                    </div>
+                    <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:6px;">
+                        <button id="save-openai-preset-btn" class="settings-mini-btn">新增</button>
+                        <button id="update-openai-preset-btn" class="settings-mini-btn" style="display:none;">更新</button>
+                        <button id="delete-openai-preset-btn" class="settings-mini-btn" style="display:none;color:#ff3b30;border-color:#ff3b30;">删除</button>
                     </div>
                 </div>
                 <div class="settings-item">
@@ -7082,6 +7105,13 @@
                     <span class="slider"></span>
                 </label>
              </div>
+             <div class="settings-item-block" id="character-image-preset-binding">
+                <label>角色出图预设绑定</label>
+                <div class="settings-desc" style="margin-bottom:8px;">仅影响当前角色；不绑定则使用全局配置。</div>
+                <div class="settings-item"><label>NAI 预设</label><div class="settings-right"><select id="chat-nai-preset-select" class="settings-select"><option value="">不绑定</option></select></div></div>
+                <div class="settings-item"><label>Imagen 预设</label><div class="settings-right"><select id="chat-imagen-preset-select" class="settings-select"><option value="">不绑定</option></select></div></div>
+                <div class="settings-item"><label>GPT 预设</label><div class="settings-right"><select id="chat-openai-preset-select" class="settings-select"><option value="">不绑定</option></select></div></div>
+             </div>
         </div>
 
         <!-- 第五组：外观与视觉 -->
@@ -9275,15 +9305,11 @@
     
     <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-end;">
     <button id="save-nai-preset-btn" class="settings-mini-btn">新增</button>
-    
     <button id="update-nai-preset-btn" class="settings-mini-btn" style="display:none;">更新</button>
-    
-    <button id="bind-nai-preset-btn" class="settings-mini-btn" style="display:none; background-color: #e3f2fd; color: #1976d2; border-color: #bbdefb;">🔗绑定</button>
-    
     <button id="delete-nai-preset-btn" class="settings-mini-btn" style="color: #ff3b30; border-color: #ff3b30; display:none;">删除</button>
 </div>
     
-    <p style="font-size: 12px; color: #888; margin-top: 8px; margin-bottom: 0;">* 绑定后，该角色生图时将强制使用此预设。</p>
+    <p style="font-size: 12px; color: #888; margin-top: 8px; margin-bottom: 0;">* 预设绑定已移动到“聊天设置 → 角色出图预设绑定”。</p>
 </div>
             <div class="form-group">
                 <label style="color: #333;">图像尺寸（oplus可无限出小图）</label>

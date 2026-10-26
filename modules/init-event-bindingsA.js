@@ -3115,6 +3115,7 @@ window.initEventBindingsA = async function(state, db) {
       if (imageGenDesc) imageGenDesc.textContent = isGroup
         ? '只控制群聊主动生图，不影响你主动发送照片'
         : '只控制角色主动生图，不影响你主动发送照片';
+      window.loadChatImagePresetBindings?.(chat);
 
       const weatherSection = document.getElementById('weather-settings-section');
       if (isGroup) {

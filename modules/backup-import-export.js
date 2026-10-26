@@ -396,6 +396,7 @@
         quickReplyCategories,
         npcGroups,
         naiPresets,
+        imagePresets,
         grAuthors,
         grStories,
         userWallet,
@@ -453,6 +454,7 @@
         db.quickReplyCategories.toArray(),
         db.npcGroups.toArray(),
         db.naiPresets.toArray(),
+        db.imagePresets.toArray(),
         db.grAuthors.toArray(),
         db.grStories.toArray(),
         db.userWallet.get('main'),
@@ -522,6 +524,7 @@
         quickReplyCategories,
         npcGroups,
         naiPresets,
+        imagePresets,
         grAuthors,
         grStories,
         userWallet,
@@ -655,6 +658,7 @@
         quickReplyCategories: '快捷回复分类',
         npcGroups: 'NPC分组',
         naiPresets: 'NAI预设',
+        imagePresets: '生图预设',
         grAuthors: '绿江作者',
         grStories: '绿江故事',
         userWallet: '钱包',
@@ -1522,6 +1526,7 @@
         if (Array.isArray(backupData.quickReplyCategories)) await db.quickReplyCategories.bulkPut(backupData.quickReplyCategories);
         if (Array.isArray(backupData.npcGroups)) await db.npcGroups.bulkPut(backupData.npcGroups);
         if (Array.isArray(backupData.naiPresets)) await db.naiPresets.bulkPut(backupData.naiPresets);
+        if (Array.isArray(backupData.imagePresets)) await db.imagePresets.bulkPut(backupData.imagePresets);
         if (Array.isArray(backupData.grAuthors)) await db.grAuthors.bulkPut(backupData.grAuthors);
         if (Array.isArray(backupData.grStories)) await db.grStories.bulkPut(backupData.grStories);
         if (backupData.userWallet) await db.userWallet.put(backupData.userWallet);
