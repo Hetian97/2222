@@ -3226,13 +3226,26 @@ ${output}`;
     }
 
     // 顶部工具栏
-    // 本地缓存默认最多装 5000 条，服务端总数可能更多 —— 显示时要说清，否则像丢了记忆。
-    // 服务端总数平时不知道（vm.fragments 来自 IndexedDB 缓存），所以这里取一次（每会话一次）。
+    // 本地缓存默认最多装 5000 条，服务端总数/向量数可能更多 —— 必须显示服务端的真实统计，
+    // 否则「总数 5423 但 Vector+BM25=5000」自相矛盾。每会话只取一次。
     if (!vm._memTotalChecked && !vm._memTotalLoading) {
       vm._memTotalLoading = true;
-      this.fetchMemoryPanelPage(chat, {}, 0, 1)
-        .then(page => {
+      Promise.all([
+        this.fetchMemoryPanelPage(chat, {}, 0, 1).catch(() => null),
+        this.externalMemoryRequest(chat, '/memory/stats', { method: 'GET' }).catch(() => null)
+      ])
+        .then(([page, statsResult]) => {
           if (page && Number(page.total) > 0) vm._memTotal = Number(page.total);
+          const serverStats = statsResult?.stats || null;
+          if (serverStats) {
+            if (Number(serverStats.total) > 0) vm._memTotal = Number(serverStats.total);
+            if (Number.isFinite(Number(serverStats.withEmbedding))) {
+              vm._memVectorCount = Number(serverStats.withEmbedding);
+            }
+            if (Number.isFinite(Number(serverStats.withoutEmbedding))) {
+              vm._memBm25Count = Number(serverStats.withoutEmbedding);
+            }
+          }
         })
         .catch(() => {})
         .finally(() => {
@@ -3251,6 +3264,12 @@ ${output}`;
     const displayedTotal = serverTotal > stats.totalFragments
       ? `${serverTotal}（本地已加载 ${stats.totalFragments}）`
       : stats.totalFragments;
+    // Vector / BM25 也优先用服务端统计（本地缓存只是子集）
+    const hasServerVectorCount = Number.isFinite(Number(vm._memVectorCount)) && Number(vm._memVectorCount) >= 0 && serverTotal > 0;
+    const displayedVector = hasServerVectorCount ? Number(vm._memVectorCount) : stats.embeddedCount;
+    const displayedBm25 = Number.isFinite(Number(vm._memBm25Count)) && serverTotal > 0
+      ? Number(vm._memBm25Count)
+      : (stats.totalFragments - stats.embeddedCount);
     const toolbar = document.createElement('div');
     toolbar.className = 'vm-toolbar';
     toolbar.innerHTML = `
@@ -3260,8 +3279,8 @@ ${output}`;
 
       <span style="font-size:13px;color:#666;margin-left:10px;">
         总数 ${displayedTotal}
-        | Vector ${stats.embeddedCount}
-        | BM25 ${stats.totalFragments - stats.embeddedCount}
+        | Vector ${displayedVector}
+        | BM25 ${displayedBm25}
       </span>
 
       <div style="flex:1"></div>
