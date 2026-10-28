@@ -554,6 +554,11 @@ class VariableMemoryManager {
       vm._externalListLoadedAt = Date.now();
       // 服务端记忆总数（可能大于本地缓存的 5000 条），用于"加载更早的记忆"
       vm._memTotal = Number(result?.total || 0) || vm.fragments.length;
+      // 让下次渲染重新取服务端统计（总数/Vector/BM25）——
+      // 否则"从服务器加载"按钮点了也不会刷新这三个数字
+      vm._memTotalChecked = false;
+      vm._memVectorCount = undefined;
+      vm._memBm25Count = undefined;
 
       console.log('[变量记忆] 已从外部 memory-server 加载记忆列表:', vm.fragments.length);
 
