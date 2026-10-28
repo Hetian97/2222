@@ -107,6 +107,8 @@ CREATE TABLE IF NOT EXISTS memory_active_events (
   sourceMemoryIds TEXT,
   evidence TEXT,
   confidence REAL NOT NULL DEFAULT 0,
+  awaitingConfirmation INTEGER NOT NULL DEFAULT 0,
+  confirmDeadline INTEGER,
   createdAt INTEGER NOT NULL,
   updatedAt INTEGER NOT NULL,
   archivedAt INTEGER
@@ -366,6 +368,9 @@ ensureColumn('memory_search_logs', 'activeEventShadow', 'TEXT');
 ensureColumn('memory_search_logs', 'activeEventWrite', 'TEXT');
 ensureColumn('memory_search_logs', 'currentFactShadow', 'TEXT');
 ensureColumn('memory_search_logs', 'currentFactWrite', 'TEXT');
+// 征询句两轮确认：等待角色答复的候选（1 = 还在等，0 = 已定案）
+ensureColumn('memory_active_events', 'awaitingConfirmation', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('memory_active_events', 'confirmDeadline', 'INTEGER');
 ensureColumn('memory_organization_runs', 'chatId', 'TEXT');
 ensureColumn('memory_clusters', 'subtype', "TEXT NOT NULL DEFAULT 'type_uncertain'");
 ensureColumn('memory_clusters', 'subtypeStatus', "TEXT NOT NULL DEFAULT 'candidate'");
@@ -2220,6 +2225,8 @@ function normalizeActiveEvent(row) {
   return {
     ...row,
     proactiveMention: Boolean(row.proactiveMention),
+    awaitingConfirmation: Number(row.awaitingConfirmation || 0) === 1,
+    confirmDeadline: Number(row.confirmDeadline || 0) || null,
     aliases: safeJsonParse(row.aliases, []),
     sourceMemoryIds: safeJsonParse(row.sourceMemoryIds, []),
     evidence: safeJsonParse(row.evidence, {}),
@@ -2394,19 +2401,25 @@ function upsertMemoryActiveEvent(input = {}) {
   const sourceMemoryIds = [...new Set((Array.isArray(input.sourceMemoryIds) ? input.sourceMemoryIds : [])
     .map(value => String(value || '').trim()).filter(Boolean))].slice(0, 100);
   const archivedAt = ['completed', 'cancelled', 'expired', 'archived'].includes(status) ? Number(input.archivedAt || now) : null;
+  // 征询句两轮确认：awaitingConfirmation=1 表示还在等角色答复，此期间不注入提示词
+  const awaitingConfirmation =
+    status === 'candidate' && (input.awaitingConfirmation === true || Number(input.awaitingConfirmation || 0) === 1) ? 1 : 0;
+  const confirmDeadline = awaitingConfirmation ? (Number(input.confirmDeadline || 0) || null) : null;
   db.prepare(`
     INSERT INTO memory_active_events (
       id, chatId, title, summary, status, startAt, endAt, validUntil,
       surfaceMode, proactiveMention, aliases, sourceMemoryIds, evidence,
-      confidence, createdAt, updatedAt, archivedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      confidence, awaitingConfirmation, confirmDeadline, createdAt, updatedAt, archivedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       chatId=excluded.chatId, title=excluded.title, summary=excluded.summary,
       status=excluded.status, startAt=excluded.startAt, endAt=excluded.endAt,
       validUntil=excluded.validUntil, surfaceMode=excluded.surfaceMode,
       proactiveMention=excluded.proactiveMention, aliases=excluded.aliases,
       sourceMemoryIds=excluded.sourceMemoryIds, evidence=excluded.evidence,
-      confidence=excluded.confidence, updatedAt=excluded.updatedAt,
+      confidence=excluded.confidence,
+      awaitingConfirmation=excluded.awaitingConfirmation, confirmDeadline=excluded.confirmDeadline,
+      updatedAt=excluded.updatedAt,
       archivedAt=excluded.archivedAt
   `).run(
     id, chatId, title, String(input.summary || ''), status,
@@ -2414,6 +2427,7 @@ function upsertMemoryActiveEvent(input = {}) {
     Number(input.validUntil || 0) || null, surfaceMode, input.proactiveMention === true ? 1 : 0,
     safeJsonStringify(aliases), safeJsonStringify(sourceMemoryIds), safeJsonStringify(input.evidence || {}),
     Math.max(0, Math.min(1, Number(input.confidence || 0))),
+    awaitingConfirmation, confirmDeadline,
     Number(input.createdAt || now), now, archivedAt
   );
   return normalizeActiveEvent(db.prepare('SELECT * FROM memory_active_events WHERE id = ?').get(id));
@@ -2626,6 +2640,8 @@ function listActivePlanContext(filters = {}) {
   const events = listMemoryActiveEvents({ chatId, limit: 60 })
     .filter(event => ACTIVE_PLAN_EVENT_STATUSES.has(String(event.status)))
     .filter(event => !event.validUntil || Number(event.validUntil) >= nowValue)
+    // 还在等角色答复的征询句不算计划，不能进提示词
+    .filter(event => event.awaitingConfirmation !== true && Number(event.awaitingConfirmation || 0) !== 1)
     .sort((a, b) =>
       Number(a.startAt || a.validUntil || a.updatedAt || 0) -
       Number(b.startAt || b.validUntil || b.updatedAt || 0))

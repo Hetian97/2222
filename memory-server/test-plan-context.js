@@ -452,6 +452,117 @@ try {
     '物理删除后不应还能查到'
   );
 
+  // ==================== C 阶段：征询句两轮确认 ====================
+  // 征询句（"要不要…？"）不是计划：先建「待确认」候选，等角色答复再定案。
+
+  const askClause = '这周五是中秋节，我们最近要不要去看看奶奶';
+  const askShadow = runActiveEventExtractionShadow([], {
+    query: askClause,
+    timeZone: 'Asia/Shanghai',
+    sourceScope: privateUser,
+    writesEnabled: true
+  });
+  assert.strictEqual(askShadow.proposalCount, 1, '征询句必须留下候选，而不是被否定规则直接丢掉');
+  assert.strictEqual(askShadow.proposals[0].awaitingConfirmation, true, '征询句必须标记 awaitingConfirmation');
+
+  const askLogId = succeededSearch('c-ask-1', askClause, {
+    activeEventShadow: { extraction: askShadow, sourceScope: askShadow.sourceScope, timeZone: 'Asia/Shanghai' }
+  });
+  const askWrite = applyMemoryActiveEventWrites(askLogId, { writesEnabled: true });
+  assert.strictEqual(askWrite.applied, true);
+  const pendingEvent = askWrite.events[0];
+  assert.strictEqual(pendingEvent.status, 'candidate', '待确认期间必须是 candidate，不能立刻 planned');
+  assert.strictEqual(pendingEvent.awaitingConfirmation, true);
+  assert.ok(Number(pendingEvent.confirmDeadline || 0) > Date.now(), '必须设定案截止时间');
+
+  // 待确认期间不得注入提示词
+  assert.ok(
+    !listActivePlanContext({ chatId: 'chat-1' }).events.some(event => event.id === pendingEvent.id),
+    '待确认的征询不能注入提示词'
+  );
+
+  // 角色答应 → planned
+  const acceptScope = { ...privateUser, latestAssistantDialogue: '好啊，那我们周五去看奶奶吧。' };
+  const acceptShadow = runActiveEventExtractionShadow([], {
+    query: '嗯，那就这么定了。',
+    timeZone: 'Asia/Shanghai',
+    sourceScope: acceptScope,
+    writesEnabled: true
+  });
+  const acceptLogId = succeededSearch('c-ask-2', '嗯，那就这么定了。', {
+    activeEventShadow: { extraction: acceptShadow, sourceScope: acceptShadow.sourceScope, timeZone: 'Asia/Shanghai' }
+  });
+  applyMemoryActiveEventWrites(acceptLogId, { writesEnabled: true });
+  const accepted = listMemoryActiveEvents({ chatId: 'chat-1', includeArchived: true, limit: 50 })
+    .find(event => event.id === pendingEvent.id);
+  assert.strictEqual(accepted.status, 'planned', '角色答应后必须转为 planned');
+  assert.strictEqual(accepted.awaitingConfirmation, false);
+  assert.ok(
+    listActivePlanContext({ chatId: 'chat-1' }).events.some(event => event.id === pendingEvent.id),
+    '角色答应后应重新进入注入列表'
+  );
+
+  // 角色拒绝 → cancelled
+  const ask2 = runActiveEventExtractionShadow([], {
+    query: '明天去舰队吗？',
+    timeZone: 'Asia/Shanghai',
+    sourceScope: privateUser,
+    writesEnabled: true
+  });
+  const ask2LogId = succeededSearch('c-ask-3', '明天去舰队吗？', {
+    activeEventShadow: { extraction: ask2, sourceScope: ask2.sourceScope, timeZone: 'Asia/Shanghai' }
+  });
+  const pending2 = applyMemoryActiveEventWrites(ask2LogId, { writesEnabled: true }).events[0];
+  assert.strictEqual(pending2.awaitingConfirmation, true);
+
+  const declineScope = { ...privateUser, latestAssistantDialogue: '算了，太远了，改天吧。' };
+  const declineShadow = runActiveEventExtractionShadow([], {
+    query: '那算了吧。',
+    timeZone: 'Asia/Shanghai',
+    sourceScope: declineScope,
+    writesEnabled: true
+  });
+  const declineLogId = succeededSearch('c-ask-4', '那算了吧。', {
+    activeEventShadow: { extraction: declineShadow, sourceScope: declineShadow.sourceScope, timeZone: 'Asia/Shanghai' }
+  });
+  applyMemoryActiveEventWrites(declineLogId, { writesEnabled: true });
+  const declined = listMemoryActiveEvents({ chatId: 'chat-1', includeArchived: true, limit: 50 })
+    .find(event => event.id === pending2.id);
+  assert.strictEqual(declined.status, 'cancelled', '角色拒绝后必须取消');
+
+  // 超时未答复 → expired
+  const stalePending = upsertMemoryActiveEvent({
+    chatId: 'chat-1',
+    title: '过期征询：明早体检',
+    status: 'candidate',
+    awaitingConfirmation: true,
+    confirmDeadline: Date.now() - 1000,
+    confidence: 0.5
+  });
+  assert.strictEqual(stalePending.awaitingConfirmation, true);
+  const silentShadow = runActiveEventExtractionShadow([], {
+    query: '今天好热。',
+    timeZone: 'Asia/Shanghai',
+    sourceScope: privateUser,
+    writesEnabled: true
+  });
+  const silentLogId = succeededSearch('c-ask-5', '今天好热。', {
+    activeEventShadow: { extraction: silentShadow, sourceScope: silentShadow.sourceScope, timeZone: 'Asia/Shanghai' }
+  });
+  applyMemoryActiveEventWrites(silentLogId, { writesEnabled: true });
+  const staleAfter = listMemoryActiveEvents({ chatId: 'chat-1', includeArchived: true, limit: 200 })
+    .find(event => event.id === stalePending.id);
+  assert.strictEqual(staleAfter.status, 'expired', '超过截止时间未答复必须过期');
+
+  // 普通陈述句不能被误判成待确认
+  const plainShadow = runActiveEventExtractionShadow([], {
+    query: '我明天要去医院复诊。',
+    timeZone: 'Asia/Shanghai',
+    sourceScope: privateUser,
+    writesEnabled: true
+  });
+  assert.strictEqual(plainShadow.proposals[0].awaitingConfirmation, false, '陈述句不是征询，必须直接成计划');
+
   console.log('Active plan context tests passed.');
 } finally {
   db.close();

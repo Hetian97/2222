@@ -2,6 +2,23 @@ const crypto = require('crypto');
 const TimeZoneUtils = require('./server-time-zone-utils');
 
 const WRITE_VERSION = 'active-event-write-v1';
+
+// 征询句的定案窗口：超过这个时间还没等到角色表态，就按过期处理（不再挂在那儿）
+const CONFIRM_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+// 角色回复里的「拒绝 / 接受」信号。只看开头 40 字——答复通常在句首。
+// 拒绝写在前面判断，这样「不去」不会被「去」抢先匹配。
+const DECLINE_REPLY_CUE = /(?:算了|改天|再说|太远|不行|没空|不要|别去|不去|没时间|太晚|不方便|下次吧)/u;
+const ACCEPT_REPLY_CUE = /(?:好啊|好呀|好的|可以|没问题|那就|走吧|听你的|答应|当然|说定了|一言为定|去吧|行吧|行啊|嗯嗯)/u;
+
+function resolveConfirmationVerdict(dialogue) {
+  const text = String(dialogue || '').replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+  const head = text.slice(0, 40);
+  if (DECLINE_REPLY_CUE.test(head)) return 'decline';
+  if (ACCEPT_REPLY_CUE.test(head)) return 'accept';
+  return null;
+}
 const CLEAR_FUTURE_CUE = /(?:明天|明早|明晚|后天|大后天|下周|下星期|下个月|下月|月底|年后|过(?:\d{1,3}|[一二两三四五六七八九十百]+)天|(?:\d{1,3}|[一二两三四五六七八九十百]+)天(?:后|之后|以后))/u;
 const EXPLICIT_DATE_CUE = /(?:\d{4}[年./-]\d{1,2}(?:[月./-]\d{1,2}日?)?|\d{1,2}月\d{1,2}[日号]|\d{1,2}号|(?:本|这|下)?(?:周|星期)[一二三四五六日天末])/u;
 
@@ -277,6 +294,47 @@ function planActiveEventWrites(log, existingEvents = [], options = {}) {
   const proposals = Array.isArray(extraction.proposals) ? extraction.proposals.slice(0, 4) : [];
   const operations = [];
   const skipped = [];
+  const createdAt = Number(log.createdAt || log.at || Date.now());
+
+  // ---- 先结算上一轮的「待确认」候选：看角色这条回复是答应、拒绝，还是没表态 ----
+  // 这是 C 阶段的核心：征询句不再靠"猜"，而是等角色真的回答。
+  const assistantDialogue = String(sourceScope.latestAssistantDialogue || '');
+  for (const pending of eventsById.values()) {
+    if (Number(pending.awaitingConfirmation || 0) !== 1) continue;
+    if (!['candidate', 'planned'].includes(String(pending.status || ''))) continue;
+    const verdict = resolveConfirmationVerdict(assistantDialogue);
+    const deadline = Number(pending.confirmDeadline || 0);
+    if (!verdict && !(deadline && deadline < createdAt)) continue;
+    const nextStatus = verdict === 'accept' ? 'planned' : (verdict === 'decline' ? 'cancelled' : 'expired');
+    operations.push({
+      action: verdict === 'accept' ? 'confirm' : (verdict === 'decline' ? 'decline' : 'expire'),
+      id: pending.id,
+      event: {
+        ...pending,
+        status: nextStatus,
+        awaitingConfirmation: 0,
+        confirmDeadline: null,
+        evidence: mergeEvidence(pending.evidence, {
+          at: Date.now(),
+          searchTraceId: String(log.id || ''),
+          turnId: String(log.turnId || ''),
+          attemptId: String(log.attemptId || ''),
+          actionType: String(log.actionType || 'reply'),
+          proposalAction: `confirmation_${verdict || 'timeout'}`,
+          clause: String(pending.title || ''),
+          confidence: Number(pending.confidence || 0),
+          temporalEvidence: [],
+          resolvedWindow: null,
+          sourceScope: { type: 'private', sourceChatId, mountedChatId: String(sourceScope.mountedChatId || '') },
+          characterReply: assistantDialogue.slice(0, 120)
+        })
+      },
+      reason: verdict === 'accept'
+        ? 'character_accepted'
+        : (verdict === 'decline' ? 'character_declined' : 'confirmation_window_expired')
+    });
+  }
+
   for (const proposal of proposals) {
     const action = String(proposal.action || 'none');
     const clause = String(proposal.clause || proposal.titlePreview || '').trim().slice(0, 500);
@@ -311,6 +369,9 @@ function planActiveEventWrites(log, existingEvents = [], options = {}) {
       }
       const id = deterministicEventId(chatId, clause, temporalWindow);
       const existing = eventsById.get(id);
+      // 征询句：先建「待确认」候选，等角色下一轮答复后再定案（期间不注入提示词）
+      const awaitingConfirmation = proposal.awaitingConfirmation === true;
+      const stillPending = awaitingConfirmation || (existing && Number(existing.awaitingConfirmation || 0) === 1);
       operations.push({
         action: existing ? 'update' : 'create',
         id,
@@ -320,20 +381,28 @@ function planActiveEventWrites(log, existingEvents = [], options = {}) {
           chatId,
           title: clause.slice(0, 160),
           summary: clause,
-          status: existing?.status && !['completed', 'cancelled', 'expired', 'archived'].includes(existing.status)
-            ? existing.status
-            : 'planned',
+          status: stillPending
+            ? 'candidate'
+            : (existing?.status && !['completed', 'cancelled', 'expired', 'archived'].includes(existing.status)
+              ? existing.status
+              : 'planned'),
           startAt: temporalWindow.startAt,
           endAt: temporalWindow.endAt,
           validUntil: temporalWindow.validUntil,
           surfaceMode: 'manual_only',
           proactiveMention: false,
+          awaitingConfirmation: stillPending ? 1 : 0,
+          confirmDeadline: stillPending
+            ? (Number(existing?.confirmDeadline || 0) || createdAt + CONFIRM_WINDOW_MS)
+            : null,
           aliases: [...new Set([...(existing?.aliases || []), clause.slice(0, 160)])].slice(0, 24),
           sourceMemoryIds: existing?.sourceMemoryIds || [],
           evidence: mergeEvidence(existing?.evidence, auditEntry),
           confidence: Math.max(Number(existing?.confidence || 0), confidence)
         },
-        reason: existing ? 'deterministic_repeat_update' : 'private_cross_day_plan_created'
+        reason: existing
+          ? 'deterministic_repeat_update'
+          : (stillPending ? 'awaiting_character_confirmation' : 'private_cross_day_plan_created')
       });
       continue;
     }

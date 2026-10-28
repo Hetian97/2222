@@ -133,6 +133,14 @@ class VariableMemoryManager {
       ? [...new Set((Array.isArray(sourceChat?.members) ? sourceChat.members : [])
           .map(member => String(member?.id || '').trim()).filter(Boolean))].slice(0, 50)
       : [String(sourceChat?.id || sourceChat?.chatId || '').trim()].filter(Boolean);
+    // 角色最后一条「对话」（不含动作/环境描写）：服务端用它判断角色是否答应了
+    // 上一轮的征询句。优先用结构化的 dialogue（线下/线上都有），
+    // 没有时才退回正文——半角引号是 JSON 语法，绝不能当对话标记来解析。
+    const lastAssistant = [...safeMessages].reverse().find(message => {
+      const role = String(message?.role || '');
+      return role && role !== 'user';
+    });
+    const latestAssistantDialogue = String(lastAssistant?.dialogue || '').replace(/\s+/g, ' ').trim().slice(0, 300);
     return {
       type: sourceType,
       sourceChatId: String(sourceChat?.id || sourceChat?.chatId || '').trim(),
@@ -142,6 +150,7 @@ class VariableMemoryManager {
         latestMessage?.senderId || latestMessage?.characterId || latestMessage?.memberId || (latestMessage?.role === 'user' ? 'user' : '')
       ).trim(),
       latestSpeakerRole: String(latestMessage?.role || '').trim(),
+      latestAssistantDialogue,
       speakerIds,
       participantIds
     };
@@ -271,46 +280,95 @@ class VariableMemoryManager {
     return vm.settings?.planContextEnabled !== false;
   }
 
-  // 常驻「待办/计划」上下文。
-  // 直接读 memory-server 现成的只读接口 /memory/active-events，因此不需要服务端任何改动。
-  // 这一层的意义：计划不该依赖「向量相似度恰好把它召回来」——那正是「昨天说明天要去医院，
-  // 今天就忘了」的根因。这里每轮无条件带上还没结束的约定。
-  async fetchActivePlanContext(chat, options = {}) {
+  // 常驻上下文：还没结束的计划 + 用户确认过的当前事实。
+  // 直接读 memory-server 现成的只读接口，不需要服务端改动。
+  // 这一层的意义：这些内容不该依赖「向量相似度恰好把它召回来」——那正是
+  // 「昨天说明天要去医院，今天就忘了」的根因。这里每轮无条件带上。
+  async fetchActiveContext(chat, options = {}) {
     if (!this.isExternalMemoryEnabled(chat) || !this.isPlanContextEnabled(chat)) return null;
     const chatId = String(chat?.id || chat?.chatId || '').trim();
     if (!chatId) return null;
 
     const now = Date.now();
-    const limit = Math.max(1, Math.min(20, Number(options.limit || 8)));
+    const eventLimit = Math.max(1, Math.min(20, Number(options.limit || 8)));
+    const factLimit = Math.max(1, Math.min(20, Number(options.factLimit || 8)));
+    const query = `chatId=${encodeURIComponent(chatId)}`;
 
-    try {
-      const result = await this.externalMemoryRequest(
-        chat,
-        `/memory/active-events?chatId=${encodeURIComponent(chatId)}&limit=50`
-      );
-      const events = Array.isArray(result?.events) ? result.events : [];
-      const live = events
-        .filter(event => event && ['candidate', 'planned', 'active'].includes(String(event.status)))
-        // 已过期但还没归档的残留不能进提示词
-        .filter(event => !event.validUntil || Number(event.validUntil) >= now)
-        // 还在等 char 答复的征询句不算计划（该机制后续才上线，这里先留好闸门）
-        .filter(event => event.awaitingConfirmation !== true && Number(event.awaitingConfirmation || 0) !== 1)
-        .sort((a, b) => Number(a.startAt || a.validUntil || 0) - Number(b.startAt || b.validUntil || 0))
-        .slice(0, limit)
-        .map(event => ({
-          id: String(event.id || ''),
-          title: String(event.title || event.summary || '').replace(/\s+/g, ' ').trim().slice(0, 160),
-          status: String(event.status || 'planned'),
-          startAt: Number(event.startAt || 0) || null
-        }))
-        .filter(event => event.title);
+    // 两个接口各自兜住失败：一个挂了不能拖累另一个，更不能拖累正常召回
+    const [eventsResult, factsResult] = await Promise.all([
+      this.externalMemoryRequest(chat, `/memory/active-events?${query}&limit=50`).catch(error => {
+        console.warn('[变量记忆] 计划上下文获取失败（不影响召回）:', error.message);
+        return null;
+      }),
+      this.externalMemoryRequest(chat, `/memory/current-facts?${query}&includeInactive=true&limit=200`).catch(error => {
+        console.warn('[变量记忆] 事实上下文获取失败（不影响召回）:', error.message);
+        return null;
+      })
+    ]);
 
-      return live.length ? { generatedAt: Date.now(), events: live } : null;
-    } catch (error) {
-      // 这是增强项：任何失败都只能影响这一段落，绝不能影响正常召回
-      console.warn('[变量记忆] 待办/计划上下文获取失败（不影响召回）:', error.message);
-      return null;
+    const events = (Array.isArray(eventsResult?.events) ? eventsResult.events : [])
+      .filter(event => event && ['candidate', 'planned', 'active'].includes(String(event.status)))
+      // 已过期但还没归档的残留不能进提示词
+      .filter(event => !event.validUntil || Number(event.validUntil) >= now)
+      // 还在等角色答复的征询句不算计划
+      .filter(event => event.awaitingConfirmation !== true && Number(event.awaitingConfirmation || 0) !== 1)
+      .sort((a, b) => Number(a.startAt || a.validUntil || 0) - Number(b.startAt || b.validUntil || 0))
+      .slice(0, eventLimit)
+      .map(event => ({
+        id: String(event.id || ''),
+        title: String(event.title || event.summary || '').replace(/\s+/g, ' ').trim().slice(0, 160),
+        status: String(event.status || 'planned'),
+        startAt: Number(event.startAt || 0) || null
+      }))
+      .filter(event => event.title);
+
+    // 事实：只注入 status === 'current'（= 用户在面板里确认过的）。
+    // 自动抽取的 shadow_candidate 一律不注入——它们没有人工确认，噪音不该进提示词。
+    const latestBySlot = new Map();
+    for (const fact of (Array.isArray(factsResult?.facts) ? factsResult.facts : [])) {
+      if (!fact || String(fact.status || '') !== 'current') continue;
+      const slotKey = String(fact.slotKey || '');
+      const text = String(fact.statement || fact.value || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      if (!slotKey || !text) continue;
+      if (fact.validUntil && Number(fact.validUntil) < now) continue;
+      const at = Number(fact.effectiveAt || fact.updatedAt || 0);
+      const previous = latestBySlot.get(slotKey);
+      if (!previous || at >= previous.at) latestBySlot.set(slotKey, { at, slotKey, text });
     }
+    const facts = [...latestBySlot.values()]
+      .sort((a, b) => b.at - a.at)
+      .slice(0, factLimit)
+      .map(item => ({
+        slotKey: item.slotKey,
+        label: this.getFactSlotLabel(item.slotKey),
+        text: item.text
+      }));
+
+    if (!events.length && !facts.length) return null;
+    return { generatedAt: Date.now(), events, facts };
+  }
+
+  // 兼容旧名字：只返回计划
+  async fetchActivePlanContext(chat, options = {}) {
+    const context = await this.fetchActiveContext(chat, options);
+    return context && context.events.length
+      ? { generatedAt: context.generatedAt, events: context.events }
+      : null;
+  }
+
+  // 槽位 → 人话标签（把 user.residence.current 显示成「居住地」）
+  getFactSlotLabel(slotKey) {
+    const key = String(slotKey || '').trim();
+    if (key === 'user.residence.current') return '居住地';
+    if (key === 'user.location.current') return '当前所在地';
+    if (key === 'user.trip.current') return '行程状态';
+    if (key.startsWith('user.task.')) return `任务：${key.slice('user.task.'.length)}`;
+    if (key.startsWith('user.body.')) {
+      const part = key.slice('user.body.'.length);
+      const option = this.getFactBodyPartOptions().find(item => item.value === part);
+      return `身体：${option ? option.label : part}`;
+    }
+    return key;
   }
 
   formatActivePlanContextForPrompt(context) {
@@ -333,6 +391,21 @@ class VariableMemoryManager {
       '> 这些条目由系统按时间维护，与你是否「想起」无关，也不代表它们刚刚发生。',
       '> 已经完成、取消或过期的条目不会出现在这里。请自然地在合适的时候惦记它们，不要生硬复述。',
       '> 【视角】这些条目全部出自「用户」之口，不是你写的。所以条目里的「我」指用户本人，「你」指你（角色）——不要把「我」当成你自己。',
+      ...lines,
+      ''
+    ].join('\n');
+  }
+
+  // 当前事实段：只包含用户「设为当前」过的事实（候选态不进提示词）
+  formatActiveFactContextForPrompt(context) {
+    if (!context || !Array.isArray(context.facts) || !context.facts.length) return '';
+
+    const lines = context.facts.map(fact => `- ${fact.label}｜${fact.text}`);
+
+    return [
+      '## 当前仍然成立的事实（系统维护）',
+      '> 以下是用户确认过的、关于「用户」本人的当前状态，不代表它们刚刚发生。',
+      '> 【视角】条目里的「我」指用户本人，「你」指你（角色）——不要把「我」当成你自己。',
       ...lines,
       ''
     ].join('\n');
@@ -1494,7 +1567,7 @@ class VariableMemoryManager {
     if (recentMessages) {
       let results = null;
       // 计划上下文与记忆召回并行请求，避免多一次串行往返
-      const planContextPromise = this.fetchActivePlanContext(chat);
+      const planContextPromise = this.fetchActiveContext(chat);
 
       if (this.isExternalMemoryEnabled(chat)) {
         results = await this.retrieveRelevantFromExternalServer(chat, recentMessages, null, queryVariants, retrievalMeta);
@@ -1544,9 +1617,13 @@ class VariableMemoryManager {
         );
       }
 
-      // 常驻计划段：与「回闪记忆」相互独立——回闪是「想起来了」，这里是「一直都知道」
-      const planSection = this.formatActivePlanContextForPrompt(await planContextPromise);
+      // 常驻段落：与「回闪记忆」相互独立——回闪是「想起来了」，这里是「一直都知道」
+      const activeContext = await planContextPromise;
+      const planSection = this.formatActivePlanContextForPrompt(activeContext);
       if (planSection) output += planSection;
+      // 当前事实（用户确认过的）同样常驻；候选态的事实不会走到这里
+      const factSection = this.formatActiveFactContextForPrompt(activeContext);
+      if (factSection) output += factSection;
     }
 
     if (!output.trim()) output = '(暂无记忆)\n';
@@ -2318,6 +2395,9 @@ ${output}`;
           validUntil,
           confidence: Number(event.confidence || 0),
           manual: event?.evidence?.manual === true,
+          // 还在等角色答复的征询句：不算生效中的计划，也不注入提示词
+          pending: event.awaitingConfirmation === true || Number(event.awaitingConfirmation || 0) === 1,
+          confirmDeadline: Number(event.confirmDeadline || 0) || null,
           deleted: status === 'archived',
           finished: finishedStatuses.includes(status),
           expired: Boolean(validUntil) && Number(validUntil) < now
@@ -2389,6 +2469,9 @@ ${output}`;
         validUntil: Number(pick('validUntil', event?.validUntil || 0)) || null,
         surfaceMode: String(event?.surfaceMode || 'manual_only'),
         proactiveMention: event?.proactiveMention === true,
+        // 待确认状态必须原样带回：否则编辑一下「征询句」就会绕过角色确认直接生效
+        awaitingConfirmation: Number(pick('awaitingConfirmation', event?.awaitingConfirmation ? 1 : 0)) === 1,
+        confirmDeadline: Number(pick('confirmDeadline', event?.confirmDeadline || 0)) || null,
         aliases: Array.isArray(event?.aliases) ? event.aliases : [],
         confidence: Number(event?.confidence || 0),
         // 必须原样带回 evidence：否则每次编辑都会把该条计划的写入/审计历史清空
@@ -2532,7 +2615,8 @@ ${output}`;
     const tab = vm._planFactTab === 'facts' ? 'facts' : 'plans';
     const escape = value => this._escapeHtml(value);
     const plans = this.normalizePlanPanelList(data.events, { includeFinished: true, now: data.now });
-    const livePlans = plans.filter(plan => !plan.deleted && !plan.finished && !plan.expired);
+    const pendingPlans = plans.filter(plan => !plan.deleted && !plan.finished && !plan.expired && plan.pending);
+    const livePlans = plans.filter(plan => !plan.deleted && !plan.finished && !plan.expired && !plan.pending);
     const historyPlans = plans.filter(plan => !plan.deleted && (plan.finished || plan.expired));
     const deletedPlans = plans.filter(plan => plan.deleted);
     const factGroups = this.normalizeFactPanelList(data.facts);
@@ -2546,14 +2630,18 @@ ${output}`;
             <div style="font-size:14px;line-height:1.5;word-break:break-word;">${escape(plan.title || '(无标题)')}</div>
             <div style="font-size:12px;color:#888;margin-top:4px;line-height:1.5;">
               ${plan.manual ? '手动添加｜' : ''}${escape(this.getPlanStatusLabel(plan.status, plan.expired))}${plan.startAt ? '｜开始 ' + escape(this.formatPlanPanelTime(plan.startAt)) : ''}${plan.validUntil ? '｜有效至 ' + escape(this.formatPlanPanelTime(plan.validUntil)) : ''}｜置信度 ${plan.confidence.toFixed(2)}
+              ${plan.pending ? '<br>等角色答复后自动定案；' + (plan.confirmDeadline ? '截止 ' + escape(this.formatPlanPanelTime(plan.confirmDeadline)) : '超时未答复按过期处理') + '，期间不注入提示词' : ''}
             </div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">
-            ${isLive
+            ${plan.pending
               ? '<button class="vm-toolbar-btn" data-action="edit">编辑</button>'
-                + '<button class="vm-toolbar-btn" data-action="complete">完成</button>'
                 + '<button class="vm-toolbar-btn" data-action="archive">归档</button>'
-              : '<button class="vm-toolbar-btn" data-action="restore">撤回</button>'}
+              : (isLive
+                ? '<button class="vm-toolbar-btn" data-action="edit">编辑</button>'
+                  + '<button class="vm-toolbar-btn" data-action="complete">完成</button>'
+                  + '<button class="vm-toolbar-btn" data-action="archive">归档</button>'
+                : '<button class="vm-toolbar-btn" data-action="restore">撤回</button>')}
             <button class="vm-toolbar-btn" data-action="delete" style="color:#ff3b30">删除</button>
           </div>
         </div>
@@ -2561,11 +2649,16 @@ ${output}`;
     `;
     };
 
-    const factCard = group => `
+    const factCard = group => {
+      const isCurrent = group.current?.status === 'current';
+      return `
       <div data-fact-slot="${escape(group.slotKey)}" style="padding:10px 12px;border-radius:12px;background:rgba(0,0,0,0.035);margin-bottom:8px;">
         <div style="display:flex;gap:8px;align-items:flex-start;">
           <div style="flex:1;min-width:0;">
-            <div style="font-size:12px;color:#888;word-break:break-all;">${escape(group.slotKey)}</div>
+            <div style="font-size:12px;color:#888;word-break:break-all;">
+              ${escape(group.slotKey)}
+              <span style="color:${isCurrent ? '#22c55e' : '#999'};">${isCurrent ? '｜✓ 已注入提示词' : '｜候选（不注入）'}</span>
+            </div>
             <div style="font-size:14px;line-height:1.5;margin-top:4px;word-break:break-word;">${escape(group.current?.statement || group.current?.value || '(空)')}</div>
             <div style="font-size:12px;color:#888;margin-top:4px;line-height:1.5;">
               ${group.current?.effectiveAt ? '记录于 ' + escape(this.formatPlanPanelTime(group.current.effectiveAt)) + '｜' : ''}${escape(group.current?.status || '')}｜置信度 ${Number(group.current?.confidence || 0).toFixed(2)}${group.versions.length > 1 ? '｜历史版本 ' + (group.versions.length - 1) : ''}
@@ -2573,17 +2666,25 @@ ${output}`;
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;">
             <button class="vm-toolbar-btn" data-fact-action="edit">编辑</button>
-            ${group.current?.status === 'current' ? '' : `<button class="vm-toolbar-btn" data-fact-action="promote">设为当前</button>`}
+            ${isCurrent ? '' : '<button class="vm-toolbar-btn" data-fact-action="promote">设为当前</button>'}
             <button class="vm-toolbar-btn" data-fact-action="delete" style="color:#ff3b30">删除</button>
           </div>
         </div>
       </div>
     `;
+    };
 
     const plansHtml = tab !== 'plans' ? '' : `
       <div data-plan-create-host></div>
       <div style="font-size:13px;color:#666;margin:10px 0 6px;">生效中的计划（会每轮注入提示词）</div>
       ${livePlans.length ? livePlans.map(planRow).join('') : '<div style="font-size:13px;color:#999;">当前没有生效中的计划。</div>'}
+      ${pendingPlans.length ? `
+        <div style="font-size:13px;color:#666;margin:14px 0 6px;">待确认（${pendingPlans.length}）— 你提过但角色还没答应的约定</div>
+        <div style="font-size:12px;color:#999;margin-bottom:6px;line-height:1.5;">
+          这些是你说出口的征询（如「要不要一起去看奶奶」）。等角色回答后自动定案：答应 → 转生效；拒绝 → 取消；超过截止时间没答复 → 过期。期间不会注入提示词。
+        </div>
+        ${pendingPlans.map(planRow).join('')}
+      ` : ''}
       ${historyPlans.length ? `
         <details style="margin-top:12px;">
           <summary style="cursor:pointer;font-size:13px;color:#666;">已完成 / 已过期（${historyPlans.length}）</summary>
@@ -2602,7 +2703,8 @@ ${output}`;
       <div data-fact-create-host></div>
       ${factGroups.length ? factGroups.map(factCard).join('') : '<div style="font-size:13px;color:#999;">当前没有任何事实条目。</div>'}
       <div style="font-size:12px;color:#999;margin-top:8px;line-height:1.5;">
-        同一槽位只显示最新一条，历史版本不会注入提示词。事实层的「编辑 / 添加 / 设为当前 / 删除」需要 memory-server 更新后才会生效；计划层的全部操作现在就可以用。
+        同一槽位只显示最新一条。<strong>只有「当前」状态的事实会注入提示词</strong>，候选态只留档；
+        手动添加的事实会自动设为「当前」，自动抽取的会停在候选态等你确认。
       </div>
     `;
 
@@ -2612,7 +2714,7 @@ ${output}`;
         <span>这里只管理计划与事实两张表，任何改动都不会影响「单条记忆」和向量索引。条目里的「我」都指你（用户），「你」指角色。</span>
       </div>
       <div class="vm-toolbar" style="margin-bottom:10px;flex-wrap:wrap;">
-        <button class="vm-toolbar-btn ${tab === 'plans' ? 'vm-primary' : ''}" data-tab="plans">计划（${livePlans.length} 生效 / ${historyPlans.length} 历史）</button>
+        <button class="vm-toolbar-btn ${tab === 'plans' ? 'vm-primary' : ''}" data-tab="plans">计划（${livePlans.length} 生效 / ${pendingPlans.length} 待确认 / ${historyPlans.length} 历史）</button>
         <button class="vm-toolbar-btn ${tab === 'facts' ? 'vm-primary' : ''}" data-tab="facts">事实（${factGroups.length} 个槽位）</button>
         ${tab === 'plans' ? '<button class="vm-toolbar-btn" data-action="add">添加计划</button>' : ''}
         ${tab === 'facts' ? '<button class="vm-toolbar-btn" data-action="add-fact">添加事实</button>' : ''}
@@ -3053,7 +3155,7 @@ ${output}`;
   async createFact(chat, body, input) {
     const chatId = this.getOrganizationChatId(chat);
     try {
-      await this.externalMemoryRequest(chat, '/memory/current-facts/upsert', {
+      const saved = await this.externalMemoryRequest(chat, '/memory/current-facts/upsert', {
         method: 'POST',
         body: this.buildFactUpsertBody({ chatId }, {
           slotKey: input.slotKey,
@@ -3065,16 +3167,32 @@ ${output}`;
           evidence: { writeVersion: 'manual-panel-v1', manual: true, addedAt: Date.now() }
         })
       });
-      this.notifyPlanPanel('已添加事实');
+
+      // 手写的事实直接设为「当前」——只有 current 会注入提示词。
+      // promote 接口会走 supersede 链，把同槽位的旧值正确退役（避免唯一索引冲突）。
+      const newFactId = String(saved?.fact?.id || '').trim();
+      let promoted = false;
+      if (newFactId) {
+        try {
+          await this.externalMemoryRequest(chat, '/memory/current-facts/promote', {
+            method: 'POST',
+            body: this.buildFactPromoteBody(newFactId)
+          });
+          promoted = true;
+        } catch (error) {
+          console.warn('[变量记忆] 设为当前失败，事实已保存为候选态:', error.message);
+        }
+      }
+
+      this.notifyPlanPanel(
+        promoted
+          ? '已添加事实并设为当前（会注入提示词）'
+          : '已添加事实（候选态，点「设为当前」后才会注入提示词）'
+      );
       await this.renderPlanFactPanel(chat, body.parentNode);
     } catch (error) {
       const message = String(error?.message || error);
-      this.notifyPlanPanel(
-        /40[45]/.test(message)
-          ? '添加事实需要 memory-server 更新后才有对应接口，当前服务端版本还不支持。'
-          : `添加失败：${message}`,
-        true
-      );
+      this.notifyPlanPanel(`添加失败：${message}`, true);
     }
   }
 
@@ -3473,7 +3591,7 @@ ${output}`;
           </div>
 
           <div class="vm-setting-row">
-            <span>注入「待办/计划」上下文</span>
+            <span>注入待办/计划与当前事实</span>
             <label class="toggle-switch">
               <input type="checkbox" id="vm-plan-context-enabled" ${s.planContextEnabled !== false ? 'checked' : ''}>
               <span class="slider"></span>
@@ -3481,7 +3599,8 @@ ${output}`;
           </div>
 
           <div style="font-size:11px;color:#999;margin-top:6px;line-height:1.5;">
-            每轮把「还没结束的约定/计划」常驻进提示词（只读 memory-server 的 /memory/active-events，无需服务端改动）。
+            每轮把「还没结束的约定/计划」和「你设为当前的事实」常驻进提示词（只读 memory-server，无需服务端改动）。
+            自动抽取的事实停在候选态、不会注入，只有你确认过的才会。
           </div>
 
           <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">

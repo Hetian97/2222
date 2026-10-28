@@ -344,7 +344,7 @@ async function main() {
   const originalWarn = sandbox.console.warn;
   let planWarningCount = 0;
   sandbox.console.warn = (...args) => {
-    if (String(args[0] || '').includes('待办/计划上下文获取失败')) planWarningCount++;
+    if (String(args[0] || '').includes('上下文获取失败')) planWarningCount++;
   };
   manager.externalMemoryRequest = async (_chat, requestPath) => {
     if (String(requestPath).startsWith('/memory/active-events')) throw new Error('plan endpoint down');
@@ -606,6 +606,114 @@ async function main() {
   assert(source.includes('buildFactSlotPickerHtml'), '必须有槽位下拉框');
   assert(source.includes('data-field="slotType"'), '类型必须是真正的 select');
   assert.ok(!source.includes('vm-fact-slot-options'), '旧的 datalist 必须删掉（手机上不弹）');
+
+  // ---- 事实注入：只注入 status === 'current' ----
+  const factNow = Date.now();
+  const factCalls = [];
+  manager.externalMemoryRequest = async (_chat, requestPath, options = {}) => {
+    factCalls.push({ requestPath: String(requestPath), body: options?.body });
+    if (String(requestPath).startsWith('/memory/active-events')) return { ok: true, events: [] };
+    if (String(requestPath).startsWith('/memory/current-facts?')) {
+      return {
+        ok: true,
+        facts: [
+          { id: 'f-cur', slotKey: 'user.residence.current', value: '临空', statement: '我最近住在临空。', status: 'current', confidence: 0.99, effectiveAt: factNow },
+          { id: 'f-old', slotKey: 'user.residence.current', value: '天行', statement: '我以前住在天行。', status: 'superseded', confidence: 0.9, effectiveAt: factNow - 1000 },
+          { id: 'f-task', slotKey: 'user.task.论文', value: '写论文', statement: '论文在为答辩做准备。', status: 'current', confidence: 0.99, effectiveAt: factNow - 500 },
+          { id: 'f-cand', slotKey: 'user.body.cough', value: '咳嗽', statement: '我在咳嗽。', status: 'shadow_candidate', confidence: 0.9, effectiveAt: factNow }
+        ]
+      };
+    }
+    if (requestPath === '/memory/search') return { ok: true, memories: [], searchTraceId: 'trace-facts' };
+    if (requestPath === '/memory/search/commit') return { ok: true, log: { status: 'prompt_committed' }, recallUpdates: [] };
+    return { ok: true, recallUpdates: [] };
+  };
+
+  const factPrompt = await manager.serializeForPrompt(chat, '随便聊两句');
+  assert(factPrompt.includes('当前仍然成立的事实'), 'current 事实必须被注入');
+  assert(factPrompt.includes('居住地｜我最近住在临空。'), '事实必须带槽位标签');
+  assert(factPrompt.includes('任务：论文｜论文在为答辩做准备。'), '任务槽位标签必须正确');
+  assert(!factPrompt.includes('天行'), 'superseded 版本不得注入');
+  assert(!factPrompt.includes('我在咳嗽'), '候选态事实不得注入（避免自动抽取的噪音污染）');
+  assert(factPrompt.includes('不要把「我」当成你自己'), '事实段也必须带视角声明');
+
+  // 没有 current 事实时不应出现空段落
+  manager.externalMemoryRequest = async (_chat, requestPath) => {
+    if (String(requestPath).startsWith('/memory/active-events')) return { ok: true, events: [] };
+    if (String(requestPath).startsWith('/memory/current-facts?')) {
+      return { ok: true, facts: [{ id: 'c1', slotKey: 'user.body.cough', value: '咳嗽', statement: '我在咳嗽。', status: 'shadow_candidate' }] };
+    }
+    if (requestPath === '/memory/search') return { ok: true, memories: [], searchTraceId: 'trace-nofact' };
+    if (requestPath === '/memory/search/commit') return { ok: true, log: { status: 'prompt_committed' }, recallUpdates: [] };
+    return { ok: true, recallUpdates: [] };
+  };
+  const noFactPrompt = await manager.serializeForPrompt(chat, '随便聊两句');
+  assert(!noFactPrompt.includes('当前仍然成立的事实'), '没有 current 事实时不应出现事实段');
+
+  // ---- 手动添加事实必须自动设为当前（否则注入不了）----
+  manager.externalMemoryRequest = async (_chat, requestPath, options = {}) => {
+    factCalls.push({ requestPath: String(requestPath), body: options?.body });
+    if (requestPath === '/memory/current-facts/upsert') return { ok: true, fact: { id: 'brand-new-fact' } };
+    if (requestPath === '/memory/current-facts/promote') return { ok: true, fact: { id: 'brand-new-fact', status: 'current' } };
+    return { ok: true, recallUpdates: [] };
+  };
+  const originalRenderPanel = manager.renderPlanFactPanel;
+  manager.renderPlanFactPanel = async () => {};
+  factCalls.length = 0;
+  await manager.createFact(chat, {}, { slotKey: 'user.location.current', statement: '我现在在临空。' });
+  manager.renderPlanFactPanel = originalRenderPanel;
+
+  const upsertCall = factCalls.find(call => call.requestPath === '/memory/current-facts/upsert');
+  const promoteCall = factCalls.find(call => call.requestPath === '/memory/current-facts/promote');
+  assert(upsertCall, '必须调用 upsert 写入事实');
+  assert.equal(upsertCall.body.fact.slotKey, 'user.location.current');
+  assert(promoteCall, '添加后必须自动调用 promote，否则事实永远不会注入');
+  assert.equal(promoteCall.body.confirm, 'PROMOTE_CURRENT_FACT');
+  assert.equal(promoteCall.body.id, 'brand-new-fact', 'promote 必须针对刚写入的那条');
+
+  // ---- C 阶段：传给服务端的「角色最后一句对话」 ----
+  const charMsg = {
+    role: 'assistant',
+    dialogue: '好啊，那我们周五去看奶奶吧。',
+    content: '{"type":"offline_text","content":"「好啊」我们周五去看奶奶吧。"}'
+  };
+  const userAskMsg = { role: 'user', content: '这周五是中秋节，我们最近要不要去看看奶奶' };
+  const askScope = manager.createActiveEventSourceContext(chat, [userAskMsg, charMsg], null);
+  assert.equal(askScope.latestAssistantDialogue, '好啊，那我们周五去看奶奶吧。', '必须用结构化的 dialogue 字段');
+  assert.ok(!askScope.latestAssistantDialogue.includes('"type"'), '半角引号是 JSON 语法，绝不能当对话内容');
+  assert.equal(askScope.latestSpeakerRole, 'assistant');
+
+  // 没有 dialogue 字段时不猜（引号解析方案已放弃）
+  const noDialogueScope = manager.createActiveEventSourceContext(chat, [userAskMsg, { role: 'assistant', content: '「走啊」' }], null);
+  assert.equal(noDialogueScope.latestAssistantDialogue, '', '没有 dialogue 字段时应留空，不能靠引号猜');
+
+  // ---- 待确认的计划必须单独分组（不能混进「生效中」）----
+  const panelPlans = manager.normalizePlanPanelList([
+    { id: 'p-ask', title: '要不要去看奶奶', status: 'candidate', awaitingConfirmation: 1, confirmDeadline: Date.now() + 3600000, startAt: Date.now() + 86400000 },
+    { id: 'p-live', title: '明天去医院复诊', status: 'planned', startAt: Date.now() + 86400000 }
+  ], { includeFinished: true });
+  const askPlan = panelPlans.find(plan => plan.id === 'p-ask');
+  const livePlan = panelPlans.find(plan => plan.id === 'p-live');
+  assert.equal(askPlan.pending, true, 'awaitingConfirmation 的计划必须标记 pending');
+  assert.equal(askPlan.deleted, false, '待确认不是归档');
+  assert.equal(livePlan.pending, false);
+  assert(source.includes('待确认（'), '面板必须有「待确认」分组');
+  assert(source.includes('等角色答复后自动定案'), '待确认分组必须有说明');
+
+  // 编辑待确认的计划时，绝不能把「待确认」标记丢掉（否则绕过角色确认直接生效）
+  const pendingDeadline = Date.now() + 3600000;
+  const pendingUpsert = manager.buildPlanUpsertBody({
+    id: 'p-ask',
+    chatId: 'chat-1',
+    title: '要不要去看奶奶',
+    summary: '要不要去看奶奶',
+    status: 'candidate',
+    awaitingConfirmation: true,
+    confirmDeadline: pendingDeadline,
+    confidence: 0.5
+  }, { title: '要不要周五去看奶奶' });
+  assert.equal(pendingUpsert.event.awaitingConfirmation, true, '编辑时必须保留 awaitingConfirmation');
+  assert.equal(pendingUpsert.event.confirmDeadline, pendingDeadline, '编辑时必须保留定案截止时间');
 
   console.log('Vector memory UI tests passed');
 }

@@ -16,6 +16,9 @@ const RECALL_CUE = /(?:以为|记得|好像|听说|据说|难道|要去也是|�
 // 反例：「明天是第四天了，就可以不做'废人'了吧」「……你是……居家战备是吧」
 const TONE_ENDING_CUE = /(?:吧|呢|喽|啊|哦|呀|嘛|咯)[～~\s]*$/u;
 const ARRANGEMENT_CUE = /(?:去|前往|回)[^，。！？；、,\.!\?;：:\u2026\s]{1,6}/u;
+// 征询句：这类句子算不算计划取决于角色怎么回答 → 建「待确认」候选，等下一轮定案
+// 注意：句尾单独的「呢」不算（"我以为是明天去呢"是回忆，不是征询）
+const CONFIRM_QUESTION_CUE = /(?:要不要|要不(?!是)|好吗|好不好|行吗|行不行|可以吗|可不可以|是不是|对吧|[吗么][？?]?\s*$|呢[？?]\s*$)/u;
 const EXECUTABLE_ACTION_CUE = /(?:做|制作|准备|整理|查看|看完|阅读|复习|检查|提交|发送|交给|参加|出发|启程|动身|返回|回来|搬|购买|买|预约|复诊|开会|考试|训练|处理|完成|开始|继续|去(?:往|到)?)/u;
 const CONCRETE_EVENT_CUE = /(?:会议|考试|预约|行程|航班|车次|截止|复诊|检查|训练|活动|出差|旅行|约会|任务|资料|材料)/u;
 const SOCIAL_FAREWELL_CUE = /(?:(?:晚安|睡吧|先睡|早点睡).{0,32}(?:明天见|回头见|改天见)|(?:明天见|回头见|改天见).{0,32}(?:晚安|睡吧|先睡|早点睡))/u;
@@ -92,6 +95,9 @@ function normalizeSourceScope(input = {}) {
     sourceMessageType: String(input.sourceMessageType || '').trim(),
     latestSpeakerId: String(input.latestSpeakerId || input.speakerId || '').trim(),
     latestSpeakerRole: String(input.latestSpeakerRole || input.speakerRole || '').trim(),
+    // 角色最后一条「对话」（不是动作/环境描写）：用来判断它是否答应了上一轮的征询。
+    // 前端优先传 msg.dialogue；线上模式没有该字段时退回正文（引号解析只作兜底）。
+    latestAssistantDialogue: String(input.latestAssistantDialogue || '').trim().slice(0, 300),
     speakerIds: normalizeStringList(input.speakerIds),
     participantIds: normalizeStringList(input.participantIds, 50),
     ownershipResolved: false,
@@ -227,15 +233,21 @@ function runActiveEventExtractionShadow(events, options = {}) {
     const negatedStatement = NEGATED_ACTION_CUE.test(clause);
     const recalledOrCounterfactual = RECALL_CUE.test(clause);
     const toneEndingNotPlan = TONE_ENDING_CUE.test(clause) && !ARRANGEMENT_CUE.test(clause);
+    // 征询句（"要不要去看奶奶？""明天去舰队吗"）：不是直接的计划，
+    // 而是「等角色答复后定案」的候选。这类句子里常带"不要/不是"，
+    // 所以否定规则必须让路——否则真正的征询会被当成否定句直接丢掉。
+    const confirmQuestion = CONFIRM_QUESTION_CUE.test(clause);
     if (negatedStatement) reasons.push('negated_statement');
     if (recalledOrCounterfactual) reasons.push('recalled_or_counterfactual');
     if (toneEndingNotPlan) reasons.push('tone_ending_not_a_plan');
+    if (confirmQuestion) reasons.push('awaiting_confirmation');
 
     let action = 'none';
     if (hasCancellation) action = 'cancel_candidate';
     else if (hasCompletion) action = 'complete_candidate';
     // 否定句与认知/反事实句一律不成计划（取消/完成仍然允许，上面已处理）
-    else if (negatedStatement || recalledOrCounterfactual) action = 'none';
+    // 征询句例外：交给两轮确认机制
+    else if (!confirmQuestion && (negatedStatement || recalledOrCounterfactual)) action = 'none';
     else if (referenced && (hasCommitment || hasOngoing || hasFutureTime || hasCurrentTime || hasExplicitDate)) action = 'update_candidate';
     else if (
       !hasSocialFarewell &&
@@ -275,6 +287,7 @@ function runActiveEventExtractionShadow(events, options = {}) {
       clause,
       proposed,
       action,
+      awaitingConfirmation: confirmQuestion,
       titlePreview: clause.slice(0, 120),
       confidence: Number(confidence.toFixed(6)),
       targetEventId: referenced?.event?.id || null,
