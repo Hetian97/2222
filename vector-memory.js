@@ -3226,7 +3226,27 @@ ${output}`;
     }
 
     // 顶部工具栏
-    // 本地缓存默认最多装 5000 条，服务端总数可能更多 —— 显示时要说清，否则像丢了记忆
+    // 本地缓存默认最多装 5000 条，服务端总数可能更多 —— 显示时要说清，否则像丢了记忆。
+    // 服务端总数平时不知道（vm.fragments 来自 IndexedDB 缓存），所以这里取一次（每会话一次）。
+    if (!vm._memTotalChecked && !vm._memTotalLoading) {
+      vm._memTotalLoading = true;
+      this.fetchMemoryPanelPage(chat, {}, 0, 1)
+        .then(page => {
+          if (page && Number(page.total) > 0) vm._memTotal = Number(page.total);
+        })
+        .catch(() => {})
+        .finally(() => {
+          vm._memTotalLoading = false;
+          vm._memTotalChecked = true;
+          if (Number(vm._memTotal || 0) > 0) {
+            if (typeof window !== 'undefined' && typeof window.renderVectorMemoryView === 'function') {
+              window.renderVectorMemoryView();
+            } else {
+              this.renderMemoryUI(chat, container);
+            }
+          }
+        });
+    }
     const serverTotal = Number(vm._memTotal || 0);
     const displayedTotal = serverTotal > stats.totalFragments
       ? `${serverTotal}（本地已加载 ${stats.totalFragments}）`

@@ -782,6 +782,9 @@ async function main() {
   assert(source.includes('window.renderVectorMemoryView()'), '异步加载后必须走 renderVectorMemoryView 重新绑定面板事件');
   // 本地缓存上限 5000，服务端可能更多；显示时必须区分，否则像丢了记忆
   assert(source.includes('本地已加载'), '总数必须区分"服务端总数"和"本地已加载"');
+  // 服务端总数平时并不知道（vm.fragments 来自 IndexedDB 缓存），必须主动取一次
+  assert(source.includes('_memTotalChecked'), '首次渲染必须主动取一次服务端总数');
+  assert(source.includes('fetchMemoryPanelPage(chat, {}, 0, 1)'), '取总数必须是轻量请求（limit=1）');
 
   console.log('Vector memory UI tests passed');
 }
