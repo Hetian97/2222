@@ -3226,6 +3226,11 @@ ${output}`;
     }
 
     // 顶部工具栏
+    // 本地缓存默认最多装 5000 条，服务端总数可能更多 —— 显示时要说清，否则像丢了记忆
+    const serverTotal = Number(vm._memTotal || 0);
+    const displayedTotal = serverTotal > stats.totalFragments
+      ? `${serverTotal}（本地已加载 ${stats.totalFragments}）`
+      : stats.totalFragments;
     const toolbar = document.createElement('div');
     toolbar.className = 'vm-toolbar';
     toolbar.innerHTML = `
@@ -3234,7 +3239,7 @@ ${output}`;
       <button class="vm-toolbar-btn" id="vm-batch-toggle-btn">批量操作</button>
 
       <span style="font-size:13px;color:#666;margin-left:10px;">
-        总数 ${stats.totalFragments}
+        总数 ${displayedTotal}
         | Vector ${stats.embeddedCount}
         | BM25 ${stats.totalFragments - stats.embeddedCount}
       </span>

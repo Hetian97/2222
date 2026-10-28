@@ -780,6 +780,8 @@ async function main() {
   // 回归：异步加载后若只调 renderMemoryUI，面板 DOM 被重建但事件没重绑，
   // 表现为"只能查一次，再改日期没反应"。必须走 renderVectorMemoryView。
   assert(source.includes('window.renderVectorMemoryView()'), '异步加载后必须走 renderVectorMemoryView 重新绑定面板事件');
+  // 本地缓存上限 5000，服务端可能更多；显示时必须区分，否则像丢了记忆
+  assert(source.includes('本地已加载'), '总数必须区分"服务端总数"和"本地已加载"');
 
   console.log('Vector memory UI tests passed');
 }
