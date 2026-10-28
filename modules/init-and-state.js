@@ -118,6 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
       customChatPromptGroup: '',           // 自定义群聊提示词内容
       customChatPromptOffline: '',         // 自定义线下模式提示词内容
       customChatPromptGroupOffline: '',    // 自定义群聊线下模式提示词内容
+      customPromptCollections: null,       // 条目式提示词；为空时继续使用上面的旧字段
       enableQzoneActions: false,          // 新增：全局动态开关，默认关闭
       enableViewMyPhone: false,           // 新增：全局查看User手机开关，默认关闭
       enableCrossChat: true,              // 新增：全局跨聊天消息开关（群聊↔私聊），默认开启
