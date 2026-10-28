@@ -26,6 +26,8 @@ set -uo pipefail
 
 APP_DIR="${APP_DIR:-/root/memory-server}"
 OUT_DIR="${OUT_DIR:-/root/vps-backup}"
+# 只用于打印 scp 提示；故意不写死地址（避免把 VPS 地址/凭据提交进仓库）
+SCP_HOST="${SCP_HOST:-<VPS地址>}"
 DB_FILE="$APP_DIR/memory.db"
 CHROMA_DIR_NAME="chroma-data"
 STAMP="$(date +%F-%H%M)"
@@ -149,7 +151,7 @@ say "===== 在本地 cmd 里下载 ====="
 echo "  mkdir D:\\app\\0-ephone-backup\\$STAMP"
 echo "  cd /d D:\\app\\0-ephone-backup\\$STAMP"
 for p in "${PKGS[@]}"; do
-  echo "  scp root@<VPS地址>:${p} ."
+  echo "  scp ${SCP_HOST}:${p} ."
 done
 echo "  certutil -hashfile ${PKGS[0]##*/} SHA256   （其余同理）"
 
