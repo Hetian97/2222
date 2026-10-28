@@ -3250,17 +3250,29 @@ ${output}`;
       this._memTotalsLoading.set(totalsKey, true);
       // 只用一个请求（/memory/list?stats=true）取回全部三个数字；
       // embeddingCounts 只有两个整数，不含向量本身。
-      this.fetchMemoryPanelPage(chat, {}, 0, 1, { includeStats: true })
+      // 网络抖动时重试（最多 3 次，间隔递增）——否则会一直停在本地回退值 5000。
+      const loadTotals = (attempt) => this.fetchMemoryPanelPage(chat, {}, 0, 1, { includeStats: true })
         .then(page => {
-          if (!page) return;
+          if (!page) throw new Error('empty memory list response');
           const counts = page.embeddingCounts || null;
+          if (!counts) throw new Error('embeddingCounts missing');
           this._memTotals.set(totalsKey, {
             at: Date.now(),
-            total: Number(counts?.total || page.total || 0) || 0,
-            withEmbedding: Number(counts?.withEmbedding ?? NaN),
-            withoutEmbedding: Number(counts?.withoutEmbedding ?? NaN)
+            total: Number(counts.total || page.total || 0) || 0,
+            withEmbedding: Number(counts.withEmbedding),
+            withoutEmbedding: Number(counts.withoutEmbedding)
           });
         })
+        .catch(error => {
+          if (attempt < 3) {
+            return new Promise(resolve => setTimeout(resolve, attempt * 1200))
+              .then(() => loadTotals(attempt + 1));
+          }
+          console.warn('[变量记忆] 取服务端记忆统计失败（面板将显示本地数值）:', error.message);
+          throw error;
+        });
+
+      loadTotals(1)
         .catch(() => {})
         .finally(() => {
           this._memTotalsLoading.set(totalsKey, false);
