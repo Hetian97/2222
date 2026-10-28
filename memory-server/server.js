@@ -7,6 +7,7 @@ const {
   db,
   addMemory,
   listMemories,
+  countMemories,
   getMemoryById,
   getMemoriesByIds,
   searchMemoriesFts,
@@ -3840,10 +3841,20 @@ const server = http.createServer(async (req, res) => {
       minImportance: url.searchParams.get('minImportance') || '',
       maxImportance: url.searchParams.get('maxImportance') || '',
       query: url.searchParams.get('query') || '',
-      limit: url.searchParams.get('limit') || 5000
+      // 日期区间：优先用前端按本地时区算好的毫秒边界（fromTs/toTs），
+      // 没有时接受 YYYY-MM-DD（按服务端本地日界解析）
+      fromTs: url.searchParams.get('fromTs') || '',
+      toTs: url.searchParams.get('toTs') || '',
+      dateFrom: url.searchParams.get('dateFrom') || '',
+      dateTo: url.searchParams.get('dateTo') || '',
+      limit: url.searchParams.get('limit') || 5000,
+      offset: url.searchParams.get('offset') || 0
     };
 
     const memories = listMemories(filters);
+    const total = countMemories(filters);
+    const offset = Math.max(0, Math.floor(Number(filters.offset) || 0));
+    const limit = Math.min(10000, Math.max(1, Number(filters.limit) || 5000));
 
     const publicMemories = memories.map(memory => {
       const hasEmbedding =
@@ -3862,6 +3873,10 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, {
       ok: true,
       count: publicMemories.length,
+      total,
+      offset,
+      limit,
+      hasMore: offset + publicMemories.length < total,
       filters,
       memories: publicMemories
     });

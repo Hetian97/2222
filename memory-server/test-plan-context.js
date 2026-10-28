@@ -8,6 +8,9 @@ process.env.MEMORY_DB_PATH = path.join(testDir, 'memory.db');
 
 const {
   db,
+  addMemory,
+  listMemories,
+  countMemories,
   createMemorySearchLog,
   commitMemorySearchInjection,
   finishMemorySearchGeneration,
@@ -562,6 +565,56 @@ try {
     writesEnabled: true
   });
   assert.strictEqual(plainShadow.proposals[0].awaitingConfirmation, false, '陈述句不是征询，必须直接成计划');
+
+  // ==================== 记忆列表分页 + 日期筛选（面板要能看到老记忆） ====================
+  const dayAt = iso => new Date(iso).getTime();
+  const seedMemory = (id, content, iso) => addMemory({
+    id,
+    chatId: 'chat-page',
+    content,
+    category: 'E',
+    importance: 5,
+    memoryTime: String(dayAt(iso)),
+    createdAt: String(dayAt(iso)),
+    updatedAt: String(dayAt(iso))
+  });
+  seedMemory('page-m1', '聊天第一天的事', '2025-12-19T10:00:00');
+  seedMemory('page-m2', '中间那天的事', '2026-06-01T10:00:00');
+  seedMemory('page-m3', '最近的事', '2026-10-27T10:00:00');
+
+  assert.strictEqual(countMemories({ chatId: 'chat-page' }), 3, '总数必须准');
+  assert.strictEqual(countMemories({ chatId: 'chat-page', query: '第一天' }), 1, '按关键词的总数必须准');
+
+  // 分页：最新在前，offset 生效
+  assert.deepStrictEqual(
+    listMemories({ chatId: 'chat-page', limit: 2, offset: 0 }).map(item => item.id),
+    ['page-m3', 'page-m2'],
+    '第一页应是最新的两条'
+  );
+  assert.deepStrictEqual(
+    listMemories({ chatId: 'chat-page', limit: 2, offset: 2 }).map(item => item.id),
+    ['page-m1'],
+    '第二页应是更早的那条'
+  );
+
+  // 日期筛选：前端传毫秒下界/上界（按本地时区），只应取到那一天
+  const dayFrom = new Date('2025-12-19T00:00:00').getTime();
+  const dayTo = new Date('2025-12-19T23:59:59.999').getTime();
+  assert.deepStrictEqual(
+    listMemories({ chatId: 'chat-page', fromTs: dayFrom, toTs: dayTo }).map(item => item.id),
+    ['page-m1'],
+    '按日期应只取到 2025-12-19 那天的记忆'
+  );
+  assert.deepStrictEqual(
+    listMemories({ chatId: 'chat-page', dateFrom: '2025-12-19', dateTo: '2025-12-19' }).map(item => item.id),
+    ['page-m1'],
+    'YYYY-MM-DD 形式也要能用'
+  );
+  // 昨天那条不能被 12-19 的筛选带出来
+  assert.ok(
+    !listMemories({ chatId: 'chat-page', fromTs: dayFrom, toTs: dayTo }).some(item => item.id === 'page-m3'),
+    '日期筛选不能越界'
+  );
 
   console.log('Active plan context tests passed.');
 } finally {

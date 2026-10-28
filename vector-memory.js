@@ -552,6 +552,8 @@ class VariableMemoryManager {
       vm.stats.totalFragments = vm.fragments.length;
       vm.stats.lastUpdated = Date.now();
       vm._externalListLoadedAt = Date.now();
+      // 服务端记忆总数（可能大于本地缓存的 5000 条），用于"加载更早的记忆"
+      vm._memTotal = Number(result?.total || 0) || vm.fragments.length;
 
       console.log('[变量记忆] 已从外部 memory-server 加载记忆列表:', vm.fragments.length);
 
@@ -726,6 +728,7 @@ class VariableMemoryManager {
     };
 
     vm.fragments.push(fragment);
+    if (vm._memPanel) vm._memPanel = null;   // 服务端查询结果作废
 
     if (this.isExternalMemoryEnabled(chat)) {
       this.saveFragmentToExternalServer(chat, fragment, {
@@ -815,6 +818,7 @@ class VariableMemoryManager {
   async deleteFragment(chat, id) {
     const vm = this.getVariableMemory(chat);
     vm.fragments = vm.fragments.filter(f => f.id !== id);
+    if (vm._memPanel) vm._memPanel = null;   // 服务端查询结果作废，下次重新查
     // 清理关联引用
     vm.fragments.forEach(f => {
       f.linkedMemories = (f.linkedMemories || []).filter(lid => lid !== id);
@@ -899,6 +903,7 @@ class VariableMemoryManager {
       }
       return true;
     });
+    if (vm._memPanel) vm._memPanel = null;   // 服务端查询结果作废
 
     vm.fragments.forEach(f => {
       f.linkedMemories = (f.linkedMemories || []).filter(lid => !deletedIds.includes(lid));
@@ -3337,18 +3342,39 @@ ${output}`;
     // 记忆列表区
     const listContainer = document.createElement('div');
     listContainer.className = 'vm-list-container';
-    
+
+    // ---- 有筛选条件时必须先走服务端 ----
+    // 本地缓存只装了最近 5000 条，更早的记忆（比如你聊天的第一天）在本地根本筛不到。
+    const activeFilters = this.getActivePanelFilters(vm._panelFilters || {});
+    const filterKey = this.getPanelFilterKey(activeFilters);
+    if (Object.keys(activeFilters).length > 0) {
+      if (!vm._memPanel || vm._memPanel.filterKey !== filterKey) {
+        this.loadMemoryPanelPage(chat, container, vm._panelFilters || {}, 0, {});
+        listContainer.innerHTML = '<div style="text-align:center;color:#999;padding:32px 20px;font-size:13px;">正在从服务器查询…</div>';
+        container.appendChild(listContainer);
+        return;
+      }
+    } else if (vm._memPanel?.serverMode) {
+      // 清空筛选 → 回到本地列表（服务端结果作废）
+      vm._memPanel = null;
+    }
+
     const categories = this.getCategories(chat);
 
+    // ---- 数据源：有筛选条件时走服务端（能覆盖全部记忆，不受本地 5000 条缓存限制）----
+    //      没有筛选时仍用本地缓存（提示词/去重等 30 多处依赖 vm.fragments，不能改）
+    const panelState = vm._memPanel;
+    const serverMode = Boolean(panelState?.serverMode);
+
     const filteredFragments = this.applyPanelFilters(
-      vm.fragments || [],
+      serverMode ? (panelState.items || []) : (vm.fragments || []),
       vm._panelFilters || {}
     );
 
-    // 分页：默认显示100条
-    const displayLimit = vm.renderLimit || 100;
+    // 分页：本地模式默认显示100条；服务端模式已经是一页一页取回来的
+    const displayLimit = serverMode ? filteredFragments.length : (vm.renderLimit || 100);
 
-    const displayFragments = filteredFragments.slice(0, displayLimit);
+    const displayFragments = serverMode ? filteredFragments : filteredFragments.slice(0, displayLimit);
     
     // 按分类分组渲染
     for (const [code, catInfo] of Object.entries(categories)) {
@@ -3367,7 +3393,7 @@ ${output}`;
           <input type="checkbox" class="vm-batch-element vm-section-select-all" style="display:none; margin-right:8px;" data-category="${code}">
           <span class="vm-section-tag" style="background:${catInfo.color}">${code}</span>
           <span class="vm-section-title">${catInfo.name}</span>
-          <span class="vm-section-count">${frags.length}/${vm.fragments.filter(f => f.category === code).length}</span>
+          <span class="vm-section-count">${frags.length}/${filteredFragments.filter(f => f.category === code).length}</span>
         </div>
       `;
       
@@ -3413,7 +3439,14 @@ ${output}`;
     }
 
     if (displayFragments.length === 0) {
-      listContainer.innerHTML = `
+      listContainer.innerHTML = serverMode
+        ? `
+        <div style="text-align:center; color: #999; padding: 40px 20px;">
+          <p style="font-size: 16px; font-weight:bold; color:#666;">没有符合条件的记忆</p>
+          <p style="font-size: 13px; margin-top: 5px;">换个关键词或日期再试（当前是服务端查询，覆盖全部 ${Number(vm._memTotal || 0) || '全部'} 条）。</p>
+        </div>
+      `
+        : `
         <div style="text-align:center; color: #999; padding: 40px 20px;">
           <div style="font-size:40px; margin-bottom:10px;"></div>
           <p style="font-size: 16px; font-weight:bold; color:#666;">变量记忆是空的</p>
@@ -3425,7 +3458,27 @@ ${output}`;
 
     container.appendChild(listContainer);
 
-    if (displayLimit < filteredFragments.length) {
+    if (serverMode) {
+      // 服务端分页：显示"已取回多少 / 总共多少"，还有更多时继续向服务器要下一页
+      const items = panelState.items || [];
+      const total = Number(panelState.total || items.length);
+      if (panelState.hasMore) {
+        const moreBtn = document.createElement('button');
+        moreBtn.className = 'vm-toolbar-btn';
+        moreBtn.style.margin = '15px auto';
+        moreBtn.style.display = 'block';
+        moreBtn.textContent = `加载更多（已显示 ${items.length}/${total}，服务端查询）`;
+        moreBtn.onclick = () => {
+          this.loadMemoryPanelPage(chat, container, vm._panelFilters || {}, items.length, { append: true });
+        };
+        container.appendChild(moreBtn);
+      } else if (items.length > 0) {
+        const hint = document.createElement('div');
+        hint.style.cssText = 'text-align:center;font-size:12px;color:#999;margin:12px 0;';
+        hint.textContent = `已显示全部 ${total} 条（服务端查询）`;
+        container.appendChild(hint);
+      }
+    } else if (displayLimit < filteredFragments.length) {
       const moreBtn = document.createElement('button');
 
       moreBtn.className = 'vm-toolbar-btn';
@@ -3438,6 +3491,17 @@ ${output}`;
         this.renderMemoryUI(chat, container);
       };
 
+      container.appendChild(moreBtn);
+    } else if (Number(vm._memTotal || 0) > filteredFragments.length) {
+      // 本地缓存已全部显示，但服务器还有更早的记忆（本地缓存默认只装 5000 条）
+      const moreBtn = document.createElement('button');
+      moreBtn.className = 'vm-toolbar-btn';
+      moreBtn.style.margin = '15px auto';
+      moreBtn.style.display = 'block';
+      moreBtn.textContent = `加载更早的记忆（本地已显示 ${filteredFragments.length}，共 ${vm._memTotal} 条）`;
+      moreBtn.onclick = () => {
+        this.loadMemoryPanelPage(chat, container, vm._panelFilters || {}, filteredFragments.length, {});
+      };
       container.appendChild(moreBtn);
     }
   }
@@ -3770,6 +3834,132 @@ ${output}`;
         </div>
       </div>
     `;
+  }
+
+  // ---- 记忆面板的服务端查询（分页 + 关键词/日期/分类/重要度筛选）----
+  // 目的：本地缓存只装最近 5000 条，更早的记忆（比如聊天的第一天）本地筛不到。
+  getActivePanelFilters(filters = {}) {
+    const active = {};
+    const query = String(filters.query || '').trim();
+    if (query) active.query = query;
+    const category = String(filters.category || '').trim();
+    if (category) active.category = category;
+    const minImportance = filters.minImportance === undefined || filters.minImportance === null
+      ? ''
+      : String(filters.minImportance).trim();
+    if (minImportance) active.minImportance = minImportance;
+    const dateFrom = String(filters.dateFrom || '').trim();
+    if (dateFrom) active.dateFrom = dateFrom;
+    const dateTo = String(filters.dateTo || '').trim();
+    if (dateTo) active.dateTo = dateTo;
+    return active;
+  }
+
+  getPanelFilterKey(filters = {}) {
+    const active = this.getActivePanelFilters(filters);
+    return JSON.stringify([
+      active.query || '',
+      active.category || '',
+      active.minImportance || '',
+      active.dateFrom || '',
+      active.dateTo || ''
+    ]);
+  }
+
+  // 按浏览器本地时区算日界，避免服务端时区不同导致"差一天"
+  getPanelDateBounds(filters = {}) {
+    const toTs = (value, endOfDay) => {
+      const text = String(value || '').trim();
+      if (!text) return null;
+      const time = new Date(`${text}T${endOfDay ? '23:59:59.999' : '00:00:00'}`).getTime();
+      return Number.isFinite(time) ? time : null;
+    };
+    return { fromTs: toTs(filters.dateFrom, false), toTs: toTs(filters.dateTo, true) };
+  }
+
+  async fetchMemoryPanelPage(chat, filters = {}, offset = 0, pageSize = 100) {
+    if (!this.isExternalMemoryEnabled(chat)) return null;
+    const active = this.getActivePanelFilters(filters);
+    const bounds = this.getPanelDateBounds(filters);
+
+    // 注意 1：这里故意不传 chatId —— 面板一直显示 memory-server 里的全部记忆
+    // 注意 2：手写查询串（不依赖 URLSearchParams，老 WebView 也能用）
+    const parts = [];
+    const appendParam = (key, value) => {
+      if (value === undefined || value === null || value === '') return;
+      parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+    };
+    appendParam('query', active.query);
+    appendParam('category', active.category);
+    appendParam('minImportance', active.minImportance);
+    appendParam('fromTs', bounds.fromTs);
+    appendParam('toTs', bounds.toTs);
+    appendParam('limit', pageSize);
+    appendParam('offset', Math.max(0, Math.floor(Number(offset) || 0)));
+    const queryString = parts.join('&');
+
+    const result = await this.externalMemoryRequest(chat, `/memory/list?${queryString}`, { method: 'GET' });
+    const items = (Array.isArray(result?.memories) ? result.memories : []).map(memory => ({
+      ...memory,
+      embedding: null,
+      _externalCache: true
+    }));
+    return {
+      items,
+      total: Number(result?.total || items.length) || 0,
+      hasMore: result?.hasMore === true
+    };
+  }
+
+  async loadMemoryPanelPage(chat, container, filters = {}, offset = 0, options = {}) {
+    const vm = this.getVariableMemory(chat);
+    const filterKey = this.getPanelFilterKey(filters);
+    const pageSize = 100;
+    const previous = options.append && vm._memPanel ? vm._memPanel : null;
+    if (vm._memPanel?.loading) return;
+
+    vm._memPanel = {
+      serverMode: true,
+      loading: true,
+      filterKey,
+      items: previous?.items || [],
+      total: previous?.total || 0,
+      hasMore: previous?.hasMore || false
+    };
+
+    try {
+      const page = await this.fetchMemoryPanelPage(chat, filters, offset, pageSize);
+      if (!page) throw new Error('服务端没有返回记忆列表');
+      const merged = previous ? [...previous.items, ...page.items] : page.items;
+      const seen = new Set();
+      const items = merged.filter(item => {
+        const id = String(item?.id || '');
+        if (!id || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+      vm._memPanel = {
+        serverMode: true,
+        loading: false,
+        filterKey,
+        items,
+        total: page.total,
+        hasMore: page.hasMore
+      };
+    } catch (error) {
+      console.warn('[变量记忆] 服务端查询记忆失败:', error.message);
+      vm._memPanel = {
+        serverMode: true,
+        loading: false,
+        filterKey,
+        items: previous?.items || [],
+        total: previous?.total || 0,
+        hasMore: false,
+        error: String(error?.message || error)
+      };
+    }
+
+    this.renderMemoryUI(chat, container);
   }
 
   applyPanelFilters(fragments, filters = {}) {

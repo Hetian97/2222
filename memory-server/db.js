@@ -703,11 +703,22 @@ function getMemoryById(id) {
   return normalizeMemory(db.prepare('SELECT * FROM memories WHERE id = ?').get(String(id)));
 }
 
-function listMemories(filters = {}) {
-  if (typeof filters === 'string') {
-    filters = { chatId: filters };
-  }
+// 把日期参数归一成毫秒时间戳：
+//   · fromTs/toTs（前端按本地时区算好的毫秒值）优先，避免服务端时区差异
+//   · 否则接受 YYYY-MM-DD（按服务端本地日界解析）
+function normalizeDateBound(value, mode) {
+  if (value === undefined || value === null || value === '') return null;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return Math.floor(numeric);
+  const text = String(value).trim();
+  if (!text) return null;
+  const date = new Date(mode === 'end' ? `${text}T23:59:59.999` : `${text}T00:00:00`);
+  const time = date.getTime();
+  return Number.isFinite(time) ? time : null;
+}
 
+// 记忆列表的 WHERE 构造（listMemories 与 countMemories 共用，避免两处不一致）
+function buildMemoryWhere(filters = {}) {
   const params = [];
   const where = [];
 
@@ -747,17 +758,54 @@ function listMemories(filters = {}) {
     params.push(q, q, q, q);
   }
 
+  // 日期区间（按记忆时间，没有则回落到创建时间）
+  const fromTs = normalizeDateBound(
+    filters.fromTs !== undefined && filters.fromTs !== '' ? filters.fromTs : filters.dateFrom,
+    'start'
+  );
+  if (fromTs !== null) {
+    where.push('CAST(COALESCE(NULLIF(memoryTime, \'\'), createdAt) AS INTEGER) >= ?');
+    params.push(fromTs);
+  }
+
+  const toTs = normalizeDateBound(
+    filters.toTs !== undefined && filters.toTs !== '' ? filters.toTs : filters.dateTo,
+    'end'
+  );
+  if (toTs !== null) {
+    where.push('CAST(COALESCE(NULLIF(memoryTime, \'\'), createdAt) AS INTEGER) <= ?');
+    params.push(toTs);
+  }
+
+  return { whereSql: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
+}
+
+function listMemories(filters = {}) {
+  if (typeof filters === 'string') {
+    filters = { chatId: filters };
+  }
+
+  const { whereSql, params } = buildMemoryWhere(filters);
   const safeLimit = Math.min(10000, Math.max(1, Number(filters.limit) || 500));
-  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const safeOffset = Math.max(0, Math.floor(Number(filters.offset) || 0));
 
   const rows = db.prepare(`
     SELECT * FROM memories
     ${whereSql}
     ORDER BY CAST(memoryTime AS INTEGER) DESC, CAST(createdAt AS INTEGER) DESC
-    LIMIT ?
-  `).all(...params, safeLimit);
+    LIMIT ? OFFSET ?
+  `).all(...params, safeLimit, safeOffset);
 
   return rows.map(normalizeMemory);
+}
+
+// 与 listMemories 同一套条件，返回总条数（前端用来显示「共 N 条」和判断还有没有下一页）
+function countMemories(filters = {}) {
+  if (typeof filters === 'string') {
+    filters = { chatId: filters };
+  }
+  const { whereSql, params } = buildMemoryWhere(filters);
+  return Number(db.prepare(`SELECT COUNT(*) AS count FROM memories ${whereSql}`).get(...params).count || 0);
 }
 
 function deleteMemory(id) {
@@ -2699,6 +2747,7 @@ module.exports = {
   db,
   addMemory,
   listMemories,
+  countMemories,
   getMemoryById,
   getMemoriesByIds,
   searchMemoriesFts,

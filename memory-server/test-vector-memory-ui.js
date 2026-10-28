@@ -715,6 +715,69 @@ async function main() {
   assert.equal(pendingUpsert.event.awaitingConfirmation, true, '编辑时必须保留 awaitingConfirmation');
   assert.equal(pendingUpsert.event.confirmDeadline, pendingDeadline, '编辑时必须保留定案截止时间');
 
+  // ---- 服务端分页 + 日期筛选（面板能查到本地缓存之外的老记忆）----
+  const pagingCalls = [];
+  manager.externalMemoryRequest = async (_chat, requestPath) => {
+    pagingCalls.push(String(requestPath));
+    if (String(requestPath).startsWith('/memory/list')) {
+      return {
+        ok: true,
+        total: String(requestPath).includes('query=') ? 1 : 5423,
+        hasMore: !String(requestPath).includes('offset=100'),
+        memories: [
+          { id: 'p1', content: '第一页', category: 'E', memoryTime: String(Date.now()), createdAt: String(Date.now()), embedding: [0.1, 0.2] }
+        ]
+      };
+    }
+    return { ok: true, recallUpdates: [] };
+  };
+
+  assert.deepEqual(
+    manager.getActivePanelFilters({ query: '', category: '', minImportance: '', dateFrom: '', dateTo: '' }),
+    {},
+    '空筛选不能触发服务端查询'
+  );
+  const filterKeyA = manager.getPanelFilterKey({ query: '奶奶', dateFrom: '2025-12-19' });
+  const filterKeyB = manager.getPanelFilterKey({ query: '奶奶', dateFrom: '2025-12-20' });
+  assert.notEqual(filterKeyA, filterKeyB, '筛选条件变化必须换 key，否则不会重新查询');
+
+  const dateBounds = manager.getPanelDateBounds({ dateFrom: '2025-12-19', dateTo: '2025-12-19' });
+  assert.equal(dateBounds.fromTs, new Date('2025-12-19T00:00:00').getTime());
+  assert.equal(dateBounds.toTs, new Date('2025-12-19T23:59:59.999').getTime());
+
+  pagingCalls.length = 0;
+  const pagedResult = await manager.fetchMemoryPanelPage(
+    chat,
+    { dateFrom: '2025-12-19', dateTo: '2025-12-19', query: '奶奶' },
+    100,
+    100
+  );
+  const listUrl = pagingCalls[0];
+  assert(listUrl.includes('limit=100'), '必须带 limit');
+  assert(listUrl.includes('offset=100'), '必须带 offset');
+  assert(listUrl.includes('query='), '必须带 query');
+  assert(listUrl.includes('fromTs='), '日期必须传毫秒下界');
+  assert(listUrl.includes('toTs='), '日期必须传毫秒上界');
+  assert(!listUrl.includes('chatId='), '面板一直显示全部记忆，不能按 chat 过滤');
+  assert.equal(pagedResult.items[0].embedding, null, 'embedding 不得留在前端');
+  assert.equal(pagedResult.total, 1);
+
+  // 分页状态：首屏 + 追加第二页（重复 id 要自动去重）
+  const originalRenderMemoryUI = manager.renderMemoryUI;
+  manager.renderMemoryUI = () => {};
+  manager.getVariableMemory(chat)._memPanel = null;
+  await manager.loadMemoryPanelPage(chat, {}, { query: '奶奶' }, 0, {});
+  let memPanel = manager.getVariableMemory(chat)._memPanel;
+  assert.equal(memPanel.serverMode, true);
+  assert.equal(memPanel.items.length, 1);
+  await manager.loadMemoryPanelPage(chat, {}, { query: '奶奶' }, 100, { append: true });
+  memPanel = manager.getVariableMemory(chat)._memPanel;
+  assert.equal(memPanel.items.length, 1, '翻页时重复 id 必须去重');
+  manager.renderMemoryUI = originalRenderMemoryUI;
+
+  assert(source.includes('正在从服务器查询'), '必须有"正在查询"的占位提示');
+  assert(source.includes('共 ${vm._memTotal} 条'), '必须提示服务端总条数（本地缓存可能不全）');
+
   console.log('Vector memory UI tests passed');
 }
 
