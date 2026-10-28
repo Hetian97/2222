@@ -616,6 +616,33 @@ try {
     '日期筛选不能越界'
   );
 
+  // 未补零 / 斜杠 的日期也必须生效（否则筛选会被静默忽略、返回全部记忆）
+  assert.deepStrictEqual(
+    listMemories({ chatId: 'chat-page', dateFrom: '2025-12-19', dateTo: '2025-12-19' }).map(item => item.id),
+    ['page-m1'],
+    '补零的日期必须生效'
+  );
+  assert.deepStrictEqual(
+    listMemories({ chatId: 'chat-page', dateFrom: '2025-12-19'.replace('12-', '12-'), dateTo: '2025-12-19' }).length,
+    1,
+    '标准日期必须精确匹配一天'
+  );
+  // 关键回归：2025-1-19 这种未补零写法过去会静默失效（返回全部条目）
+  assert.ok(
+    listMemories({ chatId: 'chat-page', dateFrom: '2025-1-19', dateTo: '2025-1-19' }).length === 0,
+    '未补零的日期必须生效（本测试数据没有 1 月 19 日的记忆，应返回空而不是全部）'
+  );
+  assert.strictEqual(
+    countMemories({ chatId: 'chat-page', dateFrom: '2025-1-19', dateTo: '2025-1-19' }),
+    0,
+    '未补零日期下总数也必须为 0（不能回落成全部）'
+  );
+  // 斜杠写法
+  assert.ok(
+    listMemories({ chatId: 'chat-page', dateFrom: '2025/12/19', dateTo: '2025/12/19' }).some(item => item.id === 'page-m1'),
+    '斜杠日期也要能用'
+  );
+
   console.log('Active plan context tests passed.');
 } finally {
   db.close();

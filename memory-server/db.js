@@ -705,13 +705,31 @@ function getMemoryById(id) {
 
 // 把日期参数归一成毫秒时间戳：
 //   · fromTs/toTs（前端按本地时区算好的毫秒值）优先，避免服务端时区差异
-//   · 否则接受 YYYY-MM-DD（按服务端本地日界解析）
+//   · 否则接受 2026-01-19 / 2026-1-19 / 2026/1/19（按服务端本地日界解析）
+// 注意：必须手工解析 —— new Date('2026-1-19T00:00:00') 是无效日期，
+// 之前用 Date 解析时，未补零的日期会静默失效（筛选条件被忽略、返回全部），很难发现。
 function normalizeDateBound(value, mode) {
   if (value === undefined || value === null || value === '') return null;
   const numeric = Number(value);
   if (Number.isFinite(numeric) && numeric > 0) return Math.floor(numeric);
   const text = String(value).trim();
   if (!text) return null;
+
+  const matched = text.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (matched) {
+    const year = Number(matched[1]);
+    const month = Number(matched[2]);
+    const day = Number(matched[3]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const date = mode === 'end'
+        ? new Date(year, month - 1, day, 23, 59, 59, 999)
+        : new Date(year, month - 1, day, 0, 0, 0, 0);
+      const time = date.getTime();
+      if (Number.isFinite(time)) return time;
+    }
+  }
+
+  // 兜底：交给 Date 解析（ISO 完整日期时间等）
   const date = new Date(mode === 'end' ? `${text}T23:59:59.999` : `${text}T00:00:00`);
   const time = date.getTime();
   return Number.isFinite(time) ? time : null;
