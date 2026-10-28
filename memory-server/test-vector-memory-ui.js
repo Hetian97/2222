@@ -783,7 +783,11 @@ async function main() {
   // 本地缓存上限 5000，服务端可能更多；显示时必须区分，否则像丢了记忆
   assert(source.includes('本地已加载'), '总数必须区分"服务端总数"和"本地已加载"');
   // 服务端总数平时并不知道（vm.fragments 来自 IndexedDB 缓存），必须主动取一次
-  assert(source.includes('_memTotalChecked'), '首次渲染必须主动取一次服务端总数');
+  assert(source.includes('_memTotals'), '服务端统计只能缓存在内存里（this._memTotals）');
+  assert(source.includes('TOTALS_TTL_MS'), '内存缓存必须有过期时间');
+  // 回归：绝不能把「已取过」标记写到 vm 上 —— vm 会被持久化进 IndexedDB，
+  // 一旦手机存下 true，就永远不再请求，Vector 会一直显示本地回退值（5000）。
+  assert.ok(!source.includes('_memTotalChecked'), '不能把取数标记持久化到聊天对象里');
   assert(source.includes('includeStats: true'), '总数与 Vector/BM25 必须用同一个请求取回（少一个失败点）');
   // Vector / BM25 也必须用服务端统计，否则「总数 5423 但 Vector+BM25=5000」自相矛盾
   assert(source.includes('embeddingCounts'), '必须使用服务端返回的 embeddingCounts（只有整数，不含向量）');

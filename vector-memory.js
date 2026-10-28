@@ -554,9 +554,10 @@ class VariableMemoryManager {
       vm._externalListLoadedAt = Date.now();
       // 服务端记忆总数（可能大于本地缓存的 5000 条），用于"加载更早的记忆"
       vm._memTotal = Number(result?.total || 0) || vm.fragments.length;
-      // 让下次渲染重新取服务端统计（总数/Vector/BM25）——
-      // 否则"从服务器加载"按钮点了也不会刷新这三个数字
-      vm._memTotalChecked = false;
+      // 让"从服务器加载"也能刷新面板上的三个数字（清掉内存缓存，下次渲染重新请求）
+      if (this._memTotals && this._memTotals.delete) {
+        this._memTotals.delete(String(chat?.id || chat?.chatId || ''));
+      }
       vm._memVectorCount = undefined;
       vm._memBm25Count = undefined;
 
@@ -3232,26 +3233,42 @@ ${output}`;
 
     // 顶部工具栏
     // 本地缓存默认最多装 5000 条，服务端总数/向量数可能更多 —— 必须显示服务端的真实统计，
-    // 否则「总数 5423 但 Vector+BM25=5000」自相矛盾。每会话只取一次。
-    // 注意：只用一个请求（/memory/list?stats=true）取回全部三个数字，
-    // 少一个失败点；返回的 embeddingCounts 只有两个整数，不含向量本身。
-    if (!vm._memTotalChecked && !vm._memTotalLoading) {
-      vm._memTotalLoading = true;
+    // 否则「总数 5424 但 Vector+BM25=5000」自相矛盾。
+    // ⚠️ 这些数字只缓存在**内存**里（this._memTotals，带 TTL），绝不能写到 vm 上：
+    //    vm 是 chat.variableMemory，会被持久化进 IndexedDB ——
+    //    一旦把「已取过」标记存进去，手机会永远不再请求，一直显示本地回退值。
+    const totalsKey = String(chat?.id || chat?.chatId || '');
+    const TOTALS_TTL_MS = 5 * 60 * 1000;
+    this._memTotals = this._memTotals || new Map();
+    this._memTotalsLoading = this._memTotalsLoading || new Map();
+    const cachedTotals = this._memTotals.get(totalsKey);
+    if (cachedTotals && (Date.now() - cachedTotals.at) < TOTALS_TTL_MS) {
+      vm._memTotal = cachedTotals.total;
+      vm._memVectorCount = cachedTotals.withEmbedding;
+      vm._memBm25Count = cachedTotals.withoutEmbedding;
+    } else if (!this._memTotalsLoading.get(totalsKey)) {
+      this._memTotalsLoading.set(totalsKey, true);
+      // 只用一个请求（/memory/list?stats=true）取回全部三个数字；
+      // embeddingCounts 只有两个整数，不含向量本身。
       this.fetchMemoryPanelPage(chat, {}, 0, 1, { includeStats: true })
         .then(page => {
-          if (page && Number(page.total) > 0) vm._memTotal = Number(page.total);
-          const counts = page?.embeddingCounts || null;
-          if (counts) {
-            if (Number(counts.total) > 0) vm._memTotal = Number(counts.total);
-            vm._memVectorCount = Number(counts.withEmbedding) || 0;
-            vm._memBm25Count = Number(counts.withoutEmbedding) || 0;
-          }
+          if (!page) return;
+          const counts = page.embeddingCounts || null;
+          this._memTotals.set(totalsKey, {
+            at: Date.now(),
+            total: Number(counts?.total || page.total || 0) || 0,
+            withEmbedding: Number(counts?.withEmbedding ?? NaN),
+            withoutEmbedding: Number(counts?.withoutEmbedding ?? NaN)
+          });
         })
         .catch(() => {})
         .finally(() => {
-          vm._memTotalLoading = false;
-          vm._memTotalChecked = true;
-          if (Number(vm._memTotal || 0) > 0) {
+          this._memTotalsLoading.set(totalsKey, false);
+          const fresh = this._memTotals.get(totalsKey);
+          if (fresh && Number(fresh.total) > 0) {
+            vm._memTotal = fresh.total;
+            vm._memVectorCount = fresh.withEmbedding;
+            vm._memBm25Count = fresh.withoutEmbedding;
             if (typeof window !== 'undefined' && typeof window.renderVectorMemoryView === 'function') {
               window.renderVectorMemoryView();
             } else {
