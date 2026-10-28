@@ -784,10 +784,10 @@ async function main() {
   assert(source.includes('本地已加载'), '总数必须区分"服务端总数"和"本地已加载"');
   // 服务端总数平时并不知道（vm.fragments 来自 IndexedDB 缓存），必须主动取一次
   assert(source.includes('_memTotalChecked'), '首次渲染必须主动取一次服务端总数');
-  assert(source.includes('fetchMemoryPanelPage(chat, {}, 0, 1)'), '取总数必须是轻量请求（limit=1）');
+  assert(source.includes('includeStats: true'), '总数与 Vector/BM25 必须用同一个请求取回（少一个失败点）');
   // Vector / BM25 也必须用服务端统计，否则「总数 5423 但 Vector+BM25=5000」自相矛盾
-  assert(source.includes('/memory/stats'), '必须取服务端统计（Vector/BM25 不能只算本地缓存）');
-  assert(source.includes('withEmbedding') && source.includes('withoutEmbedding'), '必须用服务端的已向量化/未向量化计数');
+  assert(source.includes('embeddingCounts'), '必须使用服务端返回的 embeddingCounts（只有整数，不含向量）');
+  assert(!source.includes("'/memory/stats'"), '不要再依赖第二个请求（它失败时面板会显示错数字）');
 
   console.log('Vector memory UI tests passed');
 }

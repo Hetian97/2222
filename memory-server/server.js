@@ -8,6 +8,7 @@ const {
   addMemory,
   listMemories,
   countMemories,
+  getMemoryEmbeddingCounts,
   getMemoryById,
   getMemoriesByIds,
   searchMemoriesFts,
@@ -3870,6 +3871,10 @@ const server = http.createServer(async (req, res) => {
       };
     });
 
+    // ?stats=true 时额外返回全库的「已向量化/未向量化」条数（只有两个整数，不含向量）
+    const includeStats = url.searchParams.get('stats') === 'true';
+    const embeddingCounts = includeStats ? getMemoryEmbeddingCounts() : null;
+
     sendJson(res, 200, {
       ok: true,
       count: publicMemories.length,
@@ -3877,6 +3882,7 @@ const server = http.createServer(async (req, res) => {
       offset,
       limit,
       hasMore: offset + publicMemories.length < total,
+      ...(embeddingCounts ? { embeddingCounts } : {}),
       filters,
       memories: publicMemories
     });

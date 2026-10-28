@@ -11,6 +11,7 @@ const {
   addMemory,
   listMemories,
   countMemories,
+  getMemoryEmbeddingCounts,
   createMemorySearchLog,
   commitMemorySearchInjection,
   finishMemorySearchGeneration,
@@ -642,6 +643,16 @@ try {
     listMemories({ chatId: 'chat-page', dateFrom: '2025/12/19', dateTo: '2025/12/19' }).some(item => item.id === 'page-m1'),
     '斜杠日期也要能用'
   );
+
+  // 全库「已向量化 / 未向量化」计数（面板 Vector/BM25 的数字来源，绝不包含向量本身）
+  const embCounts = getMemoryEmbeddingCounts();
+  assert.strictEqual(embCounts.total, countMemories({}), '总数必须与 countMemories 一致');
+  assert.strictEqual(
+    embCounts.withEmbedding + embCounts.withoutEmbedding,
+    embCounts.total,
+    'Vector + BM25 必须等于总数'
+  );
+  assert.ok(embCounts.withEmbedding >= 0 && embCounts.withoutEmbedding >= 0);
 
   console.log('Active plan context tests passed.');
 } finally {

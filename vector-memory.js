@@ -3228,23 +3228,18 @@ ${output}`;
     // 顶部工具栏
     // 本地缓存默认最多装 5000 条，服务端总数/向量数可能更多 —— 必须显示服务端的真实统计，
     // 否则「总数 5423 但 Vector+BM25=5000」自相矛盾。每会话只取一次。
+    // 注意：只用一个请求（/memory/list?stats=true）取回全部三个数字，
+    // 少一个失败点；返回的 embeddingCounts 只有两个整数，不含向量本身。
     if (!vm._memTotalChecked && !vm._memTotalLoading) {
       vm._memTotalLoading = true;
-      Promise.all([
-        this.fetchMemoryPanelPage(chat, {}, 0, 1).catch(() => null),
-        this.externalMemoryRequest(chat, '/memory/stats', { method: 'GET' }).catch(() => null)
-      ])
-        .then(([page, statsResult]) => {
+      this.fetchMemoryPanelPage(chat, {}, 0, 1, { includeStats: true })
+        .then(page => {
           if (page && Number(page.total) > 0) vm._memTotal = Number(page.total);
-          const serverStats = statsResult?.stats || null;
-          if (serverStats) {
-            if (Number(serverStats.total) > 0) vm._memTotal = Number(serverStats.total);
-            if (Number.isFinite(Number(serverStats.withEmbedding))) {
-              vm._memVectorCount = Number(serverStats.withEmbedding);
-            }
-            if (Number.isFinite(Number(serverStats.withoutEmbedding))) {
-              vm._memBm25Count = Number(serverStats.withoutEmbedding);
-            }
+          const counts = page?.embeddingCounts || null;
+          if (counts) {
+            if (Number(counts.total) > 0) vm._memTotal = Number(counts.total);
+            vm._memVectorCount = Number(counts.withEmbedding) || 0;
+            vm._memBm25Count = Number(counts.withoutEmbedding) || 0;
           }
         })
         .catch(() => {})
@@ -3921,7 +3916,7 @@ ${output}`;
     return { fromTs: toTs(filters.dateFrom, false), toTs: toTs(filters.dateTo, true) };
   }
 
-  async fetchMemoryPanelPage(chat, filters = {}, offset = 0, pageSize = 100) {
+  async fetchMemoryPanelPage(chat, filters = {}, offset = 0, pageSize = 100, options = {}) {
     if (!this.isExternalMemoryEnabled(chat)) return null;
     const active = this.getActivePanelFilters(filters);
     const bounds = this.getPanelDateBounds(filters);
@@ -3940,6 +3935,8 @@ ${output}`;
     appendParam('toTs', bounds.toTs);
     appendParam('limit', pageSize);
     appendParam('offset', Math.max(0, Math.floor(Number(offset) || 0)));
+    // 顺带要全库的「已向量化/未向量化」条数（只有两个整数，不含向量本身）
+    if (options.includeStats) appendParam('stats', 'true');
     const queryString = parts.join('&');
 
     const result = await this.externalMemoryRequest(chat, `/memory/list?${queryString}`, { method: 'GET' });
@@ -3948,10 +3945,16 @@ ${output}`;
       embedding: null,
       _externalCache: true
     }));
+    const counts = result?.embeddingCounts || null;
     return {
       items,
       total: Number(result?.total || items.length) || 0,
-      hasMore: result?.hasMore === true
+      hasMore: result?.hasMore === true,
+      embeddingCounts: counts && Number.isFinite(Number(counts.withEmbedding)) ? {
+        total: Number(counts.total) || 0,
+        withEmbedding: Number(counts.withEmbedding) || 0,
+        withoutEmbedding: Number(counts.withoutEmbedding) || 0
+      } : null
     };
   }
 

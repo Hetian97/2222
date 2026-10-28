@@ -826,6 +826,25 @@ function countMemories(filters = {}) {
   return Number(db.prepare(`SELECT COUNT(*) AS count FROM memories ${whereSql}`).get(...params).count || 0);
 }
 
+// 全库的「已向量化 / 未向量化」条数（只返回两个整数，绝不下发 embedding 本身）。
+// 前端面板用它显示 Vector / BM25 —— 直接跟着 /memory/list 一起返回，
+// 省掉第二次请求，也避免那次请求失败时面板回退成"只统计本地缓存"而显示错数字。
+function getMemoryEmbeddingCounts() {
+  const total = Number(db.prepare('SELECT COUNT(*) AS count FROM memories').get().count || 0);
+  const withEmbedding = Number(db.prepare(`
+    SELECT COUNT(*) AS count FROM memories
+    WHERE embedding IS NOT NULL
+      AND embedding != ''
+      AND embedding != 'null'
+      AND embedding != '[]'
+  `).get().count || 0);
+  return {
+    total,
+    withEmbedding,
+    withoutEmbedding: Math.max(0, total - withEmbedding)
+  };
+}
+
 function deleteMemory(id) {
   const result = db.prepare('DELETE FROM memories WHERE id = ?').run(id);
   db.prepare('DELETE FROM memory_clusters WHERE memberCount = 0').run();
@@ -2766,6 +2785,7 @@ module.exports = {
   addMemory,
   listMemories,
   countMemories,
+  getMemoryEmbeddingCounts,
   getMemoryById,
   getMemoriesByIds,
   searchMemoriesFts,
