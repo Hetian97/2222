@@ -777,6 +777,9 @@ async function main() {
 
   assert(source.includes('正在从服务器查询'), '必须有"正在查询"的占位提示');
   assert(source.includes('共 ${vm._memTotal} 条'), '必须提示服务端总条数（本地缓存可能不全）');
+  // 回归：异步加载后若只调 renderMemoryUI，面板 DOM 被重建但事件没重绑，
+  // 表现为"只能查一次，再改日期没反应"。必须走 renderVectorMemoryView。
+  assert(source.includes('window.renderVectorMemoryView()'), '异步加载后必须走 renderVectorMemoryView 重新绑定面板事件');
 
   console.log('Vector memory UI tests passed');
 }

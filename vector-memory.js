@@ -3959,7 +3959,14 @@ ${output}`;
       };
     }
 
-    this.renderMemoryUI(chat, container);
+    // 关键：必须走 renderVectorMemoryView（它会重新绑定面板事件）。
+    // 只调 renderMemoryUI 会重建 HTML，但日期/搜索框是全新元素、没有监听器，
+    // 表现为"只能查一次，再改日期没反应，退出重进才生效"。
+    if (typeof window !== 'undefined' && typeof window.renderVectorMemoryView === 'function') {
+      window.renderVectorMemoryView();
+    } else {
+      this.renderMemoryUI(chat, container);
+    }
   }
 
   applyPanelFilters(fragments, filters = {}) {
