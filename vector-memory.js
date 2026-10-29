@@ -630,11 +630,36 @@ class VariableMemoryManager {
       }
 
       console.log('[变量记忆] 已同步到外部 memory-server:', result?.memory?.id || fragment.id);
+      // 面板若正开着（尤其带日期筛选），写入后要自动刷新，
+      // 否则新记忆要手动切日期才出现
+      this.scheduleMemoryPanelRefresh();
       return result;
     } catch (error) {
       console.warn('[变量记忆] 外部 memory-server 写入失败，已保留内置记忆:', error.message);
       return null;
     }
+  }
+
+  // 面板开着时，延迟刷新（批量写入只刷一次，避免闪烁/丢滚动位置）
+  scheduleMemoryPanelRefresh() {
+    if (typeof document === 'undefined') return;
+    const isPanelOpen = () => {
+      const el = document.getElementById('vector-memory-container');
+      return Boolean(el && el.querySelector('.vm-view-switcher'));
+    };
+    if (!isPanelOpen()) return;
+    if (this._memPanelRefreshTimer) clearTimeout(this._memPanelRefreshTimer);
+    this._memPanelRefreshTimer = setTimeout(() => {
+      this._memPanelRefreshTimer = null;
+      if (!isPanelOpen()) return;
+      const container = document.getElementById('vector-memory-container');
+      const scrollTop = container ? container.scrollTop : 0;
+      if (typeof window !== 'undefined' && typeof window.renderVectorMemoryView === 'function') {
+        window.renderVectorMemoryView();
+        const after = document.getElementById('vector-memory-container');
+        if (after) after.scrollTop = scrollTop;
+      }
+    }, 800);
   }
 
   async deleteFragmentFromExternalServer(chat, id) {
@@ -3913,8 +3938,9 @@ ${output}`;
   // ---- 记忆面板的服务端查询（分页 + 关键词/日期/分类/重要度筛选）----
   // 目的：本地缓存只装最近 5000 条，更早的记忆（比如聊天的第一天）本地筛不到。
 
-  // 记忆有任何变化（新增/删除/补向量）后必须调用它，
-  // 否则面板上「总数 / Vector / BM25」会在缓存有效期内一直显示旧数字。
+  // 记忆有任何变化（新增/删除/补向量）后必须调用它：
+  //   ① 让「总数 / Vector / BM25」重新取（否则缓存期内显示旧数字）
+  //   ② 让服务端分页结果作废（否则带日期筛选时，新记忆要手动切日期才出现）
   invalidateMemTotals(chat) {
     const key = String(chat?.id || chat?.chatId || '');
     if (this._memTotals && typeof this._memTotals.delete === 'function') {
@@ -3922,6 +3948,7 @@ ${output}`;
     }
     if (chat) {
       const vm = this.getVariableMemory(chat);
+      vm._memPanel = null;
       vm._memVectorCount = undefined;
       vm._memBm25Count = undefined;
     }

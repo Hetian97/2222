@@ -797,6 +797,14 @@ async function main() {
     (source.match(/this\.invalidateMemTotals\(/g) || []).length >= 4,
     '写入/删除/重载记忆后都要让统计缓存失效'
   );
+  // 失效时必须同时清掉"服务端分页结果"，否则带日期筛选时新记忆不出现
+  assert.ok(
+    /invalidateMemTotals\(chat\) \{[\s\S]{0,400}?vm\._memPanel = null/.test(source),
+    'invalidateMemTotals 必须清掉服务端分页结果（日期筛选下新记忆才会出现）'
+  );
+  // 写入成功后，面板开着时要自动刷新（否则要手动切日期）
+  assert(source.includes('scheduleMemoryPanelRefresh'), '写入后必须安排面板刷新');
+  assert(source.includes('this.scheduleMemoryPanelRefresh();'), 'saveFragmentToExternalServer 必须调用刷新');
   assert(source.includes('includeStats: true'), '总数与 Vector/BM25 必须用同一个请求取回（少一个失败点）');
   // Vector / BM25 也必须用服务端统计，否则「总数 5423 但 Vector+BM25=5000」自相矛盾
   assert(source.includes('embeddingCounts'), '必须使用服务端返回的 embeddingCounts（只有整数，不含向量）');
