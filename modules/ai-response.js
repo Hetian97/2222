@@ -230,7 +230,8 @@ function buildExternalMcpProxyUrl(path) {
           (mode === 'tools' || mode === 'all') &&
           Array.isArray(service.tools) &&
           service.tools.length > 0 &&
-          isExternalMcpServiceAllowedForActor(service, actor) &&
+          isExternalMcpServiceAllowedForChat(service, chat) &&
+          (!shouldUseLegacyMcpPermissions(chat) || isExternalMcpServiceAllowedForActor(service, actor)) &&
           (!isBackgroundActivity || service.backgroundActivityEnabled === true) &&
           (options.requireTriggerForGuide === true
             ? ((parseExternalMcpTriggerKeywords(service).length > 0 &&
@@ -239,13 +240,14 @@ function buildExternalMcpProxyUrl(path) {
             : (isBackgroundActivity || options.includeUntriggeredDirectory === true ||
               isExternalMcpServiceTriggeredByMessage(service, latestUserText) ||
               isExternalMcpServiceExplicitlyMentioned(service, latestUserText)));
-      }).map(service => isBackgroundActivity
-        ? {
-            ...service,
-            tools: service.tools.filter(tool => isExternalMcpToolAllowedInBackground(service, tool?.name || '', {}))
-          }
-        : service
-      ).filter(service => service.tools.length > 0);
+      }).map(service => {
+        const allowedTools = service.tools.filter(tool => isExternalMcpToolAllowedForChat(chat, service, tool?.name || ''));
+        if (!isBackgroundActivity) return { ...service, tools: allowedTools };
+        return {
+          ...service,
+          tools: allowedTools.filter(tool => isExternalMcpToolAllowedInBackground(service, tool?.name || '', {}))
+        };
+      }).filter(service => service.tools.length > 0);
     } catch (_) {
       return [];
     }
@@ -665,6 +667,46 @@ function buildExternalMcpProxyUrl(path) {
     return actorNames.some(name => allowedSet.has(name));
   }
 
+  function hasExplicitChatMcpSettings(chat) {
+    return !!(chat && chat.settings && chat.settings.mcp && typeof chat.settings.mcp === 'object');
+  }
+
+  function hasMigratedMcpPermissions() {
+    try { return localStorage.getItem('mcpChatPermissionsMigratedV1') === '1'; } catch { return false; }
+  }
+
+  function shouldUseLegacyMcpPermissions(chat) {
+    return !hasExplicitChatMcpSettings(chat) && !hasMigratedMcpPermissions();
+  }
+
+  function getExternalMcpChatPermissionSettings(chat) {
+    const raw = chat && chat.settings && chat.settings.mcp;
+    if (!raw || typeof raw !== 'object') return null;
+    return {
+      enabled: raw.enabled === true,
+      allowedConnections: Array.isArray(raw.allowedConnections) ? raw.allowedConnections.map(String) : [],
+      allowedTools: raw.allowedTools && typeof raw.allowedTools === 'object' ? raw.allowedTools : {},
+      confirmDangerous: raw.confirmDangerous !== false
+    };
+  }
+
+  function isExternalMcpServiceAllowedForChat(service, chat) {
+    if (!hasExplicitChatMcpSettings(chat)) return !hasMigratedMcpPermissions();
+    const settings = getExternalMcpChatPermissionSettings(chat);
+    return !!(settings && settings.enabled && settings.allowedConnections.includes(String(service && service.id)));
+  }
+
+  function isExternalMcpToolAllowedForChat(chat, service, toolName) {
+    if (!hasExplicitChatMcpSettings(chat)) return true;
+    const settings = getExternalMcpChatPermissionSettings(chat);
+    if (!settings || !settings.enabled) return false;
+    const serviceId = String(service && service.id);
+    if (!settings.allowedConnections.includes(serviceId)) return false;
+    const configured = settings.allowedTools && settings.allowedTools[serviceId];
+    if (!Array.isArray(configured)) return true;
+    return configured.includes(String(toolName || ''));
+  }
+
   function parseExternalMcpTriggerKeywords(service) {
     const raw = service && typeof service.triggerKeywordsText === "string"
       ? service.triggerKeywordsText
@@ -717,9 +759,11 @@ function buildExternalMcpProxyUrl(path) {
 
     if (/(delete|remove|withdraw|revoke|purge|clear|erase|撤回|删除|移除|清空)/i.test(text)) return 'delete';
     if (/(create[_-]?thread|create[_-]?post|new[_-]?(thread|post)|publish|(^|\s)post(\s|$)|发帖|发布新|创建主题)/i.test(text)) return 'create';
+    if (/^(run|execute|exec|shell|terminal|script|cli)$/i.test(normalizedToolName) ||
+        /(execute|run[_-]?command|shell|terminal|script|eval)/i.test(text)) return 'execute';
     if (/(reply|comment|vote|like|interact|join[_-]?game|start[_-]?game|submit[_-]?action|send[_-]?(chat|message)|chat send|回复|评论|点赞|投票|互动|加入游戏|提交行动)/i.test(text)) return 'interact';
     if (/(list|read|get|show|search|find|query|discover|review|status|summary|notification|inbox|activity|查看|读取|列表|搜索|发现|通知|状态)/i.test(text)) return 'read';
-    if (/^(cli|identity|interact)$/i.test(normalizedToolName)) return 'interact';
+    if (/^(identity|interact)$/i.test(normalizedToolName)) return 'interact';
 
     const tool = Array.isArray(service?.tools)
       ? service.tools.find(item => String(item?.name || '') === String(toolName || ''))
@@ -827,6 +871,7 @@ function buildExternalMcpProxyUrl(path) {
     const category = classifyExternalMcpBackgroundAction(service, toolName, args || {});
     if (category === 'delete') return service.backgroundAllowDelete === true;
     if (category === 'create') return service.backgroundAllowCreate === true;
+    if (category === 'execute') return service.backgroundAllowExecute === true;
     if (category === 'read' || category === 'interact') return true;
     return overrides[toolName] === true;
   }
@@ -859,7 +904,14 @@ function buildExternalMcpProxyUrl(path) {
 
     if (!selected) return null;
 
-    if (!isExternalMcpServiceAllowedForActor(selected, actor)) {
+    const actorChat = actor && actor.chatId && typeof state !== 'undefined' ? state.chats?.[actor.chatId] : null;
+    if (!isExternalMcpServiceAllowedForChat(selected, actorChat)) {
+      throw new Error("当前角色没有使用此 MCP 服务的权限：" + (selected.name || selected.url));
+    }
+    if (!isExternalMcpToolAllowedForChat(actorChat, selected, request && request.toolName ? request.toolName : '')) {
+      throw new Error("当前角色没有使用此 MCP 工具的权限：" + (selected.name || selected.url) + " / " + (request && request.toolName ? request.toolName : ''));
+    }
+    if (shouldUseLegacyMcpPermissions(actorChat) && !isExternalMcpServiceAllowedForActor(selected, actor)) {
       const actorNames = getExternalMcpActorIdentityList(actor).join(", ") || "unknown";
       throw new Error("当前调用者无权使用 MCP 服务：" + (selected.name || selected.url) + "。当前调用者：" + actorNames + "；允许调用者：" + describeExternalMcpAllowedCallers(selected));
     }
@@ -984,6 +1036,7 @@ function buildExternalMcpProxyUrl(path) {
   }
 
   function getExternalMcpMemoryServicesForChat(actor, latestUserText) {
+    const actorChat = actor && actor.chatId && typeof state !== 'undefined' ? state.chats?.[actor.chatId] : null;
     return getExternalMcpServiceConfigsForChat().filter(service => {
       const mode = service && service.mode ? String(service.mode) : "tools";
       const toolName = service && service.toolName ? String(service.toolName).trim() : "";
@@ -992,7 +1045,9 @@ function buildExternalMcpProxyUrl(path) {
         (mode === "memory" || mode === "all") &&
         service.url &&
         toolName &&
-        isExternalMcpServiceAllowedForActor(service, actor) &&
+        isExternalMcpServiceAllowedForChat(service, actorChat) &&
+        (!shouldUseLegacyMcpPermissions(actorChat) || isExternalMcpServiceAllowedForActor(service, actor)) &&
+        isExternalMcpToolAllowedForChat(actorChat, service, toolName) &&
         isExternalMcpServiceTriggeredByMessage(service, latestUserText);
     });
   }
@@ -5765,9 +5820,20 @@ ${getActiveThoughtsPrompt()}
               }
             }
 
-            const shouldAutoApprove = isBackgroundMcpRun
+            let shouldAutoApprove = isBackgroundMcpRun
               ? true
               : !!(autoApprovedService && autoApprovedService.allowAutonomousCall === true);
+
+            const chatMcpSettings = getExternalMcpChatPermissionSettings(chat);
+            const foregroundSafety = classifyExternalMcpToolSafety(
+              requestWithActor.toolName || '',
+              autoApprovedService?.tools?.find(tool => tool?.name === requestWithActor.toolName)?.description || ''
+            );
+            const isDangerousForegroundTool = ['create', 'delete', 'execute'].includes(activityCategory) ||
+              ['write', 'control', 'unknown'].includes(foregroundSafety);
+            if (!isBackgroundMcpRun && chatMcpSettings?.confirmDangerous && isDangerousForegroundTool) {
+              shouldAutoApprove = false;
+            }
 
             if (!shouldAutoApprove && !confirmExternalMcpToolRequest(requestWithActor, stepLabel)) {
               return { approved: false, result: null };
@@ -9320,8 +9386,10 @@ ${linkedContents}
         service.backgroundActivityEnabled === true &&
         (mode === 'tools' || mode === 'all') &&
         Array.isArray(service.tools) &&
-        service.tools.some(tool => isExternalMcpToolAllowedInBackground(service, tool?.name || '', {})) &&
-        isExternalMcpServiceAllowedForActor(service, actor);
+        service.tools.some(tool => isExternalMcpToolAllowedForChat(chat, service, tool?.name || '') &&
+          isExternalMcpToolAllowedInBackground(service, tool?.name || '', {})) &&
+        isExternalMcpServiceAllowedForChat(service, chat) &&
+        (!shouldUseLegacyMcpPermissions(chat) || isExternalMcpServiceAllowedForActor(service, actor));
     });
     if (!eligibleServices.length) return false;
 

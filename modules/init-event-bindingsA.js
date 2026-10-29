@@ -927,6 +927,7 @@ window.initEventBindingsA = async function(state, db) {
 
     await loadAllDataFromDB();
     await window.ensureUnifiedApiKeyStorage?.();
+    await window.migrateMcpChatPermissions?.();
     await initFunds();
 
     // 初始化提示词管理器
@@ -3121,6 +3122,7 @@ window.initEventBindingsA = async function(state, db) {
         ? '只控制群聊主动生图，不影响你主动发送照片'
         : '只控制角色主动生图，不影响你主动发送照片';
       window.loadChatImagePresetBindings?.(chat);
+      window.renderChatMcpPermissions?.(chat);
 
       const weatherSection = document.getElementById('weather-settings-section');
       if (isGroup) {
