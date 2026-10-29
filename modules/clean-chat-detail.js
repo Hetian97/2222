@@ -198,7 +198,7 @@
       { id: 'basic', label: '基础资料', ids: ['chat-basic-settings-section'] },
       { id: 'persona', label: '人设与世界', ids: ['chat-persona-settings-section'] },
       { id: 'reply', label: '回复与记忆', ids: ['chat-reply-memory-section'] },
-      { id: 'reality', label: '现实感知', ids: ['chat-reality-perception-section', 'weather-settings-section'] },
+      { id: 'reality', label: '现实感知', ids: ['chat-reality-perception-section', 'weather-settings-section', 'chat-mcp-permissions-section'] },
       { id: 'automation', label: '后台与自动化', ids: ['chat-automation-section'] },
       { id: 'media', label: '语音与图像', ids: ['chat-media-mode-section', 'video-call-optimization-section'] },
       { id: 'appearance', label: '外观', ids: ['chat-appearance-section'] },

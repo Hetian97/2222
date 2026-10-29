@@ -149,6 +149,12 @@
 .mcp-service-card-actions {
   justify-content: flex-end;
 }
+#mcp-service-allowed-caller-label,
+#mcp-service-allowed-caller-options,
+#mcp-service-allowed-callers-list,
+#mcp-service-allowed-caller-hint {
+  display: none !important;
+}
 #mcp-detail-body input[type="text"],
 #mcp-detail-body input[type="password"],
 #mcp-detail-body select,

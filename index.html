@@ -35,7 +35,7 @@
   <link rel="stylesheet" href="css/social/green-river-comments.css?v=0.0.53-upstream">
   <link rel="stylesheet" href="css/living-space.css?v=0.0.4">
   <link rel="stylesheet" href="extra.css?v=0.0.37">
-  <link rel="stylesheet" href="css/frontend-upstream-controls.css?v=0.0.100-mcp">
+  <link rel="stylesheet" href="css/frontend-upstream-controls.css?v=0.0.102-mcp">
   <link rel="stylesheet" href="css/ui/free-home-layout.css?v=0.0.2">
   <link rel="stylesheet" href="css/ui/custom-widget-studio.css?v=0.0.1">
   <link rel="apple-touch-icon" href="https://i.postimg.cc/nMbyyt1t/D7CD735A73F5FD1D7B8407E0EB8BBAC0.png">
@@ -71,34 +71,35 @@
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <!-- 拆分后的模块（按依赖顺序加载） -->
   <!-- 第一层：全局工具函数（DOMContentLoaded 之前） -->
-  <script src="modules/utils.js?v=0.0.100-mcp" defer></script>
+  <script src="modules/utils.js?v=0.0.102-mcp" defer></script>
   <script src="modules/external-wake.js?v=0.0.1" defer></script>
   <script src="modules/translations.js?v=0.0.36" defer></script>
   <!-- 第二层：UI 通用组件 -->
   <script src="modules/ui-modals.js?v=0.0.36" defer></script>
   <script src="modules/ui-loaders.js?v=0.0.38" defer></script>
   <!-- 第三层：核心聊天功能 -->
-  <script src="modules/chat-list.js?v=0.0.100-mcp" defer></script>
-  <script src="modules/chat-interface.js?v=0.0.100-mcp" defer></script>
+  <script src="modules/chat-list.js?v=0.0.102-mcp" defer></script>
+  <script src="modules/chat-interface.js?v=0.0.102-mcp" defer></script>
   <script src="modules/chat-input.js?v=0.0.37" defer></script>
   <script src="modules/mcp-guide-cache.js?v=0.0.1" defer></script>
+  <script src="modules/mcp-chat-permissions.js?v=0.0.102-mcp" defer></script>
   <!-- 第四层：AI 核心 -->
   <script src="modules/chat/remark-names.js?v=0.0.54-remark" defer></script>
-  <script src="modules/ai-response.js?v=0.0.100-mcp" defer></script>
-  <script src="modules/ai-group.js?v=0.0.100-mcp" defer></script>
+  <script src="modules/ai-response.js?v=0.0.102-mcp" defer></script>
+  <script src="modules/ai-group.js?v=0.0.102-mcp" defer></script>
   <!-- 第五层：功能模块 -->
   <script src="modules/music-online-services.js?v=0.0.54-upstream" defer></script>
   <script src="modules/music-player.js?v=0.0.54-upstream" defer></script>
-  <script src="modules/qzone.js?v=0.0.100-mcp" defer></script>
+  <script src="modules/qzone.js?v=0.0.102-mcp" defer></script>
   <script src="modules/sticker-manager.js?v=0.0.36" defer></script>
   <script src="modules/memory-summary.js?v=0.0.55-remark" defer></script>
   <script src="modules/video-voice-call.js?v=0.0.36" defer></script>
-  <script src="modules/message-actions.js?v=0.0.100-mcp" defer></script>
-  <script src="modules/nai-imagen.js?v=0.0.100-mcp" defer></script>
-  <script src="modules/image-presets.js?v=0.0.100-mcp" defer></script>
-  <script src="modules/backup-import-export.js?v=0.0.100-mcp" defer></script>
-  <script src="modules/settings/prompt-entry-manager.js?v=0.0.100-mcp" defer></script>
-  <script src="modules/settings-presets.js?v=0.0.100-mcp" defer></script>
+  <script src="modules/message-actions.js?v=0.0.102-mcp" defer></script>
+  <script src="modules/nai-imagen.js?v=0.0.102-mcp" defer></script>
+  <script src="modules/image-presets.js?v=0.0.102-mcp" defer></script>
+  <script src="modules/backup-import-export.js?v=0.0.102-mcp" defer></script>
+  <script src="modules/settings/prompt-entry-manager.js?v=0.0.102-mcp" defer></script>
+  <script src="modules/settings-presets.js?v=0.0.102-mcp" defer></script>
   <script src="modules/settings/font-presets.js?v=0.0.56-font-upstream" defer></script>
   <script src="modules/chat-settings-presets.js?v=0.0.37" defer></script>
   <script src="modules/shopping.js?v=0.0.56" defer></script>
@@ -134,9 +135,9 @@
   <script src="modules/background-activity.js?v=0.0.37" defer></script>
   <script src="modules/card-import.js?v=0.0.57-worldbook" defer></script>
   <script src="modules/character-export.js?v=0.0.55-rules" defer></script>
-  <script src="modules/data-management.js?v=0.0.100-mcp" defer></script>
-  <script src="modules/local-image-migration.js?v=0.0.100-mcp" defer></script>
-  <script src="modules/local-music-migration.js?v=0.0.100-mcp" defer></script>
+  <script src="modules/data-management.js?v=0.0.102-mcp" defer></script>
+  <script src="modules/local-image-migration.js?v=0.0.102-mcp" defer></script>
+  <script src="modules/local-music-migration.js?v=0.0.102-mcp" defer></script>
   <script src="modules/data/custom-fonts.js?v=0.0.56-font-fix" defer></script>
   <script src="modules/worldbook-header.js?v=0.0.56-worldbook" defer></script>
   <script src="modules/misc-features.js?v=0.0.58-sparkpet" defer></script>
@@ -145,7 +146,7 @@
   <!-- 数据定义（无依赖） -->
   <script src="modules/init-avatar-frames.js?v=0.0.36" defer></script>
   <script src="modules/init-db-schema.js?v=0.0.53-focus" defer></script>
-  <script src="modules/api-key-storage.js?v=0.0.100-mcp" defer></script>
+  <script src="modules/api-key-storage.js?v=0.0.102-mcp" defer></script>
   <!-- 数据保护（依赖 db） -->
   <script src="modules/init-data-protection.js?v=0.0.37" defer></script>
   <!-- 崩溃恢复（依赖 data-protection） -->
@@ -153,9 +154,9 @@
   <!-- PIN/城市（依赖 DOM） -->
   <script src="modules/init-pin-city.js?v=0.0.36" defer></script>
   <!-- 事件绑定和功能（依赖 state, db） -->
-  <script src="modules/init-event-bindingsA.js?v=0.0.100-mcp" defer></script>
-  <script src="modules/init-event-bindingsB.js?v=0.0.100-mcp" defer></script>
-  <script src="modules/init-features.js?v=0.0.100-mcp" defer></script>
+  <script src="modules/init-event-bindingsA.js?v=0.0.102-mcp" defer></script>
+  <script src="modules/init-event-bindingsB.js?v=0.0.102-mcp" defer></script>
+  <script src="modules/init-features.js?v=0.0.102-mcp" defer></script>
   <!-- 自由桌面 / 经典桌面切换与桌面小组件 -->
   <script src="modules/ui/free-home-layout.js?v=0.0.2" defer></script>
   <script src="modules/ui/custom-widget-studio.js?v=0.0.1" defer></script>
@@ -163,14 +164,14 @@
   <script src="modules/init-and-state.js?v=0.0.39" defer></script>
   <!-- 第九层：DOMContentLoaded 外部的独立模块 -->
   <script src="modules/video-optimization.js?v=0.0.36" defer></script>
-  <script src="modules/clean-chat-detail.js?v=0.0.41" defer></script>
+  <script src="modules/clean-chat-detail.js?v=0.0.42" defer></script>
   <script src="modules/clean-api-settings.js?v=0.0.42" defer></script>
   <script src="modules/api-style-beautify.js?v=0.0.36" defer></script>
   <script src="modules/voice-recording.js?v=0.0.36" defer></script>
   <script src="period-tracker.js?v=0.0.37" defer></script>
   <script src="modules/productivity/focus-timer.js?v=0.0.53-upstream" defer></script>
   <!-- 情侣空间（从内联 script 拆分） -->
-  <script src="couple-space.js?v=0.0.100-mcp"></script>
+  <script src="couple-space.js?v=0.0.102-mcp"></script>
   <script src="helper-assistant.js?v=0.0.36" defer></script>
   <script src="force-update.js?v=0.0.36" defer></script>
   <script src="modules/floating-ball.js?v=0.0.59-sparkpet" defer></script>
@@ -179,10 +180,10 @@
   <link rel="stylesheet" href="css/keep-alive-player.css?v=0.0.36">
   <!-- 验证界面 + 开场动画样式（从内联 style 拆分） -->
   <link rel="stylesheet" href="css/auth-intro.css?v=0.0.36">
-  <link rel="stylesheet" href="css/clean-chat-detail.css?v=0.0.100-mcp">
-  <link rel="stylesheet" href="css/clean-api-settings.css?v=0.0.100-mcp">
-  <link rel="stylesheet" href="css/mcp-detail.css?v=0.0.100-mcp">
-  <link rel="stylesheet" href="css/settings/prompt-entries.css?v=0.0.100-mcp">
+  <link rel="stylesheet" href="css/clean-chat-detail.css?v=0.0.102-mcp">
+  <link rel="stylesheet" href="css/clean-api-settings.css?v=0.0.102-mcp">
+  <link rel="stylesheet" href="css/mcp-detail.css?v=0.0.102-mcp">
+  <link rel="stylesheet" href="css/settings/prompt-entries.css?v=0.0.102-mcp">
   <link rel="stylesheet" href="css/couple-invite.css?v=0.0.63-couple">
   <link rel="stylesheet" href="css/floating-ball.css?v=0.0.59-sparkpet">
 </head>
@@ -2102,6 +2103,10 @@
                 <input id="mcp-service-background-delete-input" type="checkbox">
                 允许后台删除/撤回内容
               </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#555;">
+                <input id="mcp-service-background-execute-input" type="checkbox">
+                允许后台执行命令/脚本
+              </label>
               <label style="font-size:13px;color:#555;grid-column:1 / -1;">模式
                 <select id="mcp-service-mode-select" style="
                   width:100%;
@@ -2127,8 +2132,8 @@
             </details>
 
 
-            <label style="font-size:13px;color:#555;">执行范围</label>
-            <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:#555;">
+            <label id="mcp-service-allowed-caller-label" style="font-size:13px;color:#555;">执行范围（旧版，已迁移到角色聊天设置）</label>
+            <div id="mcp-service-allowed-caller-options" style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:#555;">
               <label style="display:flex;align-items:center;gap:6px;">
                 <input id="mcp-service-allowed-caller-mode-all" name="mcp-service-allowed-caller-mode" type="radio" value="all" onchange="updateMcpServiceAllowedCallerVisibility()" checked>
                 全部角色
@@ -2150,7 +2155,7 @@
               max-height:150px;
               overflow:auto;
             "></div>
-            <div style="font-size:12px;color:#888;line-height:1.6;margin-top:-4px;">
+            <div id="mcp-service-allowed-caller-hint" style="font-size:12px;color:#888;line-height:1.6;margin-top:-4px;">
               指定角色来自当前单人聊天列表；群聊中的外部 MCP 工具仍默认关闭。
             </div>
 
@@ -6654,6 +6659,24 @@
 
     </div>
 </div>
+
+        <!-- MCP 工具权限（放在对方位置之后） -->
+        <div class="settings-section" id="chat-mcp-permissions-section">
+            <div class="settings-item-block" id="chat-mcp-permissions-group">
+                <label>MCP 工具权限</label>
+                <div class="settings-desc" style="margin-bottom:8px;">只对当前角色生效；服务级允许角色已迁移到这里。</div>
+                <div class="settings-item">
+                    <label>允许角色使用 MCP</label>
+                    <label class="toggle-switch"><input type="checkbox" id="chat-mcp-enabled-switch"><span class="slider"></span></label>
+                </div>
+                <div class="settings-item">
+                    <label>危险操作前确认</label>
+                    <label class="toggle-switch"><input type="checkbox" id="chat-mcp-confirm-switch"><span class="slider"></span></label>
+                </div>
+                <div class="settings-desc" style="margin:8px 0 6px;">允许的连接与工具</div>
+                <div id="chat-mcp-services-list" style="font-size:12px;color:#888;">还没有启用的 MCP 服务。</div>
+            </div>
+        </div>
 
         <!-- 视频通话优化设置 -->
         <div class="settings-section" id="video-call-optimization-section">
@@ -11691,6 +11714,8 @@
     const editor = document.getElementById('mcp-service-editor-card');
     if (!host || !editor) return;
     host.appendChild(editor);
+    ['mcp-service-allowed-caller-label', 'mcp-service-allowed-caller-options', 'mcp-service-allowed-callers-list', 'mcp-service-allowed-caller-hint']
+      .forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
     const output = document.getElementById('mcp-service-output');
     if (output) {
       const outputCard = output.closest('div[style*="background:#fff"]');
@@ -11736,6 +11761,7 @@
       backgroundActivityEnabled: false,
       backgroundAllowCreate: false,
       backgroundAllowDelete: false,
+      backgroundAllowExecute: false,
       backgroundToolPermissions: {},
       mode: 'tools',
       authType: 'none',
@@ -12013,9 +12039,11 @@
     const text = [tool?.name || '', tool?.description || ''].join(' ').toLowerCase();
     if (/(delete|remove|withdraw|revoke|purge|clear|erase|撤回|删除|移除|清空)/i.test(text)) return 'delete';
     if (/(create[_-]?thread|new[_-]?(thread|post)|publish|create[_-]?post|发帖|发布新|创建主题)/i.test(text)) return 'create';
+    if (/^(run|execute|exec|shell|terminal|script|cli)$/i.test(String(tool?.name || '')) ||
+        /(execute|run[_-]?command|shell|terminal|script|eval)/i.test(text)) return 'execute';
     if (/(reply|comment|vote|like|interact|join[_-]?game|start[_-]?game|submit[_-]?action|send[_-]?(chat|message)|回复|评论|点赞|投票|互动|加入游戏|提交行动)/i.test(text)) return 'interact';
     if (/(list|read|get|show|search|find|query|discover|review|status|summary|notification|inbox|activity|查看|读取|列表|搜索|发现|通知|状态)/i.test(text)) return 'read';
-    if (/^(cli|identity)$/i.test(String(tool?.name || ''))) return 'interact';
+    if (/^identity$/i.test(String(tool?.name || ''))) return 'interact';
     return 'unknown';
   }
 
@@ -12023,7 +12051,7 @@
     const category = classifyMcpBackgroundToolForUi(tool);
     // 创建和删除工具本身默认保留在工具清单中，但仍受上方对应总权限的硬性限制。
     // 这样以后打开“允许创建/删除”时，不必再逐项重新勾选。
-    if (category === 'read' || category === 'interact' || category === 'create' || category === 'delete') return true;
+    if (category === 'read' || category === 'interact' || category === 'create' || category === 'delete' || category === 'execute') return true;
     return false;
   }
 
@@ -12056,7 +12084,7 @@
         ? overrides[tool.name] === true
         : isMcpBackgroundToolDefaultAllowed(tool, service);
       const text = document.createElement('span');
-      const categoryLabel = { read: '读取', interact: '互动', create: '创建', delete: '删除', unknown: '待确认' }[category];
+      const categoryLabel = { read: '读取', interact: '互动', create: '创建', delete: '删除', execute: '执行', unknown: '待确认' }[category];
       text.textContent = `${tool.name}（${categoryLabel}）`;
       label.appendChild(checkbox);
       label.appendChild(text);
@@ -12074,7 +12102,7 @@
 
   function updateMcpServiceBackgroundFieldsVisibility() {
     const enabled = !!document.getElementById('mcp-service-background-activity-input')?.checked;
-    ['mcp-service-background-create-input', 'mcp-service-background-delete-input'].forEach(id => {
+    ['mcp-service-background-create-input', 'mcp-service-background-delete-input', 'mcp-service-background-execute-input'].forEach(id => {
       const input = document.getElementById(id);
       if (input) input.disabled = !enabled;
     });
@@ -12090,6 +12118,7 @@
     const backgroundActivityInput = document.getElementById('mcp-service-background-activity-input');
     const backgroundCreateInput = document.getElementById('mcp-service-background-create-input');
     const backgroundDeleteInput = document.getElementById('mcp-service-background-delete-input');
+    const backgroundExecuteInput = document.getElementById('mcp-service-background-execute-input');
     const modeSelect = document.getElementById('mcp-service-mode-select');
     const authTypeSelect = document.getElementById('mcp-service-auth-type-select');
     const bearerTokenInput = document.getElementById('mcp-service-bearer-token-input');
@@ -12112,6 +12141,7 @@
       backgroundActivityEnabled: backgroundActivityInput ? backgroundActivityInput.checked : false,
       backgroundAllowCreate: backgroundCreateInput ? backgroundCreateInput.checked : false,
       backgroundAllowDelete: backgroundDeleteInput ? backgroundDeleteInput.checked : false,
+      backgroundAllowExecute: backgroundExecuteInput ? backgroundExecuteInput.checked : false,
       backgroundToolPermissions: getMcpBackgroundToolPermissionsFromForm(),
       mode: modeSelect ? modeSelect.value : 'tools',
       authType: authTypeSelect ? authTypeSelect.value : 'none',
@@ -12136,6 +12166,7 @@
     const backgroundActivityInput = document.getElementById('mcp-service-background-activity-input');
     const backgroundCreateInput = document.getElementById('mcp-service-background-create-input');
     const backgroundDeleteInput = document.getElementById('mcp-service-background-delete-input');
+    const backgroundExecuteInput = document.getElementById('mcp-service-background-execute-input');
     const modeSelect = document.getElementById('mcp-service-mode-select');
     const authTypeSelect = document.getElementById('mcp-service-auth-type-select');
     const bearerTokenInput = document.getElementById('mcp-service-bearer-token-input');
@@ -12153,6 +12184,7 @@
     if (backgroundActivityInput) backgroundActivityInput.checked = service?.backgroundActivityEnabled === true;
     if (backgroundCreateInput) backgroundCreateInput.checked = service?.backgroundAllowCreate === true;
     if (backgroundDeleteInput) backgroundDeleteInput.checked = service?.backgroundAllowDelete === true;
+    if (backgroundExecuteInput) backgroundExecuteInput.checked = service?.backgroundAllowExecute === true;
     if (modeSelect) modeSelect.value = service?.mode || 'tools';
     if (authTypeSelect) authTypeSelect.value = service?.authType || 'none';
     if (bearerTokenInput) bearerTokenInput.value = service?.bearerToken || '';
@@ -12189,6 +12221,7 @@
       backgroundActivityEnabled: false,
       backgroundAllowCreate: false,
       backgroundAllowDelete: false,
+      backgroundAllowExecute: false,
       backgroundToolPermissions: {},
       mode: 'tools',
       authType: 'none',
@@ -12229,6 +12262,7 @@
         backgroundActivityEnabled: form.backgroundActivityEnabled,
         backgroundAllowCreate: form.backgroundAllowCreate,
         backgroundAllowDelete: form.backgroundAllowDelete,
+        backgroundAllowExecute: form.backgroundAllowExecute,
         backgroundToolPermissions: form.backgroundToolPermissions,
         mode: form.mode,
         authType: form.authType,
@@ -12255,6 +12289,7 @@
         backgroundActivityEnabled: form.backgroundActivityEnabled,
         backgroundAllowCreate: form.backgroundAllowCreate,
         backgroundAllowDelete: form.backgroundAllowDelete,
+        backgroundAllowExecute: form.backgroundAllowExecute,
         backgroundToolPermissions: form.backgroundToolPermissions,
         mode: form.mode,
         authType: form.authType,
