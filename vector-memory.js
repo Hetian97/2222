@@ -555,11 +555,7 @@ class VariableMemoryManager {
       // 服务端记忆总数（可能大于本地缓存的 5000 条），用于"加载更早的记忆"
       vm._memTotal = Number(result?.total || 0) || vm.fragments.length;
       // 让"从服务器加载"也能刷新面板上的三个数字（清掉内存缓存，下次渲染重新请求）
-      if (this._memTotals && this._memTotals.delete) {
-        this._memTotals.delete(String(chat?.id || chat?.chatId || ''));
-      }
-      vm._memVectorCount = undefined;
-      vm._memBm25Count = undefined;
+      this.invalidateMemTotals(chat);
 
       console.log('[变量记忆] 已从外部 memory-server 加载记忆列表:', vm.fragments.length);
 
@@ -572,6 +568,8 @@ class VariableMemoryManager {
 
   async saveFragmentToExternalServer(chat, fragment, options = {}) {
     if (!this.isExternalMemoryEnabled(chat)) return null;
+    // 写入会改变 Vector/BM25 统计，先让面板缓存失效
+    this.invalidateMemTotals(chat);
 
     try {
       const temporaryEmbedding = Array.isArray(options.embedding) && options.embedding.length > 0
@@ -641,6 +639,7 @@ class VariableMemoryManager {
 
   async deleteFragmentFromExternalServer(chat, id) {
     if (!this.isExternalMemoryEnabled(chat)) return null;
+    this.invalidateMemTotals(chat);
 
     try {
       const result = await this.externalMemoryRequest(chat, '/memory/delete', {
@@ -825,6 +824,7 @@ class VariableMemoryManager {
     const vm = this.getVariableMemory(chat);
     vm.fragments = vm.fragments.filter(f => f.id !== id);
     if (vm._memPanel) vm._memPanel = null;   // 服务端查询结果作废，下次重新查
+    this.invalidateMemTotals(chat);          // 统计也会变
     // 清理关联引用
     vm.fragments.forEach(f => {
       f.linkedMemories = (f.linkedMemories || []).filter(lid => lid !== id);
@@ -901,6 +901,7 @@ class VariableMemoryManager {
     const vm = this.getVariableMemory(chat);
     const selectedIds = new Set(selectedItems.map(item => item.id));
     const deletedIds = [];
+    this.invalidateMemTotals(chat);          // 统计会变
 
     vm.fragments = vm.fragments.filter(f => {
       if (selectedIds.has(f.id)) {
@@ -3911,6 +3912,21 @@ ${output}`;
 
   // ---- 记忆面板的服务端查询（分页 + 关键词/日期/分类/重要度筛选）----
   // 目的：本地缓存只装最近 5000 条，更早的记忆（比如聊天的第一天）本地筛不到。
+
+  // 记忆有任何变化（新增/删除/补向量）后必须调用它，
+  // 否则面板上「总数 / Vector / BM25」会在缓存有效期内一直显示旧数字。
+  invalidateMemTotals(chat) {
+    const key = String(chat?.id || chat?.chatId || '');
+    if (this._memTotals && typeof this._memTotals.delete === 'function') {
+      this._memTotals.delete(key);
+    }
+    if (chat) {
+      const vm = this.getVariableMemory(chat);
+      vm._memVectorCount = undefined;
+      vm._memBm25Count = undefined;
+    }
+  }
+
   getActivePanelFilters(filters = {}) {
     const active = {};
     const query = String(filters.query || '').trim();

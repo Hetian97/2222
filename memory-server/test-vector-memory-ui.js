@@ -790,6 +790,13 @@ async function main() {
   assert.ok(!source.includes('_memTotalChecked'), '不能把取数标记持久化到聊天对象里');
   // 网络抖动时首次请求会失败 → 必须自动重试，否则面板一直停在本地回退值
   assert(source.includes('loadTotals(') && source.includes('attempt < 3'), '取服务端统计失败必须自动重试');
+  // 记忆一变（新增/删除/补向量）就必须让统计缓存失效，
+  // 否则总结后又出现未向量化条目时，面板仍显示 BM25=0（实际遇到过的 bug）
+  assert(source.includes('invalidateMemTotals'), '必须有统计缓存失效方法');
+  assert.ok(
+    (source.match(/this\.invalidateMemTotals\(/g) || []).length >= 4,
+    '写入/删除/重载记忆后都要让统计缓存失效'
+  );
   assert(source.includes('includeStats: true'), '总数与 Vector/BM25 必须用同一个请求取回（少一个失败点）');
   // Vector / BM25 也必须用服务端统计，否则「总数 5423 但 Vector+BM25=5000」自相矛盾
   assert(source.includes('embeddingCounts'), '必须使用服务端返回的 embeddingCounts（只有整数，不含向量）');
