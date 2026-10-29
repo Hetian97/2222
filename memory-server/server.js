@@ -575,12 +575,17 @@ function extractQuotedAnchorTerms(text, options = {}) {
   }
   const out = [];
   const seen = new Set();
+  // 引号里如果只是这些泛化单字，当锚点毫无意义（还会白加几十条候选）
+  const SINGLE_STOPWORDS = new Set(['的', '了', '是', '我', '你', '他', '她', '它', '这', '那', '不', '没', '有', '和', '在', '就', '也', '还', '都', '啊', '吧', '呢', '吗', '嗯', '好']);
   const push = (value) => {
     const term = normalizeExactAnchorTerm(value);
     if (!term) return;
     if (term.length > 12) return;
     if (seen.has(term)) return;
-    if (term.length < 2 && !/^[\u4e00-\u9fa5]$/.test(term)) return;   // 允许单个中文字
+    if (term.length === 1) {
+      if (!/^[\u4e00-\u9fa5]$/.test(term)) return;   // 单字只允许中文
+      if (SINGLE_STOPWORDS.has(term)) return;        // 泛化单字直接丢弃
+    }
     seen.add(term);
     out.push(term);
   };
