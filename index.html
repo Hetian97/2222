@@ -2289,7 +2289,7 @@
           <div id="mcp-detail-editor-host"></div>
           <section class="mcp-detail-section" id="mcp-detail-activity-section">
             <div class="mcp-detail-section-title">活动记录</div>
-            <div class="mcp-detail-section-desc">只显示当前 MCP 的测试与调用记录。</div>
+            <div class="mcp-detail-section-desc">只显示当前 MCP 的测试与调用记录，活动保留 7 天。</div>
             <div id="mcp-detail-activity-root" class="mcp-detail-activity-root">暂无活动。</div>
           </section>
         </div>
@@ -11640,11 +11640,17 @@
   }
 
   const MCP_SERVICE_ACTIVITIES_STORAGE_KEY = 'mcpServiceActivities';
+  const MCP_SERVICE_ACTIVITY_RETENTION_DAYS = 7;
 
   function getMcpServiceActivities() {
     try {
       const list = JSON.parse(localStorage.getItem(MCP_SERVICE_ACTIVITIES_STORAGE_KEY) || '[]');
-      return Array.isArray(list) ? list : [];
+      if (!Array.isArray(list)) return [];
+      const cutoff = Date.now() - MCP_SERVICE_ACTIVITY_RETENTION_DAYS * 86400000;
+      return list.filter(item => {
+        const time = new Date(item?.createdAt || 0).getTime();
+        return Number.isFinite(time) && time >= cutoff;
+      });
     } catch {
       return [];
     }
@@ -11652,7 +11658,12 @@
 
   function saveMcpServiceActivities(list) {
     try {
-      localStorage.setItem(MCP_SERVICE_ACTIVITIES_STORAGE_KEY, JSON.stringify(list.slice(0, 200)));
+      const cutoff = Date.now() - MCP_SERVICE_ACTIVITY_RETENTION_DAYS * 86400000;
+      const fresh = list.filter(item => {
+        const time = new Date(item?.createdAt || 0).getTime();
+        return Number.isFinite(time) && time >= cutoff;
+      });
+      localStorage.setItem(MCP_SERVICE_ACTIVITIES_STORAGE_KEY, JSON.stringify(fresh.slice(0, 200)));
     } catch {}
   }
 
