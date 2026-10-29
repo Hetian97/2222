@@ -730,13 +730,21 @@ function scoreExactAnchorTerms(anchorTerms, memory, quotedTerms = []) {
 
   // 引号锚点：用户明确引用过的一句话/一个词（如「你说‘滚’那次」）。
   // 这类锚点信息量最高、误召回风险最低，命中即给强加分（单字也允许）。
+  // ⚠️ 单字锚点必须"真的指那个字"：只认被引号括起来的（说“滚”字）或“…字”的用法，
+  //    否则「心头滚烫」「滚到那头」这类同字不同词会混进来。
+  const rawText = `${String(memory.content || '')} ${String(memory.context || '')}`;
+  const QUOTE_PAIRS = [['“', '”'], ['「', '」'], ['『', '』'], ['‘', '’'], ['"', '"'], ["'", "'"]];
+  const singleCharQuotedHit = (term) => {
+    if (rawText.includes(`${term}字`)) return true;
+    return QUOTE_PAIRS.some(([open, close]) => rawText.includes(`${open}${term}${close}`));
+  };
   let quotedHit = false;
   for (const rawTerm of quotedTerms) {
     const term = normalizeExactAnchorTerm(rawTerm);
     if (!term || term.length > 12) continue;
     if (isGenericMemorySearchTerm(term) && term.length > 1) continue;
     const tagExact = tags.some(tag => tag === term);
-    const contentHit = contentNorm.includes(term);
+    const contentHit = term.length === 1 ? singleCharQuotedHit(term) : contentNorm.includes(term);
     let current = 0;
     if (tagExact) current += 0.72;
     else if (contentHit) current += 0.58;
@@ -1554,7 +1562,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
   const quotedHits = scored.filter(item => item.quotedAnchorHit);
   if (quotedHits.length) {
     const rest = scored.filter(item => !item.quotedAnchorHit);
-    ordered = [...quotedHits.slice(0, 4), ...rest];
+    ordered = [...quotedHits.slice(0, 6), ...rest];
   }
 
   return ordered.slice(0, safeLimit).map(item => {
