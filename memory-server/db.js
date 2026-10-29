@@ -798,6 +798,38 @@ function buildMemoryWhere(filters = {}) {
   return { whereSql: where.length ? `WHERE ${where.join(' AND ')}` : '', params };
 }
 
+// 按子串精确查找记忆（只走 LIKE，不做语义）。
+// 用途：用户话里"引用的具体内容"（如「你说‘滚’那次」）在向量/FTS 里都可能捞不到，
+// 用它直接补召回。锚点必须是用户明确引用过的短文本，因此误召回风险很低。
+function escapeLikeTerm(value) {
+  return String(value || '').replace(/[\\%_]/g, ch => `\\${ch}`);
+}
+
+function searchMemoriesBySubstring(term, options = {}) {
+  const text = String(term || '').trim();
+  if (!text) return [];
+  const limit = Math.min(50, Math.max(1, Number(options.limit) || 40));
+  const like = `%${escapeLikeTerm(text)}%`;
+  const rows = db.prepare(`
+    SELECT * FROM memories
+    WHERE content LIKE ? ESCAPE '\\' OR context LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\'
+    ORDER BY importance DESC, CAST(COALESCE(NULLIF(memoryTime, ''), createdAt) AS INTEGER) DESC
+    LIMIT ?
+  `).all(like, like, like, limit);
+  return rows.map(normalizeMemory);
+}
+
+// 某个短文本在记忆库里出现多少次（判断锚点"够不够罕见"）
+function countMemoriesContaining(term) {
+  const text = String(term || '').trim();
+  if (!text) return 0;
+  const like = `%${escapeLikeTerm(text)}%`;
+  return Number(db.prepare(`
+    SELECT COUNT(*) AS count FROM memories
+    WHERE content LIKE ? ESCAPE '\\' OR context LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\'
+  `).get(like, like, like).count || 0);
+}
+
 function listMemories(filters = {}) {
   if (typeof filters === 'string') {
     filters = { chatId: filters };
@@ -2785,6 +2817,8 @@ module.exports = {
   addMemory,
   listMemories,
   countMemories,
+  searchMemoriesBySubstring,
+  countMemoriesContaining,
   getMemoryEmbeddingCounts,
   getMemoryById,
   getMemoriesByIds,

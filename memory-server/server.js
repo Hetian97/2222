@@ -9,6 +9,7 @@ const {
   listMemories,
   countMemories,
   getMemoryEmbeddingCounts,
+  searchMemoriesBySubstring,
   getMemoryById,
   getMemoriesByIds,
   searchMemoriesFts,
@@ -549,6 +550,49 @@ function isGenericMemorySearchTerm(value) {
   return false;
 }
 
+// 从用户话里抽「被引用」的短文本（锚点）。
+// 现实里"转述/引用某句话"几乎都会带引号，这是信息量最高、误召回风险最低的线索：
+//   「你忘了上次你对我说‘滚’的事么？」→ 锚点 = 滚
+//   「你上次说的那碗海鲜粥是几点做的？」→ 锚点 = 海鲜粥（引号内的整句再按标点切短）
+// 单字锚点只允许来自引号（且后续会再做罕见度过滤）。
+function extractQuotedAnchorTerms(text, options = {}) {
+  const source = String(text || '');
+  if (!source) return [];
+  const maxTerms = clampNumber(options.maxTerms, 1, 12, 6);
+  const pairs = [['“', '”'], ['「', '」'], ['『', '』'], ['‘', '’'], ['"', '"'], ["'", "'"]];
+  const spans = [];
+  for (const [open, close] of pairs) {
+    let cursor = 0;
+    for (let guard = 0; guard < 200; guard++) {
+      const start = source.indexOf(open, cursor);
+      if (start < 0) break;
+      const end = source.indexOf(close, start + 1);
+      if (end < 0) break;
+      const inner = source.slice(start + 1, end).trim();
+      if (inner) spans.push(inner);
+      cursor = end + 1;
+    }
+  }
+  const out = [];
+  const seen = new Set();
+  const push = (value) => {
+    const term = normalizeExactAnchorTerm(value);
+    if (!term) return;
+    if (term.length > 12) return;
+    if (seen.has(term)) return;
+    if (term.length < 2 && !/^[\u4e00-\u9fa5]$/.test(term)) return;   // 允许单个中文字
+    seen.add(term);
+    out.push(term);
+  };
+  for (const span of spans) {
+    push(span);
+    // 长句按标点切短，让「海鲜粥」「几点」这类具体词独立成锚点
+    span.split(/[，。！？；、,.!?;…\s]+/).forEach(part => push(part));
+  }
+  // 短锚点优先（越短越具体），最多 maxTerms 个
+  return out.sort((a, b) => a.length - b.length).slice(0, maxTerms);
+}
+
 function parseMemorySearchTags(value) {
   if (Array.isArray(value)) return value;
   if (typeof value === 'string') {
@@ -627,12 +671,15 @@ function buildExactAnchorTerms(searchQueries, memories = [], excludedTerms = [])
     .slice(0, 16);
 }
 
-function scoreExactAnchorTerms(anchorTerms, memory) {
-  if (!Array.isArray(anchorTerms) || !anchorTerms.length || !memory) {
+function scoreExactAnchorTerms(anchorTerms, memory, quotedTerms = []) {
+  const hasAnchors = Array.isArray(anchorTerms) && anchorTerms.length > 0;
+  const hasQuoted = Array.isArray(quotedTerms) && quotedTerms.length > 0;
+  if (!memory || (!hasAnchors && !hasQuoted)) {
     return {
       score: 0,
       matchedTerm: '',
-      matchedCount: 0
+      matchedCount: 0,
+      quotedHit: false
     };
   }
 
@@ -681,10 +728,33 @@ function scoreExactAnchorTerms(anchorTerms, memory) {
     score += Math.min(0.18, (matchedCount - 1) * 0.06);
   }
 
+  // 引号锚点：用户明确引用过的一句话/一个词（如「你说‘滚’那次」）。
+  // 这类锚点信息量最高、误召回风险最低，命中即给强加分（单字也允许）。
+  let quotedHit = false;
+  for (const rawTerm of quotedTerms) {
+    const term = normalizeExactAnchorTerm(rawTerm);
+    if (!term || term.length > 12) continue;
+    if (isGenericMemorySearchTerm(term) && term.length > 1) continue;
+    const tagExact = tags.some(tag => tag === term);
+    const contentHit = contentNorm.includes(term);
+    let current = 0;
+    if (tagExact) current += 0.72;
+    else if (contentHit) current += 0.58;
+    if (current <= 0) continue;
+    quotedHit = true;
+    matchedCount++;
+    score += current;
+    if (current > best) {
+      best = current;
+      matchedTerm = term;
+    }
+  }
+
   return {
     score: Math.min(1, score),
     matchedTerm,
-    matchedCount
+    matchedCount,
+    quotedHit
   };
 }
 
@@ -1304,7 +1374,40 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
   const q = String(query || '').trim();
   const safeLimit = clampNumber(limit, 1, 200, 20);
   const searchQueries = buildMemorySearchQueries(q, options.queryVariants || options.cleanedQueries || options.queries || []);
-  const exactAnchorTerms = buildExactAnchorTerms(searchQueries.slice(0, 1), memories, options.participantNames);
+
+  // ---- 引号锚点补召回 ----
+  // 用户转述/引用某句话时（「你说‘滚’那次」），整句 embedding 会被叙述稀释，
+  // 那个具体的词可能既进不了向量 top-K、也切不出 FTS bigram（单字更不可能）。
+  // 这里把引号里明确提到的内容直接去库里补召回，再并入候选池。
+  const quotedAnchorTerms = extractQuotedAnchorTerms(q);
+  let pool = memories;
+  if (quotedAnchorTerms.length) {
+    const seenIds = new Set((Array.isArray(memories) ? memories : []).map(memory => memory.id));
+    const topUp = [];
+    const MAX_TOP_UP = 150;
+    for (const term of quotedAnchorTerms) {
+      let hits = [];
+      try {
+        hits = searchMemoriesBySubstring(term, { limit: 40 });
+      } catch (error) {
+        console.warn('[memory-server] 引号锚点补召回失败:', error.message);
+        continue;
+      }
+      for (const hit of hits) {
+        if (!hit || !hit.id || seenIds.has(hit.id)) continue;
+        seenIds.add(hit.id);
+        topUp.push(hit);
+        if (topUp.length >= MAX_TOP_UP) break;
+      }
+      if (topUp.length >= MAX_TOP_UP) break;
+    }
+    if (topUp.length) {
+      console.log('[memory-server] 引号锚点补召回:', quotedAnchorTerms.join(','), '新增候选', topUp.length);
+      pool = [...topUp, ...(Array.isArray(memories) ? memories : [])];
+    }
+  }
+
+  const exactAnchorTerms = buildExactAnchorTerms(searchQueries.slice(0, 1), pool, options.participantNames);
 
   const rawWeights = options.scoreWeights || options.weights || {};
   const readWeight = (name, fallback) => {
@@ -1320,7 +1423,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
   };
 
   if (!searchQueries.length) {
-    return memories.slice(0, safeLimit);
+    return pool.slice(0, safeLimit);
   }
 
   const queryEmbeddings = [];
@@ -1349,7 +1452,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
     }
   }
 
-  const scored = memories
+  const scored = pool
     .map(memory => {
       const memoryEmbedding = safeParseEmbedding(memory.embedding);
 
@@ -1381,7 +1484,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
       // Exact anchor boost:
       // dynamically detects concrete, relatively rare terms from the current query
       // and boosts memories whose content/tags contain those terms.
-      const anchorHit = scoreExactAnchorTerms(exactAnchorTerms, memory);
+      const anchorHit = scoreExactAnchorTerms(exactAnchorTerms, memory, quotedAnchorTerms);
       if (anchorHit.score > 0) {
         const boostedTextScore = Math.min(1, Math.max(textScore, anchorHit.score));
         if (boostedTextScore > textScore) {
@@ -1432,6 +1535,7 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
         score: totalScore,
         vectorScore,
         keywordScore: textScore,
+        quotedAnchorHit: Boolean(anchorHit?.quotedHit),
         anchorScore: anchorHit?.score || 0,
         anchorMatchedTerm: anchorHit?.matchedTerm || '',
         anchorMatchedCount: anchorHit?.matchedCount || 0,
@@ -1444,7 +1548,16 @@ async function simpleSearch(memories, query, limit = 20, options = {}) {
     .filter(item => item.score > 0)
     .sort((a, b) => b.score - a.score);
 
-  return scored.slice(0, safeLimit).map(item => {
+  // 引号锚点命中 = 强证据（用户明确引用了这个词/这句话），
+  // 最多 4 条直接排到前面 —— 否则会被 importance=9 的情绪记忆按权重挤下去。
+  let ordered = scored;
+  const quotedHits = scored.filter(item => item.quotedAnchorHit);
+  if (quotedHits.length) {
+    const rest = scored.filter(item => !item.quotedAnchorHit);
+    ordered = [...quotedHits.slice(0, 4), ...rest];
+  }
+
+  return ordered.slice(0, safeLimit).map(item => {
     const memoryEmbedding = safeParseEmbedding(item.memory.embedding);
 
     const {

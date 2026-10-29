@@ -12,6 +12,8 @@ const {
   listMemories,
   countMemories,
   getMemoryEmbeddingCounts,
+  searchMemoriesBySubstring,
+  countMemoriesContaining,
   createMemorySearchLog,
   commitMemorySearchInjection,
   finishMemorySearchGeneration,
@@ -653,6 +655,22 @@ try {
     'Vector + BM25 必须等于总数'
   );
   assert.ok(embCounts.withEmbedding >= 0 && embCounts.withoutEmbedding >= 0);
+
+  // ---- 引号锚点补召回用的子串查询（「你说‘滚’那次」这类引用式提问）----
+  seedMemory('anchor-hit-1', '她说不想听我说“滚”这个字，我道歉了', '2026-03-01T10:00:00');
+  seedMemory('anchor-hit-2', '我又开玩笑了个“滚”字，她委屈了', '2026-03-02T10:00:00');
+  assert.deepStrictEqual(
+    searchMemoriesBySubstring('滚', { limit: 10 }).map(item => item.id).sort(),
+    ['anchor-hit-1', 'anchor-hit-2'],
+    '子串查询必须精确命中含该字的记忆'
+  );
+  assert.strictEqual(countMemoriesContaining('滚'), 2, '锚点罕见度统计必须准');
+  assert.strictEqual(countMemoriesContaining(''), 0, '空锚点必须返回 0');
+  assert.strictEqual(
+    searchMemoriesBySubstring('%', { limit: 5 }).length,
+    0,
+    'LIKE 通配符必须被转义，不能变成全表匹配'
+  );
 
   console.log('Active plan context tests passed.');
 } finally {
