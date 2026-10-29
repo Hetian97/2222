@@ -5747,6 +5747,15 @@ ${getActiveThoughtsPrompt()}
 
           const activityServiceName = autoApprovedService?.name || autoApprovedService?.serverName || requestWithActor.serviceName || '外部 MCP';
           const activityCategory = classifyExternalMcpBackgroundAction(autoApprovedService, requestWithActor.toolName, requestWithActor.arguments || {});
+          const mcpServiceActivityId = autoApprovedService?.id || '';
+          const actorLabel = actor?.characterName || actor?.chatName || '当前角色';
+          if (mcpServiceActivityId && typeof window.appendMcpServiceActivity === 'function') {
+            window.appendMcpServiceActivity(mcpServiceActivityId, {
+              status: 'running',
+              title: '角色调用 · ' + (requestWithActor.toolName || '未知工具'),
+              summary: actorLabel + ' · ' + (isBackgroundMcpRun ? '后台活动' : '聊天调用')
+            });
+          }
           let activityRecord = null;
 
           try {
@@ -5785,16 +5794,38 @@ ${getActiveThoughtsPrompt()}
               : { type: typeof result };
             console.log(`[MCP] ${stepLabel} 返回：${activityServiceName} / ${requestWithActor.toolName || "(未知工具)"}`, resultSummary);
             updateExternalMcpActivityRecord(chat, activityRecord, activityCategory, 'success');
+            if (mcpServiceActivityId && typeof window.appendMcpServiceActivity === 'function') {
+              window.appendMcpServiceActivity(mcpServiceActivityId, {
+                status: 'ok',
+                title: '角色调用成功 · ' + (requestWithActor.toolName || '未知工具'),
+                summary: actorLabel
+              });
+            }
             return { approved: true, result };
           } catch (error) {
             console.error(`[MCP] ${stepLabel} 失败：${activityServiceName} / ${requestWithActor.toolName || "(未知工具)"}`, error && error.message ? error.message : error);
             updateExternalMcpActivityRecord(chat, activityRecord, activityCategory, 'failed');
+            if (mcpServiceActivityId && typeof window.appendMcpServiceActivity === 'function') {
+              window.appendMcpServiceActivity(mcpServiceActivityId, {
+                status: 'error',
+                title: '角色调用失败 · ' + (requestWithActor.toolName || '未知工具'),
+                summary: error && error.message ? error.message : String(error)
+              });
+            }
             throw error;
           }
         };
 
         try {
-          const maxExternalMcpToolSteps = 10;
+          let configuredMaxCalls = 10;
+          try {
+            const initialService = findExternalMcpServiceForRequest({
+              ...externalMcpToolRequest,
+              actor: buildExternalMcpActorContext(chat)
+            });
+            configuredMaxCalls = Number(initialService?.maxCallsPerTurn) || 10;
+          } catch (_) {}
+          const maxExternalMcpToolSteps = Math.min(10, Math.max(1, configuredMaxCalls));
           const maxExternalMcpErrorCorrections = 2;
           const toolContextMessages = [...messagesPayload];
           const failedRequestSignatures = new Set();
