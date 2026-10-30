@@ -1954,8 +1954,14 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
       content: '(AI返回了空内容)'
     }];
 
-    let trimmedContent = content.trim();
+    let trimmedContent = content.trim().replace(/^[\u200B-\u200D\uFEFF]+/, '');
     let prefixResults = [];
+
+    // 先剥离最常见的整段 ```json 围栏，再进入思维链提取。
+    const outerFenceMatch = trimmedContent.match(/^```(?:json)?\s*([\s\S]*?)\s*```\s*$/i);
+    if (outerFenceMatch && outerFenceMatch[1]) {
+      trimmedContent = outerFenceMatch[1].trim();
+    }
 
     // 思考提取：优先走思维链 APP 的“手动兼容设置”（标记 / 正则 / 大小写 / 缺开始标记 / 全部匹配）
     if (typeof ThoughtChainManager !== 'undefined' && typeof ThoughtChainManager.extractReasoning === 'function') {
@@ -2050,9 +2056,13 @@ function toGeminiRequestData(model, apiKey, systemInstruction, messagesForDecisi
 
 
     console.error("所有解析方案均失败！将返回原始文本。原始回复:", content);
+    const fallbackText = String(trimmedContent || content)
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```\s*$/i, '')
+      .trim();
     return prefixResults.concat([{
       type: 'text',
-      content: trimmedContent || content
+      content: fallbackText || content
     }]);
   }
 
@@ -3972,9 +3982,23 @@ ${linkedContents}
           const novelaiEnabled = localStorage.getItem('novelai-enabled') === 'true';
           const googleImagenEnabled = localStorage.getItem('google-imagen-enabled') === 'true';
           const openAIImageEnabled = localStorage.getItem('openai-image-enabled') === 'true';
-          const imageGenEnabled = novelaiEnabled || googleImagenEnabled || openAIImageEnabled;
-          const imageType = novelaiEnabled ? 'naiimag' : (googleImagenEnabled ? 'googleimag' : 'openaiimag');
-          const imageTypeName = novelaiEnabled ? 'NovelAI' : (googleImagenEnabled ? 'Google Imagen' : 'GPT 生图');
+          const characterImageAllowed = typeof isCharacterImageGenerationAllowed === 'function'
+            ? isCharacterImageGenerationAllowed(chat)
+            : true;
+          const sceneProvider = typeof getImageGenerationSceneProviders === 'function'
+            ? getImageGenerationSceneProviders()?.chat
+            : '';
+          const providerEnabled = { nai: novelaiEnabled, imagen: googleImagenEnabled, openai: openAIImageEnabled };
+          const activeImageProvider = characterImageAllowed
+            ? ['nai', 'imagen', 'openai'].find(provider => sceneProvider === provider && providerEnabled[provider])
+            : null;
+          const imageGenEnabled = !!activeImageProvider;
+          const imageType = activeImageProvider === 'nai' ? 'naiimag'
+            : activeImageProvider === 'imagen' ? 'googleimag'
+              : activeImageProvider === 'openai' ? 'openaiimag' : '';
+          const imageTypeName = activeImageProvider === 'nai' ? 'NovelAI'
+            : activeImageProvider === 'imagen' ? 'Google Imagen'
+              : activeImageProvider === 'openai' ? 'GPT 生图' : '';
           const minLength = chat.settings.offlineMinLength || 100;
           const maxLength = chat.settings.offlineMaxLength || 300;
           const myNickname = chat.settings.myNickname || '我';
@@ -5356,6 +5380,13 @@ ${getActiveThoughtsPrompt()}
         } catch (cacheError) {
           console.warn('[MCP Guide Cache] 读取失败，已忽略:', cacheError);
         }
+      }
+
+      const chatImageProviderEnabled = typeof isImageGenerationProviderAvailable === 'function' &&
+        ['pollinations', 'nai', 'imagen', 'openai'].some(provider => isImageGenerationProviderAvailable(provider, 'chat')) &&
+        (typeof isCharacterImageGenerationAllowed !== 'function' || isCharacterImageGenerationAllowed(chat));
+      if (!chatImageProviderEnabled) {
+        systemPrompt += '\n\n# 【图片功能已关闭】\n当前聊天没有启用角色主动图片生成。不要输出 ai_image、naiimag、googleimag 或 openaiimag 对象，也不要生成图片提示词。正常进行文字或线下叙事回复。';
       }
 
       // 按思维链 APP 中配置的「位置 / 深度 / 顺序 / 预填充开关」注入消息
