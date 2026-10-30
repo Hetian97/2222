@@ -5640,6 +5640,41 @@ ${getActiveThoughtsPrompt()}
       chat.history = chat.history.filter(msg => !msg.isTemporary);
       let messagesArray = parseAiResponse(aiResponseContent);
 
+      // Gemini 有时会返回 200，但静默忽略底部的 assistant/model 预填。
+      // 这种情况下不会触发 400 的旧兜底，因此主动去掉预填并重试一次。
+      const hasThoughtChainBlock = Array.isArray(messagesArray) && messagesArray.some(item =>
+        item && (item.type === 'thought_chain_block' || item.type === 'thought_chain')
+      );
+      if (isGemini && bottomPrefillInjected.length > 0 && !hasThoughtChainBlock &&
+          typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.buildPrefillFallbackSystemPrompt &&
+          ThoughtChainManager.isModeEnabled?.(thoughtChainMode)) {
+        const retryFallbackPrompt = ThoughtChainManager.buildPrefillFallbackSystemPrompt(thoughtChainMode, true) || '';
+        if (retryFallbackPrompt) {
+          console.warn('[思维链] Gemini 未返回思维链，自动关闭预填并重试一次');
+          messagesPayload = messagesPayloadBeforeThoughtChain.slice();
+          prefillFallbackPrompt = retryFallbackPrompt;
+          bottomPrefillInjected = [];
+          try {
+            const retryResponse = await buildMainApiResponse();
+            if (retryResponse.ok) {
+              const retryData = await retryResponse.json();
+              const retryContent = getGeminiResponseText(retryData);
+              const retryMessages = parseAiResponse(retryContent);
+              if (Array.isArray(retryMessages) && retryMessages.some(item =>
+                item && (item.type === 'thought_chain_block' || item.type === 'thought_chain'))) {
+                aiResponseContent = retryContent;
+                lastRawAiResponse = retryContent;
+                responsePayload = retryData;
+                messagesArray = retryMessages;
+                console.log('[思维链] 无预填重试成功，已恢复思维链');
+              }
+            }
+          } catch (retryError) {
+            console.warn('[思维链] 无预填重试失败，保留原回复:', retryError);
+          }
+        }
+      }
+
       const hasExternalMcpToolDirectoryForThisTurn = !!(
         typeof mcpToolDirectoryPromptForMainChat === "string" &&
         mcpToolDirectoryPromptForMainChat.trim()

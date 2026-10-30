@@ -242,13 +242,13 @@ const ThoughtChainManager = {
     },
 
     // 关闭预填充时，往 system prompt 补的替代约束（保持“能提取到思考”）
-    buildPrefillFallbackSystemPrompt(mode = this.activeMode) {
+    buildPrefillFallbackSystemPrompt(mode = this.activeMode, force = false) {
         const behavior = this.getBehavior(mode);
         // 该模式没开思维链：不要注入任何约束
         if (!this.isModeEnabled(mode)) return '';
         // 通话模式自管注入，不需要这条兜底约束
         if (behavior.manageOwnInjection) return '';
-        if (this.shouldUsePrefill(mode)) return '';
+        if (!force && this.shouldUsePrefill(mode)) return '';
         if (behavior.extractionEnabled === false) return '';
 
         const chunks = this.getPayloadChunks(mode);
@@ -289,6 +289,7 @@ const ThoughtChainManager = {
             lines.push(
                 '',
                 '- thought_chain_block 的 content 必须按下面的思考要点逐项展开（这是你本轮的内部判断依据）：',
+                '- 每个思考要点必须单独成段并保留其标题或编号，不得合并成一段。',
                 thinkingModules
             );
         }
