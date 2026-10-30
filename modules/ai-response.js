@@ -5396,12 +5396,16 @@ ${getActiveThoughtsPrompt()}
       let bottomPrefillInjected = [];
       const messagesPayloadBeforeThoughtChain = messagesPayload.slice();
       if (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.injectIntoMessages) {
+        bottomPrefillInjected = typeof ThoughtChainManager.getBottomPayloadMessages === 'function'
+          ? ThoughtChainManager.getBottomPayloadMessages(thoughtChainMode)
+          : [];
         const injectedResult = ThoughtChainManager.injectIntoMessages(messagesPayload, thoughtChainMode);
         if (Array.isArray(injectedResult)) {
-          bottomPrefillInjected = injectedResult.slice(messagesPayloadBeforeThoughtChain.length);
           messagesPayload = injectedResult;
           if (bottomPrefillInjected.length > 0) {
-            console.log(`[思维链] 已注入 ${bottomPrefillInjected.length} 条独立消息（模式: ${thoughtChainMode}）`);
+            console.log(`[思维链] 已注入 ${bottomPrefillInjected.length} 条底部预填（模式: ${thoughtChainMode}）`);
+          } else {
+            console.log(`[思维链] 当前没有可用底部预填（模式: ${thoughtChainMode}），将使用无预填提示约束`);
           }
         }
       } else if (thoughtChainChunks.bottom && thoughtChainChunks.bottom.length > 0) {
@@ -5416,6 +5420,10 @@ ${getActiveThoughtsPrompt()}
       let prefillFallbackPrompt = (typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.buildPrefillFallbackSystemPrompt)
         ? (ThoughtChainManager.buildPrefillFallbackSystemPrompt(thoughtChainMode) || '')
         : '';
+      if (!prefillFallbackPrompt && bottomPrefillInjected.length === 0 &&
+          typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.buildPrefillFallbackSystemPrompt) {
+        prefillFallbackPrompt = ThoughtChainManager.buildPrefillFallbackSystemPrompt(thoughtChainMode, true) || '';
+      }
 
       let isGemini = proxyUrl === GEMINI_API_URL;
       let geminiConfig = toGeminiRequestData(model, apiKey, systemPrompt + (prefillFallbackPrompt ? '\n\n' + prefillFallbackPrompt : ''), messagesPayload)
@@ -5645,12 +5653,12 @@ ${getActiveThoughtsPrompt()}
       const hasThoughtChainBlock = Array.isArray(messagesArray) && messagesArray.some(item =>
         item && (item.type === 'thought_chain_block' || item.type === 'thought_chain')
       );
-      if (isGemini && bottomPrefillInjected.length > 0 && !hasThoughtChainBlock &&
+      if (bottomPrefillInjected.length > 0 && !hasThoughtChainBlock &&
           typeof ThoughtChainManager !== 'undefined' && ThoughtChainManager.buildPrefillFallbackSystemPrompt &&
           ThoughtChainManager.isModeEnabled?.(thoughtChainMode)) {
         const retryFallbackPrompt = ThoughtChainManager.buildPrefillFallbackSystemPrompt(thoughtChainMode, true) || '';
         if (retryFallbackPrompt) {
-          console.warn('[思维链] Gemini 未返回思维链，自动关闭预填并重试一次');
+          console.warn('[思维链] 预填未产生思维链，自动关闭预填并重试一次');
           messagesPayload = messagesPayloadBeforeThoughtChain.slice();
           prefillFallbackPrompt = retryFallbackPrompt;
           bottomPrefillInjected = [];
@@ -5659,7 +5667,7 @@ ${getActiveThoughtsPrompt()}
             if (retryResponse.ok) {
               const retryData = await retryResponse.json();
               const retryContent = getGeminiResponseText(retryData);
-              const retryMessages = parseAiResponse(retryContent);
+              const retryMessages = parseAiResponse(retryContent, thoughtChainMode);
               if (Array.isArray(retryMessages) && retryMessages.some(item =>
                 item && (item.type === 'thought_chain_block' || item.type === 'thought_chain'))) {
                 aiResponseContent = retryContent;

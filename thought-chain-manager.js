@@ -256,7 +256,7 @@ const ThoughtChainManager = {
             .filter(item => item && item.content && (item.role || 'assistant') === 'assistant')
             .map(item => String(item.content).trim())
             .filter(Boolean);
-        if (!triggerTexts.length) return '';
+        if (!triggerTexts.length && !force) return '';
 
         const startMarker = behavior.startMarker || '<thinking>';
         const endMarker = behavior.endMarker || '</thinking>';
@@ -289,7 +289,6 @@ const ThoughtChainManager = {
             lines.push(
                 '',
                 '- thought_chain_block 的 content 必须按下面的思考要点逐项展开（这是你本轮的内部判断依据）：',
-                '- 每个思考要点必须单独成段并保留其标题或编号，不得合并成一段。',
                 thinkingModules
             );
         }
