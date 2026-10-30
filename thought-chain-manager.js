@@ -751,6 +751,39 @@ const ThoughtChainManager = {
         }
     },
 
+    async updatePreset() {
+        const selectEl = document.getElementById('thought-chain-preset-select');
+        const selectedValue = selectEl ? selectEl.value : this.currentPresetId;
+        const selectedId = Number(selectedValue);
+        if (!Number.isInteger(selectedId) || selectedId <= 0) {
+            showToast('当前不是已保存的思维链预设，请使用“另存为”创建新预设。');
+            return;
+        }
+
+        try {
+            const preset = await db.thoughtChainPresets.get(selectedId);
+            if (!preset) {
+                showToast('找不到当前预设，请重新选择。');
+                return;
+            }
+            await db.thoughtChainPresets.put({
+                ...preset,
+                items: JSON.parse(JSON.stringify(this.items)),
+                behavior: this.clone(this.getBehavior()),
+                enabled: this.enabled,
+                formatVersion: 2,
+                updatedAt: Date.now()
+            });
+            this.currentPresetId = selectedId;
+            await this.loadPresetsDropdown(selectedId);
+            this.setSavedSnapshot();
+            showToast(`已更新思维链预设：${preset.name || '当前预设'}`);
+        } catch (error) {
+            console.error('更新思维链预设失败:', error);
+            showToast('更新失败，请查看控制台。');
+        }
+    },
+
     async savePreset() {
         const name = await showCustomPrompt('保存思维链预设', '请输入预设名称');
         if (!name || !name.trim()) return;
@@ -1072,6 +1105,11 @@ const ThoughtChainManager = {
         const newPresetBtn = document.getElementById('new-thought-chain-preset-btn');
         if (newPresetBtn) {
             newPresetBtn.addEventListener('click', () => this.createNewPreset());
+        }
+
+        const updatePresetBtn = document.getElementById('update-thought-chain-preset-btn');
+        if (updatePresetBtn) {
+            updatePresetBtn.addEventListener('click', () => this.updatePreset());
         }
 
         const savePresetBtn = document.getElementById('save-thought-chain-preset-btn');
