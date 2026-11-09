@@ -150,6 +150,22 @@ db.version(64).stores({
   imagePresets: '++id, provider, name'
 });
 
+// 一起读书：划线批注与摘抄
+db.version(65).stores({
+  readingAnnotations: '++id, bookId, chatId, createdAt, favorite',
+  readingExcerpts: '++id, bookId, chatId, createdAt, favorite'
+});
+
+// 一起读书：章节反思
+db.version(66).stores({
+  readingChapterReflections: '++id, bookId, chatId, chapterIndex, createdAt'
+});
+
+// 清理不再使用的摘抄表（旧版本遗留）
+db.version(67).stores({
+  readingAnnotations: '++id, bookId, chatId, createdAt',
+  readingExcerpts: null
+});
 window.db = db;
 
 // Every chat save stamps newly-created messages with the time zone in which

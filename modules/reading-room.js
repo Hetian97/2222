@@ -17,10 +17,15 @@
   // ========== 闭包变量 ==========
 
   let readingState = {};
+  let readingSelection = null;
+  let readingAnnotationsCache = [];
+  let editingReadingAnnotation = null;
+  let readingTocTab = 'chapters';
 
   // ========== 来源：script.js 第 52560~53310 行 ==========
 
   function openReadingRoom() {
+    bindReadingAnnotationUi();
     if (!state.activeChatId) return;
     const chatId = state.activeChatId;
     const overlay = document.getElementById('reading-overlay');
@@ -75,7 +80,9 @@
       currentPage: 0,
       totalPages: 0,
       linesPerPage: 15,
-      currentSnippet: ''
+      currentSnippet: '',
+      readingStartedAt: Date.now(),
+      summaryGenerated: false
     };
   }
 
@@ -84,19 +91,404 @@
     const chatId = state.activeChatId;
     if (!chatId || !readingState[chatId] || !readingState[chatId].isActive) return;
 
-
+    const session = readingState[chatId];
+    session.isActive = false;
     document.getElementById('reading-overlay').style.display = 'none';
     document.getElementById('reading-restore-btn').style.display = 'none';
     document.getElementById('reading-window').classList.remove('minimized');
-
-
-    readingState[chatId].isActive = false;
     console.log("读书会话已关闭。");
+    generateReadingSummary(chatId, session).catch(error => {
+      console.warn('生成读书总结失败:', error);
+    });
   }
 
 
 
 
+
+  function escapeReadingHtml(value) {
+    return String(value || '').replace(/[&<>"']/g, ch => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+  }
+
+  function isShortReadingHeading(line, index, lines) {
+    const text = String(line || '').trim();
+    if (!text || text.length > 24) return false;
+    if (/^(目录|目\s*录|contents)$/i.test(text)) return false;
+    if (/[。！？；，、]/.test(text) && !/^[一二三四五六七八九十百]+[、.．]/.test(text)) return false;
+    const prevBlank = index === 0 || !String(lines[index - 1] || '').trim();
+    const nextBlank = index === lines.length - 1 || !String(lines[index + 1] || '').trim();
+    if (!prevBlank || !nextBlank) return false;
+    if (/^[一二三四五六七八九十百]+(?:[、.．].*)?$/.test(text)) return true;
+    if (/^(序章|序幕|序言|导读|引子|尾声|后记|终章|番外)/.test(text)) return true;
+    return false;
+  }
+
+  function findReadingTocChapters(lines) {
+    const tocIndex = lines.findIndex((line, index) =>
+      index < 160 && /^(目录|目\s*录|contents)$/i.test(String(line || '').trim())
+    );
+    if (tocIndex < 0) return null;
+    const entries = [];
+    let tocEnd = tocIndex;
+    for (let i = tocIndex + 1; i < lines.length && entries.length < 120; i++) {
+      const text = String(lines[i] || '').trim();
+      if (!text) continue;
+      if (text.length > 60 || /[。！？]$/.test(text)) break;
+      entries.push({ title: text, tocLine: i });
+      tocEnd = i;
+    }
+    if (entries.length < 2) return null;
+    const starts = [];
+    let cursor = tocEnd + 1;
+    for (const entry of entries) {
+      let found = -1;
+      for (let i = cursor; i < lines.length; i++) {
+        if (String(lines[i] || '').trim() === entry.title) {
+          found = i;
+          break;
+        }
+      }
+      if (found < 0) continue;
+      starts.push({ startLine: found, title: entry.title });
+      cursor = found + 1;
+    }
+    return starts.length >= 2 ? starts : null;
+  }
+
+  function getReadingChapters(session) {
+    const lines = session.contentLines || [];
+    const builtInPattern = /^\s*(?:第\s*[0-9零〇一二三四五六七八九十百千万两]{1,9}\s*[章节節回卷部篇集]|chapter\s+[0-9ivxlcdm]+|【[^】]{1,30}】|\[[^\]]{1,30}\]|[0-9]{1,3}[、.．]|={3,}.+={3,})/i;
+    const customPattern = String(session.chapterSplitRegex || '').trim();
+    let headingPattern = builtInPattern;
+    if (customPattern) {
+      try {
+        headingPattern = new RegExp(customPattern, 'i');
+      } catch (error) {
+        console.warn('章节切分正则无效，改用内置规则:', error);
+      }
+    }
+
+    let starts = [];
+    if (customPattern) {
+      lines.forEach((line, index) => {
+        if (headingPattern.test(line)) starts.push({ startLine: index, title: String(line || '').trim() });
+      });
+    } else {
+      const tocChapters = findReadingTocChapters(lines);
+      if (tocChapters) {
+        starts = tocChapters;
+      } else {
+        lines.forEach((line, index) => {
+          if (headingPattern.test(line) || isShortReadingHeading(line, index, lines)) {
+            starts.push({ startLine: index, title: String(line || '').trim() });
+          }
+        });
+      }
+    }
+
+    if (!starts.length) {
+      return [{ index: 0, title: session.title || '本书', startLine: 0, endLine: lines.length, startOffset: 0, endOffset: getReadingPageStartOffset(session, lines.length) }];
+    }
+    starts.sort((a, b) => a.startLine - b.startLine);
+    const deduped = starts.filter((item, index) => index === 0 || item.startLine !== starts[index - 1].startLine);
+    if (deduped[0].startLine > 0) {
+      deduped.unshift({ startLine: 0, title: '序章' });
+    }
+    return deduped.map((item, index) => {
+      const startLine = item.startLine;
+      const endLine = index + 1 < deduped.length ? deduped[index + 1].startLine : lines.length;
+      const heading = String(item.title || lines[startLine] || '').trim();
+      const title = heading.replace(/^=+|=+$/g, '').trim() || (index === 0 && startLine === 0 ? '序章' : `第 ${index + 1} 章`);
+      return {
+        index,
+        title,
+        startLine,
+        endLine,
+        startOffset: getReadingPageStartOffset(session, startLine),
+        endOffset: getReadingPageStartOffset(session, endLine)
+      };
+    });
+  }
+  function getCurrentReadingChapter(session) {
+    const chapters = getReadingChapters(session);
+    return chapters[Math.max(0, Math.min(chapters.length - 1, Number(session.currentPage) || 0))] || chapters[0];
+  }
+
+  function getReadingChapterAnnotations(session, chapter) {
+    return getReadingBookAnnotations(session.activeBookId).filter(annotation =>
+      Number(annotation.startOffset) < Number(chapter.endOffset) &&
+      Number(annotation.endOffset) > Number(chapter.startOffset)
+    );
+  }
+
+  function getDefaultReadingGuideTemplate() {
+    return `你是 {{char}}，正在和 {{user}} 一起读《{{title}}》。
+只作为读者，不扮演书中角色，不续写剧情，不写动作、神态、场景。
+以你自己的认知、经历和价值观阅读本书，可以赞同、质疑或联想。
+不要为了讨好用户而解释，不要只顺着用户说。
+重点关注人物命运、情节发展和书中表达，落点留在书上。`;
+  }
+
+  function getReadingSummaryPromptDefault() {
+    return `你是一个客观的阅读记录助手。请根据下面的共读信息，写一段第三人称中文总结，用于写入聊天记录。
+
+要求：
+1. 称用户为“{{user}}”，称角色为“{{char}}”，不要用“我”“你”。
+2. 第一句交代时间、人物和书名，例如：晚上 21:10–22:35，{{char}} 陪 {{user}} 读了《{{title}}》。
+3. 用 1–2 句话概括读到哪里、读了多少。
+4. 用 1–3 句话写两人讨论了什么、角色的主要观点和用户关注点。
+5. 全文 100–300 字，一段话，不要 Markdown，不要“总结：”前缀，不要加引号。`;
+  }
+
+  function getReadingSummaryChatSettings(chat) {
+    const settings = chat.readingSettings || {};
+    return {
+      enabled: settings.summaryEnabled !== false,
+      prompt: String(settings.summaryPrompt || '').trim(),
+      temperature: settings.summaryTemperature,
+      maxTokens: settings.summaryMaxTokens
+    };
+  }
+
+  async function generateReadingSummary(chatId, session) {
+    if (!session || session.summaryGenerated) return;
+    const chat = state.chats[chatId];
+    if (!chat || !session.activeBookId) return;
+    const settings = getReadingSummaryChatSettings(chat);
+    if (!settings.enabled) return;
+
+    const annotations = getReadingBookAnnotations(session.activeBookId);
+    const reflections = await db.readingChapterReflections.where('bookId').equals(session.activeBookId).toArray().catch(() => []);
+    const progressPages = Math.max(0, Number(session.currentPage) || 0) + 1;
+    if (!annotations.length && !reflections.length && progressPages < 2) return;
+
+    session.summaryGenerated = true;
+    try {
+      const book = await db.readingLibrary.get(session.activeBookId);
+      const user = chat.settings?.myNickname || '用户';
+      const char = chat.name || chat.originalName || '角色';
+      const title = book?.title || session.title || '这本书';
+      const total = Math.max(1, Number(session.totalPages) || 1);
+      const current = Math.min(total, progressPages);
+      const start = session.readingStartedAt ? new Date(session.readingStartedAt) : new Date();
+      const end = new Date();
+      const clock = date => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+      const instruction = settings.prompt || getReadingSummaryPromptDefault();
+      const filled = instruction
+        .replace(/\{\{user\}\}/g, user)
+        .replace(/\{\{char\}\}/g, char)
+        .replace(/\{\{title\}\}/g, title);
+      const annotationText = annotations.slice(-12).map(item => {
+        const parts = [`划线：${String(item.quote || '').slice(0, 240)}`];
+        if (item.note) parts.push(`批注：${String(item.note).slice(0, 180)}`);
+        if (item.roleComment) parts.push(`${char}：${String(item.roleComment).slice(0, 220)}`);
+        return parts.join('；');
+      }).join('\n');
+      const reflectionText = reflections.slice(-5).map(item => `章节反思：${String(item.content || '').slice(0, 300)}`).join('\n');
+      const info = [
+        `时间：${clock(start)}–${clock(end)}`,
+        `书名：《${title}》`,
+        `进度：第 ${current} / ${total} 章`,
+        `用户：${user}`,
+        `角色：${char}`,
+        annotationText ? `划线批注：\n${annotationText}` : '',
+        reflectionText ? `章节反思：\n${reflectionText}` : ''
+      ].filter(Boolean).join('\n');
+
+      const mainTemperature = Number.isFinite(Number(state.globalSettings?.apiTemperature))
+        ? Number(state.globalSettings.apiTemperature)
+        : 0.8;
+      const mainMaxTokens = state.globalSettings?.apiMaxTokensEnabled && Number(state.globalSettings?.apiMaxTokens) > 0
+        ? Number(state.globalSettings.apiMaxTokens)
+        : 600;
+      const hasTemp = settings.temperature !== null && settings.temperature !== undefined && String(settings.temperature).trim() !== '' && Number.isFinite(Number(settings.temperature));
+      const hasMax = settings.maxTokens !== null && settings.maxTokens !== undefined && String(settings.maxTokens).trim() !== '' && Number.isFinite(Number(settings.maxTokens));
+      const summary = await callReadingAi(
+        filled,
+        info,
+        hasMax ? Number(settings.maxTokens) : mainMaxTokens,
+        hasTemp ? Number(settings.temperature) : mainTemperature
+      );
+      const text = String(summary || '').trim().replace(/^["“”]+|["“”]+$/g, '').slice(0, 800);
+      if (!text) return;
+      const message = {
+        role: 'system',
+        type: 'narration',
+        content: text,
+        senderName: '旁白',
+        timestamp: Date.now(),
+        isReadingSummary: true
+      };
+      chat.history.push(message);
+      await db.chats.put(chat);
+      if (state.activeChatId === chatId && typeof window.appendMessage === 'function') {
+        await window.appendMessage(message, chat);
+      } else if (typeof renderChatList === 'function') {
+        renderChatList();
+      }
+      window.showToast?.('读书总结已写入聊天', 'success');
+    } catch (error) {
+      console.error('生成读书总结失败:', error);
+      window.showToast?.('读书总结生成失败', 'error');
+    }
+  }
+
+  async function generateReadingChapterReflection() {
+    const session = getActiveReadingSession();
+    const chat = state.chats[state.activeChatId];
+    if (!session?.activeBookId || !chat) return;
+    const chapter = getCurrentReadingChapter(session);
+    if (!chapter) return;
+    const book = await db.readingLibrary.get(session.activeBookId);
+    const annotations = getReadingChapterAnnotations(session, chapter);
+    const existing = await db.readingChapterReflections
+      .where('bookId').equals(session.activeBookId)
+      .filter(item => String(item.chatId) === String(chat.id) && Number(item.chapterIndex) === Number(chapter.index))
+      .first();
+    if (existing) {
+      const overwrite = await showCustomConfirm('重新生成反思', '这一章已经有反思，要覆盖吗？');
+      if (!overwrite) return;
+    }
+
+    window.showToast?.('TA 正在写本章反思…');
+    try {
+      const guide = String(book?.annotationGuide || '以角色自己的认知和价值观阅读本书，关注人物命运、情节发展和书中表达。')
+        .replace(/\{\{char\}\}/g, chat.name || chat.originalName || '角色')
+        .replace(/\{\{user\}\}/g, chat.settings?.myNickname || '用户')
+        .replace(/\{\{title\}\}/g, book?.title || session.title || '这本书');
+      const noteText = annotations.length
+        ? annotations.slice(-10).map(item => [
+          `划线：${String(item.quote || '').slice(0, 180)}`,
+          item.note ? `批注：${String(item.note).slice(0, 140)}` : '',
+          item.roleComment ? `已有想法：${String(item.roleComment).slice(0, 180)}` : ''
+        ].filter(Boolean).join('；')).join('\n')
+        : '（这一章没有划线或批注）';
+      const excerpt = session.contentLines.slice(chapter.startLine, chapter.endLine).join('\n').slice(0, 1800);
+      const system = [
+        `你是${chat.name || chat.originalName || '角色'}，正在和${chat.settings?.myNickname || '用户'}一起读《${book?.title || session.title}》。`,
+        '你只是读者，不扮演书中角色，不续写剧情，不写动作、神态、场景。',
+        chat.settings?.aiPersona ? `角色设定：\n${String(chat.settings.aiPersona).slice(0, 30000)}` : '',
+        `本书批注侧重：${guide}`,
+        '请写一段 200–250 字的本章反思，只谈书的内容、人物、情节和阅读感受，尽量体现你自己的判断。'
+      ].join('\n\n');
+      const user = [
+        `章节：${chapter.title}`,
+        `本章用户划线/批注：\n${noteText}`,
+        `本章正文摘录：\n${excerpt}`
+      ].join('\n\n');
+      const mainTemperature = Number.isFinite(Number(state.globalSettings?.apiTemperature))
+        ? Number(state.globalSettings.apiTemperature)
+        : 0.8;
+      const mainMaxTokens = state.globalSettings?.apiMaxTokensEnabled && Number(state.globalSettings?.apiMaxTokens) > 0
+        ? Number(state.globalSettings.apiMaxTokens)
+        : 500;
+      const rawTemp = book?.annotationTemperature;
+      const rawMax = book?.annotationMaxTokens;
+      const hasTemp = rawTemp !== null && rawTemp !== undefined && String(rawTemp).trim() !== '' && Number.isFinite(Number(rawTemp));
+      const hasMax = rawMax !== null && rawMax !== undefined && String(rawMax).trim() !== '' && Number.isFinite(Number(rawMax));
+      const content = await callReadingAi(
+        system,
+        user,
+        hasMax ? Number(rawMax) : mainMaxTokens,
+        hasTemp ? Number(rawTemp) : mainTemperature
+      );
+      const text = String(content || '').trim().slice(0, 1200);
+      if (!text) return;
+      const record = {
+        bookId: session.activeBookId,
+        chatId: chat.id,
+        chapterIndex: chapter.index,
+        chapterTitle: chapter.title,
+        content: text,
+        createdAt: Date.now()
+      };
+      if (existing?.id) {
+        record.id = existing.id;
+        await db.readingChapterReflections.put(record);
+      } else {
+        await db.readingChapterReflections.add(record);
+      }
+      await renderReadingAnnotationPanel(state.activeChatId);
+      window.showToast?.('本章反思已保存', 'success');
+    } catch (error) {
+      console.error('生成章节反思失败:', error);
+      await showCustomAlert('生成失败', error.message || String(error));
+    }
+  }
+
+  function getReadingPageStartOffset(session, startLine) {
+    let offset = 0;
+    for (let i = 0; i < startLine; i++) offset += String(session.contentLines[i] || '').length + 1;
+    return offset;
+  }
+
+  function getReadingBookAnnotations(bookId) {
+    return readingAnnotationsCache.filter(item => String(item.bookId) === String(bookId));
+  }
+
+  async function loadReadingAnnotations(bookId) {
+    if (!bookId) {
+      readingAnnotationsCache = [];
+      return;
+    }
+    try {
+      readingAnnotationsCache = await db.readingAnnotations.where('bookId').equals(bookId).toArray();
+    } catch (error) {
+      readingAnnotationsCache = [];
+      console.warn('读取批注失败:', error);
+    }
+  }
+
+  function renderReadingTextWithBookmarks(text, globalStart) {
+    const bookmarks = Array.isArray(readingState[state.activeChatId]?.bookmarks)
+      ? readingState[state.activeChatId].bookmarks
+      : [];
+    const textEnd = globalStart + text.length;
+    const markers = bookmarks
+      .filter(item => Number(item.startOffset) >= globalStart && Number(item.startOffset) <= textEnd)
+      .sort((a, b) => Number(a.startOffset) - Number(b.startOffset));
+    if (!markers.length) return escapeReadingHtml(text);
+    let output = '';
+    let cursor = 0;
+    for (const bookmark of markers) {
+      const local = Math.max(0, Math.min(text.length, Number(bookmark.startOffset) - globalStart));
+      if (local < cursor) continue;
+      output += escapeReadingHtml(text.slice(cursor, local));
+      output += `<span class="reading-bookmark-marker" data-bookmark-id="${escapeReadingHtml(bookmark.id)}" title="书签">🔖</span>`;
+      cursor = local;
+    }
+    output += escapeReadingHtml(text.slice(cursor));
+    return output;
+  }
+
+  function renderReadingPageHtml(session, startLine, endLine) {
+    const pageText = session.contentLines.slice(startLine, endLine).join('\n');
+    const pageStart = getReadingPageStartOffset(session, startLine);
+    const pageEnd = pageStart + pageText.length;
+    const annotations = getReadingBookAnnotations(session.activeBookId)
+      .filter(item => Number(item.endOffset) > pageStart && Number(item.startOffset) < pageEnd)
+      .sort((a, b) => Number(a.startOffset) - Number(b.startOffset));
+
+    if (!annotations.length) return renderReadingTextWithBookmarks(pageText, pageStart);
+
+    let html = '';
+    let cursor = 0;
+    for (const annotation of annotations) {
+      const start = Math.max(0, Number(annotation.startOffset) - pageStart);
+      const end = Math.min(pageText.length, Number(annotation.endOffset) - pageStart);
+      if (end <= cursor || end <= start) continue;
+      const style = ['highlight', 'underline', 'wavy', 'note'].includes(annotation.style) ? annotation.style : 'highlight';
+      const color = /^#[0-9a-f]{6}$/i.test(annotation.color || '') ? annotation.color : '#ffd54f';
+      const decoration = style === 'highlight' ? `background-color:${color};` : `text-decoration-color:${color};`;
+      html += renderReadingTextWithBookmarks(pageText.slice(cursor, start), pageStart + cursor);
+      html += `<mark class="reading-annotation-${style}" data-reading-annotation-id="${escapeReadingHtml(annotation.id)}" style="${decoration}">${renderReadingTextWithBookmarks(pageText.slice(start, end), pageStart + start)}</mark>`;
+      cursor = end;
+    }
+    html += renderReadingTextWithBookmarks(pageText.slice(cursor), pageStart + cursor);
+    return html;
+  }
 
   function renderReadingRoom(chatId) {
     const session = readingState[chatId];
@@ -109,9 +501,12 @@
     const fontSize = (chat && chat.settings && chat.settings.fontSize) ? chat.settings.fontSize : 13;
 
     const contentEl = document.getElementById('reading-content');
+    const previousScrollTop = contentEl ? contentEl.scrollTop : 0;
 
     // 2. 将字体大小应用到读书容器
     contentEl.style.fontSize = `${fontSize}px`;
+    const annotationPanel = document.getElementById('reading-annotation-panel');
+    if (annotationPanel) annotationPanel.style.fontSize = `${fontSize}px`;
     // 3. 动态调整行高 (Line Height)，防止字体变大后文字挤在一起
     // 1.6 是一个比较舒适的阅读倍率
     contentEl.style.lineHeight = '1.6';
@@ -130,14 +525,807 @@
       session.totalPages = 0;
       session.currentPage = 0;
     } else {
-      const startLine = session.currentPage * session.linesPerPage;
-      const endLine = startLine + session.linesPerPage;
-      contentEl.textContent = session.contentLines.slice(startLine, endLine).join('\n');
+      const chapters = getReadingChapters(session);
+      session.totalPages = Math.max(1, chapters.length);
+      if (session.currentPage >= session.totalPages) session.currentPage = session.totalPages - 1;
+      if (session.currentPage < 0) session.currentPage = 0;
+      const chapter = chapters[session.currentPage] || chapters[0];
+      contentEl.style.whiteSpace = 'pre-wrap';
+      contentEl.innerHTML = renderReadingPageHtml(session, chapter.startLine, chapter.endLine);
+      contentEl.scrollTop = previousScrollTop;
     }
 
-    pageIndicator.textContent = `${session.currentPage + 1} / ${session.totalPages}`;
+    pageIndicator.textContent = session.totalPages
+      ? `第 ${session.currentPage + 1} / ${session.totalPages} 章`
+      : '0 / 0';
+    renderReadingAnnotationPanel(chatId);
     prevBtn.disabled = session.currentPage === 0;
     nextBtn.disabled = session.currentPage >= session.totalPages - 1;
+  }
+
+  function getActiveReadingSession() {
+    const chatId = state.activeChatId;
+    if (!chatId) return null;
+    const session = readingState[chatId];
+    return session && session.isActive ? session : null;
+  }
+
+  function hideReadingSelectionToolbar() {
+    document.getElementById('reading-selection-toolbar')?.classList.remove('visible');
+    readingSelection = null;
+  }
+
+  function getReadingSelectionFromDom() {
+    const session = getActiveReadingSession();
+    const contentEl = document.getElementById('reading-content');
+    const selection = window.getSelection();
+    if (!session || !contentEl || !selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+    const range = selection.getRangeAt(0);
+    if (!contentEl.contains(range.commonAncestorContainer)) return null;
+
+    const before = range.cloneRange();
+    before.selectNodeContents(contentEl);
+    before.setEnd(range.startContainer, range.startOffset);
+    const after = range.cloneRange();
+    after.selectNodeContents(contentEl);
+    after.setEnd(range.endContainer, range.endOffset);
+    let startInPage = before.toString().length;
+    let endInPage = after.toString().length;
+    if (endInPage < startInPage) [startInPage, endInPage] = [endInPage, startInPage];
+    if (endInPage <= startInPage) return null;
+
+    const chapter = getCurrentReadingChapter(session);
+    const pageStart = chapter?.startOffset || 0;
+    const startOffset = pageStart + startInPage;
+    const endOffset = pageStart + endInPage;
+    const fullText = session.contentLines.join('\n');
+    return {
+      startOffset,
+      endOffset,
+      quote: fullText.slice(startOffset, endOffset)
+    };
+  }
+
+  function showReadingSelectionToolbar(rect) {
+    const toolbar = document.getElementById('reading-selection-toolbar');
+    if (!toolbar || !readingSelection) return;
+    toolbar.classList.add('visible');
+    const width = 300;
+    const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.left));
+    const top = Math.max(8, rect.top - 86);
+    toolbar.style.left = `${left}px`;
+    toolbar.style.top = `${top}px`;
+  }
+
+  function captureReadingSelection() {
+    const next = getReadingSelectionFromDom();
+    if (!next || !next.quote.trim()) {
+      hideReadingSelectionToolbar();
+      return;
+    }
+    readingSelection = next;
+    const selection = window.getSelection();
+    const rect = selection.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : { left: 16, top: 180 };
+    showReadingSelectionToolbar(rect);
+  }
+
+  async function saveReadingAnnotation(style = 'highlight', note = '', selection = readingSelection) {
+    const session = getActiveReadingSession();
+    if (!session || !session.activeBookId || !selection) return null;
+    const colorInput = document.getElementById('reading-annotation-color');
+    const annotation = {
+      bookId: session.activeBookId,
+      chatId: state.activeChatId,
+      startOffset: selection.startOffset,
+      endOffset: selection.endOffset,
+      quote: selection.quote.slice(0, 2000),
+      style: ['highlight', 'underline', 'wavy', 'note'].includes(style) ? style : 'highlight',
+      color: /^#[0-9a-f]{6}$/i.test(colorInput?.value || '') ? colorInput.value : '#ffd54f',
+      note: String(note || '').slice(0, 1000),
+      roleComment: '',
+      createdAt: Date.now()
+    };
+    try {
+      const id = await db.readingAnnotations.add(annotation);
+      annotation.id = id;
+      readingAnnotationsCache.push(annotation);
+      window.getSelection()?.removeAllRanges();
+      hideReadingSelectionToolbar();
+      renderReadingRoom(state.activeChatId);
+      return annotation;
+    } catch (error) {
+      console.error('保存批注失败:', error);
+      await showCustomAlert('保存批注失败', error.message || String(error));
+      return null;
+    }
+  }
+
+  function openReadingAnnotationEdit(annotationId) {
+    const session = getActiveReadingSession();
+    const annotation = readingAnnotationsCache.find(item => String(item.id) === String(annotationId));
+    if (!session || !annotation) return;
+    editingReadingAnnotation = { ...annotation };
+    const quoteEl = document.getElementById('reading-annotation-edit-quote');
+    if (quoteEl) quoteEl.textContent = annotation.quote;
+    const styleEl = document.getElementById('reading-annotation-edit-style');
+    if (styleEl) styleEl.value = annotation.style || 'highlight';
+    const colorEl = document.getElementById('reading-annotation-edit-color');
+    if (colorEl) colorEl.value = /^#[0-9a-f]{6}$/i.test(annotation.color || '') ? annotation.color : '#ffd54f';
+    const noteEl = document.getElementById('reading-annotation-edit-note');
+    if (noteEl) noteEl.value = annotation.note || '';
+    const lengthEl = document.getElementById('reading-annotation-edit-length');
+    if (lengthEl) lengthEl.textContent = `${annotation.quote.length} 字`;
+    document.getElementById('reading-annotation-edit-modal')?.classList.add('visible');
+  }
+
+  function adjustReadingAnnotationEdit(delta) {
+    const session = getActiveReadingSession();
+    if (!session || !editingReadingAnnotation) return;
+    const fullText = session.contentLines.join('\n');
+    editingReadingAnnotation.endOffset = Math.max(
+      editingReadingAnnotation.startOffset + 1,
+      Math.min(fullText.length, editingReadingAnnotation.endOffset + delta)
+    );
+    editingReadingAnnotation.quote = fullText.slice(editingReadingAnnotation.startOffset, editingReadingAnnotation.endOffset);
+    const quoteEl = document.getElementById('reading-annotation-edit-quote');
+    if (quoteEl) quoteEl.textContent = editingReadingAnnotation.quote;
+    const lengthEl = document.getElementById('reading-annotation-edit-length');
+    if (lengthEl) lengthEl.textContent = `${editingReadingAnnotation.quote.length} 字`;
+  }
+
+  async function saveReadingAnnotationEdit() {
+    if (!editingReadingAnnotation) return;
+    try {
+      const styleEl = document.getElementById('reading-annotation-edit-style');
+      const colorEl = document.getElementById('reading-annotation-edit-color');
+      const noteEl = document.getElementById('reading-annotation-edit-note');
+      editingReadingAnnotation.style = ['highlight', 'underline', 'wavy', 'note'].includes(styleEl?.value) ? styleEl.value : 'highlight';
+      editingReadingAnnotation.color = /^#[0-9a-f]{6}$/i.test(colorEl?.value || '') ? colorEl.value : '#ffd54f';
+      editingReadingAnnotation.note = String(noteEl?.value || '').slice(0, 1000);
+      editingReadingAnnotation.updatedAt = Date.now();
+      await db.readingAnnotations.put(editingReadingAnnotation);
+      readingAnnotationsCache = readingAnnotationsCache.map(item =>
+        String(item.id) === String(editingReadingAnnotation.id) ? { ...editingReadingAnnotation } : item
+      );
+      document.getElementById('reading-annotation-edit-modal')?.classList.remove('visible');
+      editingReadingAnnotation = null;
+      renderReadingRoom(state.activeChatId);
+      openReadingAnnotationPanel();
+    } catch (error) {
+      console.error('保存批注编辑失败:', error);
+      await showCustomAlert('保存失败', error.message || String(error));
+    }
+  }
+
+  function getReadingAnnotationConversation(annotation) {
+    const conversation = Array.isArray(annotation?.roleConversation)
+      ? annotation.roleConversation
+        .filter(message => message && (message.role === 'user' || message.role === 'assistant') && message.content)
+        .map(message => ({ role: message.role, content: String(message.content).replace(/^[\s\u3000]+/, '').trim() }))
+      : [];
+    if (!conversation.length && annotation?.roleComment) {
+      conversation.push({ role: 'assistant', content: String(annotation.roleComment) });
+    }
+    return conversation;
+  }
+
+  async function focusReadingAnnotationCard(annotationId) {
+    openReadingAnnotationPanel();
+    await renderReadingAnnotationPanel(state.activeChatId);
+    const card = document.querySelector('#reading-annotation-list .reading-annotation-card[data-reading-annotation-id="' + annotationId + '"]');
+    if (!card) return;
+    card.classList.add('is-focused');
+    const list = document.getElementById('reading-annotation-list');
+    if (list) {
+      const cardRect = card.getBoundingClientRect();
+      const listRect = list.getBoundingClientRect();
+      const targetTop = list.scrollTop + cardRect.top - listRect.top - Math.max(8, (list.clientHeight - cardRect.height) / 2);
+      list.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+    }
+    setTimeout(() => card.classList.remove('is-focused'), 1800);
+  }
+  function openReadingAnnotationPanel() {
+    document.getElementById('reading-selection-toolbar')?.classList.remove('visible');
+    document.getElementById('reading-annotation-panel')?.classList.add('visible');
+    renderReadingAnnotationPanel(state.activeChatId);
+  }
+
+  async function renderReadingAnnotationPanel(chatId) {
+    const session = readingState[chatId];
+    const listEl = document.getElementById('reading-annotation-list');
+    if (!session || !listEl) return;
+    const annotations = getReadingBookAnnotations(session.activeBookId)
+      .slice()
+      .sort((a, b) => Number(a.startOffset) - Number(b.startOffset));
+    const reflections = session.activeBookId
+      ? await db.readingChapterReflections.where('bookId').equals(session.activeBookId).toArray().catch(() => [])
+      : [];
+    listEl.innerHTML = '';
+    if (!annotations.length && !reflections.length) {
+      listEl.innerHTML = '<div class="reading-annotation-empty">还没有批注。选中正文后划线，或点“批注”记录想法。</div>';
+      return;
+    }
+    annotations.forEach(annotation => {
+      const card = document.createElement('div');
+      card.className = 'reading-annotation-card';
+      card.dataset.readingAnnotationId = annotation.id;
+      const styleName = annotation.style === 'underline' ? '直线' : annotation.style === 'wavy' ? '波浪' : annotation.style === 'note' ? '批注' : '高亮';
+      const conversation = getReadingAnnotationConversation(annotation);
+      const chat = state.chats[chatId];
+      const userName = chat?.settings?.myNickname || '我';
+      const charName = chat?.name || chat?.originalName || '角色';
+      const threadHtml = conversation.map(message => `<div class="reading-annotation-thread-message ${message.role === 'user' ? 'is-user' : 'is-char'}"><strong>${escapeReadingHtml(message.role === 'user' ? userName : charName)}：</strong><span>${escapeReadingHtml(message.content)}</span></div>`).join('');
+      card.innerHTML = `
+        <div class="reading-annotation-quote">${escapeReadingHtml(annotation.quote)}</div>
+        ${annotation.note ? `<div class="reading-annotation-user-note"><strong>我的批注：</strong>${escapeReadingHtml(String(annotation.note).replace(/^[\s\u3000]+/, ''))}</div>` : ''}
+        ${threadHtml ? `<div class="reading-annotation-thread">${threadHtml}</div>` : ''}
+        <div class="reading-annotation-actions">
+          <span style="color:var(--text-secondary);font-size:11px;flex:1;">${styleName}</span>
+          <button type="button" data-reading-annotation-action="edit" data-annotation-id="${escapeReadingHtml(annotation.id)}">编辑</button>
+          <button type="button" data-reading-annotation-action="react" data-annotation-id="${escapeReadingHtml(annotation.id)}">让 TA 说说</button>
+          <button type="button" data-reading-annotation-action="followup" data-annotation-id="${escapeReadingHtml(annotation.id)}">追问</button>
+          <button type="button" data-reading-annotation-action="delete" data-annotation-id="${escapeReadingHtml(annotation.id)}">删除</button>
+        </div>`;
+      card.addEventListener('click', event => {
+        if (event.target.closest('button')) return;
+        jumpToReadingAnnotation(annotation.id);
+      });
+      listEl.appendChild(card);
+    });
+    if (reflections.length) {
+      const heading = document.createElement('div');
+      heading.className = 'reading-annotation-card';
+      heading.style.fontWeight = '600';
+      heading.textContent = `章节反思（${reflections.length}）`;
+      listEl.appendChild(heading);
+      reflections
+        .slice()
+        .sort((a, b) => Number(a.chapterIndex) - Number(b.chapterIndex))
+        .forEach(reflection => {
+          const card = document.createElement('div');
+          card.className = 'reading-annotation-card';
+          card.innerHTML = `<div class="reading-annotation-note" style="font-weight:600;">${escapeReadingHtml(reflection.chapterTitle || '章节反思')}</div><div style="margin-top:5px;white-space:pre-wrap;">${escapeReadingHtml(reflection.content || '')}</div>`;
+          listEl.appendChild(card);
+        });
+    }
+  }
+
+  function scrollReadingToOffset(offset) {
+    const session = getActiveReadingSession();
+    const content = document.getElementById('reading-content');
+    if (!session || !content) return;
+    const chapter = getCurrentReadingChapter(session);
+    if (!chapter) return;
+    const target = Math.max(0, Math.min(chapter.endOffset - chapter.startOffset, Number(offset) - chapter.startOffset));
+    const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+    let remaining = target;
+    let node = walker.nextNode();
+    while (node) {
+      const length = node.nodeValue ? node.nodeValue.length : 0;
+      if (remaining <= length) {
+        try {
+          const range = document.createRange();
+          range.setStart(node, Math.min(length, remaining));
+          range.setEnd(node, Math.min(length, remaining + 1));
+          const rect = range.getBoundingClientRect();
+          const contentRect = content.getBoundingClientRect();
+          content.scrollTop += rect.top - contentRect.top - 24;
+        } catch (error) {
+          console.warn('定位书签失败:', error);
+        }
+        return;
+      }
+      remaining -= length;
+      node = walker.nextNode();
+    }
+  }
+
+  function scrollReadingElementIntoView(element) {
+    const content = document.getElementById('reading-content');
+    if (!content || !element) return false;
+    const rect = element.getBoundingClientRect();
+    const contentRect = content.getBoundingClientRect();
+    content.scrollTop += rect.top - contentRect.top - 24;
+    return true;
+  }
+
+  function jumpToReadingAnnotation(annotationId) {
+    const session = getActiveReadingSession();
+    const annotation = readingAnnotationsCache.find(item => String(item.id) === String(annotationId));
+    if (!session || !annotation) return;
+    const chapters = getReadingChapters(session);
+    const chapter = chapters.find(item =>
+      Number(annotation.startOffset) >= Number(item.startOffset) &&
+      Number(annotation.startOffset) < Number(item.endOffset)
+    ) || chapters[0];
+    if (chapter) session.currentPage = chapter.index;
+    renderReadingRoom(state.activeChatId);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const mark = document.querySelector('[data-reading-annotation-id="' + annotation.id + '"]');
+      if (!scrollReadingElementIntoView(mark)) scrollReadingToOffset(annotation.startOffset);
+    }));
+  }
+
+  async function reactToReadingAnnotation(annotationId) {
+    await requestReadingAnnotationReply(annotationId, '');
+  }
+
+  async function followUpReadingAnnotation(annotationId) {
+    const question = await showCustomPrompt('继续讨论', '你想继续问 TA 什么？', '');
+    if (question === null || !question.trim()) return;
+    await requestReadingAnnotationReply(annotationId, question.trim());
+  }
+
+  async function requestReadingAnnotationReply(annotationId, question = '') {
+    const annotation = readingAnnotationsCache.find(item => String(item.id) === String(annotationId));
+    const session = getActiveReadingSession();
+    const chat = state.chats[state.activeChatId];
+    if (!annotation || !session || !chat) return;
+
+    const conversation = getReadingAnnotationConversation(annotation);
+    if (question) {
+      annotation.roleConversation = conversation.concat({ role: 'user', content: question });
+      await db.readingAnnotations.put(annotation);
+      await renderReadingAnnotationPanel(state.activeChatId);
+    }
+
+    window.showToast?.(question ? 'TA 正在回复…' : 'TA 正在读这段话…');
+    try {
+      const book = await db.readingLibrary.get(session.activeBookId);
+      const charName = chat.name || chat.originalName || '角色';
+      const userName = chat.settings?.myNickname || '用户';
+      const bookTitle = book?.title || session.title || '这本书';
+      const defaultGuide = getDefaultReadingGuideTemplate();
+      const annotationGuide = String(book?.annotationGuide || defaultGuide)
+        .replace(/\{\{char\}\}/g, charName)
+        .replace(/\{\{user\}\}/g, userName)
+        .replace(/\{\{title\}\}/g, bookTitle);
+      const system = [
+        `你是${charName}，正在和${userName}一起读《${bookTitle}》。`,
+        '你只是读者，不是书中角色。只谈书的内容和你的判断，不写动作、神态、场景，不续写剧情。',
+        chat.settings?.aiPersona ? `角色设定：\n${String(chat.settings.aiPersona).slice(0, 30000)}` : '',
+        `本书批注侧重：${annotationGuide}`,
+        '回复 100–150 字，直接说你的看法；不要围着用户说，不要为了讨好用户而解释。'
+      ].filter(Boolean).join('\n\n');
+      const user = [
+        `划线内容：${annotation.quote}`,
+        annotation.note ? `我的批注：${annotation.note}` : '',
+        question ? `我的问题：${question}` : '请直接谈谈你对这段话的看法。'
+      ].filter(Boolean).join('\n\n');
+      const mainTemperature = Number.isFinite(Number(state.globalSettings?.apiTemperature))
+        ? Number(state.globalSettings.apiTemperature)
+        : 0.8;
+      const mainMaxTokens = state.globalSettings?.apiMaxTokensEnabled && Number(state.globalSettings?.apiMaxTokens) > 0
+        ? Number(state.globalSettings.apiMaxTokens)
+        : 350;
+      const rawReadingTemperature = book?.annotationTemperature;
+      const hasReadingTemperature = rawReadingTemperature !== null && rawReadingTemperature !== undefined &&
+        String(rawReadingTemperature).trim() !== '' && Number.isFinite(Number(rawReadingTemperature));
+      const rawReadingMaxTokens = book?.annotationMaxTokens;
+      const hasReadingMaxTokens = rawReadingMaxTokens !== null && rawReadingMaxTokens !== undefined &&
+        String(rawReadingMaxTokens).trim() !== '' && Number.isFinite(Number(rawReadingMaxTokens));
+      const roleTemperature = hasReadingTemperature ? Number(rawReadingTemperature) : mainTemperature;
+      const roleMaxTokens = hasReadingMaxTokens ? Number(rawReadingMaxTokens) : mainMaxTokens;
+      const answer = await callReadingAi(system, user, roleMaxTokens, roleTemperature, conversation);
+      const updatedConversation = getReadingAnnotationConversation(annotation).concat({
+        role: 'assistant',
+        content: String(answer || '').trim().slice(0, 1000)
+      });
+      annotation.roleConversation = updatedConversation;
+      annotation.roleComment = updatedConversation.filter(message => message.role === 'assistant').slice(-1)[0]?.content || '';
+      await db.readingAnnotations.put(annotation);
+      await renderReadingAnnotationPanel(state.activeChatId);
+    } catch (error) {
+      console.error('角色批注失败:', error);
+      await showCustomAlert('批注失败', error.message || String(error));
+    }
+  }
+  async function callReadingAi(systemPrompt, userPrompt, maxTokens = 350, temperature = 0.7, history = []) {
+    const { proxyUrl, apiKey, model } = state.apiConfig || {};
+    if (!proxyUrl || !apiKey || !model) throw new Error('请先在 API 设置中配置模型。');
+    const isGemini = String(proxyUrl).includes('generativelanguage');
+    let response;
+    if (isGemini && typeof toGeminiRequestData === 'function') {
+      const chatMessages = [...(history || []).map(message => ({ role: message.role, content: message.content })), { role: 'user', content: userPrompt }];
+      const cfg = toGeminiRequestData(model, apiKey, systemPrompt, chatMessages);
+      try {
+        const body = JSON.parse(cfg.data.body);
+        body.generationConfig = {
+          ...(body.generationConfig || {}),
+          temperature,
+          maxOutputTokens: maxTokens
+        };
+        cfg.data = { ...cfg.data, body: JSON.stringify(body) };
+      } catch (_) {}
+      response = await fetch(cfg.url, cfg.data);
+    } else {
+      response = await fetch(`${String(proxyUrl).replace(/\/+$/, '')}/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'system', content: systemPrompt }, ...(history || []).map(message => ({ role: message.role, content: message.content })), { role: 'user', content: userPrompt }],
+          temperature,
+          max_tokens: maxTokens
+        })
+      });
+    }
+    if (!response.ok) throw new Error(`API ${response.status}`);
+    const data = await response.json();
+    return String(typeof getGeminiResponseText === 'function' ? getGeminiResponseText(data) : data.choices?.[0]?.message?.content || '').trim();
+  }
+
+  async function openReadingGuideModal() {
+    const session = getActiveReadingSession();
+    if (!session?.activeBookId) return;
+    const book = await db.readingLibrary.get(session.activeBookId);
+    const input = document.getElementById('reading-guide-input');
+    if (input) input.value = book?.annotationGuide || '';
+    const temperatureInput = document.getElementById('reading-role-temperature');
+    if (temperatureInput) temperatureInput.value = book?.annotationTemperature ?? '';
+    const maxTokensInput = document.getElementById('reading-role-max-tokens');
+    if (maxTokensInput) maxTokensInput.value = book?.annotationMaxTokens ?? '';
+    document.getElementById('reading-guide-modal')?.classList.add('visible');
+  }
+
+  async function saveReadingGuide() {
+    const session = getActiveReadingSession();
+    if (!session?.activeBookId) return;
+    const value = String(document.getElementById('reading-guide-input')?.value || '').trim();
+    const annotationTemperature = parseFloat(document.getElementById('reading-role-temperature')?.value);
+    const annotationMaxTokens = parseInt(document.getElementById('reading-role-max-tokens')?.value, 10);
+    await db.readingLibrary.update(session.activeBookId, {
+      annotationGuide: value,
+      annotationTemperature: Number.isFinite(annotationTemperature) ? annotationTemperature : null,
+      annotationMaxTokens: Number.isFinite(annotationMaxTokens) ? annotationMaxTokens : null
+    });
+    document.getElementById('reading-guide-modal')?.classList.remove('visible');
+    window.showToast?.('本书批注引导词已保存');
+  }
+
+  function getReadingParagraphAtOffset(session, offset) {
+    const lines = session.contentLines || [];
+    let offsetCursor = 0;
+    let lineIndex = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const next = offsetCursor + String(lines[i] || '').length + 1;
+      if (offset < next) {
+        lineIndex = i;
+        break;
+      }
+      offsetCursor = next;
+      lineIndex = i;
+    }
+    if (!String(lines[lineIndex] || '').trim()) return null;
+    let startLine = lineIndex;
+    let endLine = lineIndex + 1;
+    while (startLine > 0 && String(lines[startLine - 1] || '').trim()) startLine--;
+    while (endLine < lines.length && String(lines[endLine] || '').trim()) endLine++;
+    const raw = lines.slice(startLine, endLine).join('\n');
+    const leading = (raw.match(/^\s*/) || [''])[0].length;
+    return {
+      startOffset: getReadingPageStartOffset(session, startLine) + leading,
+      endOffset: getReadingPageStartOffset(session, endLine),
+      quote: raw.trim()
+    };
+  }
+
+  async function saveReadingBookmark() {
+    const session = getActiveReadingSession();
+    if (!session?.activeBookId || !readingSelection) return;
+    const paragraph = getReadingParagraphAtOffset(session, readingSelection.startOffset);
+    if (!paragraph || !paragraph.quote) {
+      window.showToast?.('没有找到可添加书签的段落');
+      return;
+    }
+    const chapter = getCurrentReadingChapter(session);
+    const book = await db.readingLibrary.get(session.activeBookId);
+    const bookmarks = Array.isArray(book?.bookmarks) ? book.bookmarks.slice() : [];
+    if (bookmarks.some(item => Number(item.startOffset) === Number(paragraph.startOffset))) {
+      window.showToast?.('这一段已经有书签了');
+      return;
+    }
+    bookmarks.push({
+      id: 'bookmark_' + Date.now(),
+      chapterIndex: chapter?.index ?? 0,
+      chapterTitle: chapter?.title || '',
+      startOffset: paragraph.startOffset,
+      endOffset: paragraph.endOffset,
+      quote: paragraph.quote.slice(0, 500),
+      createdAt: Date.now()
+    });
+    try {
+      await db.readingLibrary.update(session.activeBookId, { bookmarks });
+      session.bookmarks = bookmarks;
+    } catch (error) {
+      console.error('添加书签失败:', error);
+      await showCustomAlert('添加书签失败', error.message || String(error));
+      return;
+    }
+    window.getSelection()?.removeAllRanges();
+    hideReadingSelectionToolbar();
+    renderReadingRoom(state.activeChatId);
+    if (document.getElementById('reading-toc-modal')?.classList.contains('visible')) {
+      readingTocTab = 'bookmarks';
+      renderReadingToc();
+    }
+    window.showToast?.('已添加书签');
+  }
+
+  function jumpToReadingBookmark(bookmark) {
+    const session = getActiveReadingSession();
+    if (!session || !bookmark) return;
+    const chapters = getReadingChapters(session);
+    const chapter = chapters.find(item =>
+      Number(bookmark.startOffset) >= Number(item.startOffset) && Number(bookmark.startOffset) < Number(item.endOffset)
+    ) || chapters.find(item => Number(bookmark.chapterIndex) === Number(item.index)) || chapters[0];
+    if (!chapter) return;
+    session.currentPage = chapter.index;
+    document.getElementById('reading-toc-modal')?.classList.remove('visible');
+    renderReadingRoom(state.activeChatId);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const marker = document.querySelector('[data-bookmark-id="' + bookmark.id + '"]');
+      if (!scrollReadingElementIntoView(marker)) scrollReadingToOffset(bookmark.startOffset);
+    }));
+    saveReadingProgress(session.activeBookId, session.currentPage);
+  }
+
+  async function renderReadingToc() {
+    const session = getActiveReadingSession();
+    const listEl = document.getElementById('reading-toc-list');
+    if (!session || !listEl) return;
+    document.getElementById('reading-toc-tab-chapters')?.classList.toggle('is-active', readingTocTab === 'chapters');
+    document.getElementById('reading-toc-tab-bookmarks')?.classList.toggle('is-active', readingTocTab === 'bookmarks');
+    const book = session.activeBookId ? await db.readingLibrary.get(session.activeBookId) : null;
+    const bookmarks = Array.isArray(book?.bookmarks) ? book.bookmarks : [];
+    const bookmarkTab = document.getElementById('reading-toc-tab-bookmarks');
+    if (bookmarkTab) bookmarkTab.textContent = bookmarks.length ? `书签 ${bookmarks.length}` : '书签';
+    listEl.innerHTML = '';
+    if (readingTocTab === 'chapters') {
+      getReadingChapters(session).forEach(chapter => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'reading-toc-item' + (Number(chapter.index) === Number(session.currentPage) ? ' is-current' : '');
+        item.innerHTML = `<span>${escapeReadingHtml(chapter.title || `第 ${chapter.index + 1} 章`)}</span><small>${chapter.index + 1}</small>`;
+        item.addEventListener('click', () => {
+          session.currentPage = chapter.index;
+          document.getElementById('reading-toc-modal')?.classList.remove('visible');
+          renderReadingRoom(state.activeChatId);
+          document.getElementById('reading-content').scrollTop = 0;
+          saveReadingProgress(session.activeBookId, session.currentPage);
+        });
+        listEl.appendChild(item);
+      });
+      return;
+    }
+
+    if (!bookmarks.length) {
+      listEl.innerHTML = '<div class="reading-annotation-empty">还没有书签。选中一段文字后点“书签”。</div>';
+      return;
+    }
+    bookmarks.slice().sort((a, b) => Number(a.startOffset) - Number(b.startOffset)).forEach(bookmark => {
+      const item = document.createElement('div');
+      item.className = 'reading-bookmark-item';
+      item.innerHTML = `<div class="reading-bookmark-main"><div class="reading-bookmark-title">${escapeReadingHtml(bookmark.chapterTitle || '书签')}</div><div class="reading-bookmark-quote">${escapeReadingHtml(String(bookmark.quote || '').slice(0, 40))}${String(bookmark.quote || '').length > 40 ? '…' : ''}</div></div><button type="button" class="reading-bookmark-delete" title="删除书签">删除</button>`;
+      item.querySelector('.reading-bookmark-main')?.addEventListener('click', () => jumpToReadingBookmark(bookmark));
+      item.querySelector('.reading-bookmark-delete')?.addEventListener('click', async event => {
+        event.stopPropagation();
+        const confirmed = await showCustomConfirm('删除书签', '确定删除这条书签吗？');
+        if (!confirmed) return;
+        const latestBook = await db.readingLibrary.get(session.activeBookId);
+        const nextBookmarks = (Array.isArray(latestBook?.bookmarks) ? latestBook.bookmarks : [])
+          .filter(old => String(old.id) !== String(bookmark.id));
+        await db.readingLibrary.update(session.activeBookId, { bookmarks: nextBookmarks });
+        session.bookmarks = nextBookmarks;
+        renderReadingRoom(state.activeChatId);
+        renderReadingToc();
+      });
+      listEl.appendChild(item);
+    });
+  }
+
+  function openReadingToc() {
+    const session = getActiveReadingSession();
+    if (!session) return;
+    readingTocTab = 'chapters';
+    renderReadingToc();
+    document.getElementById('reading-toc-modal')?.classList.add('visible');
+  }
+  async function openReadingSettings() {
+    const chat = state.chats[state.activeChatId];
+    const session = getActiveReadingSession();
+    if (!chat) return;
+    const settings = chat.readingSettings || {};
+    const book = session?.activeBookId ? await db.readingLibrary.get(session.activeBookId) : null;
+    const enabled = document.getElementById('reading-summary-enabled');
+    if (enabled) enabled.checked = settings.summaryEnabled !== false;
+    const prompt = document.getElementById('reading-summary-prompt');
+    if (prompt) prompt.value = settings.summaryPrompt || getReadingSummaryPromptDefault();
+    const temperature = document.getElementById('reading-summary-temperature');
+    if (temperature) temperature.value = settings.summaryTemperature ?? '';
+    const maxTokens = document.getElementById('reading-summary-max-tokens');
+    if (maxTokens) maxTokens.value = settings.summaryMaxTokens ?? '';
+    const guideInput = document.getElementById('reading-settings-guide-input');
+    if (guideInput) guideInput.value = book?.annotationGuide || getDefaultReadingGuideTemplate();
+    const roleTemperature = document.getElementById('reading-settings-role-temperature');
+    if (roleTemperature) roleTemperature.value = book?.annotationTemperature ?? '';
+    const roleMaxTokens = document.getElementById('reading-settings-role-max-tokens');
+    if (roleMaxTokens) roleMaxTokens.value = book?.annotationMaxTokens ?? '';
+    const chapterRegex = document.getElementById('reading-chapter-regex');
+    if (chapterRegex) chapterRegex.value = book?.chapterSplitRegex || '';
+    const chapterPreset = document.getElementById('reading-chapter-preset-select');
+    if (chapterPreset) chapterPreset.value = book?.chapterSplitRegex || '';
+    document.getElementById('reading-settings-modal')?.classList.add('visible');
+  }
+
+  async function saveReadingSettings() {
+    const chat = state.chats[state.activeChatId];
+    const session = getActiveReadingSession();
+    if (!chat) return;
+    const parseOptionalNumber = value => {
+      const raw = String(value ?? '').trim();
+      if (!raw) return null;
+      const number = Number(raw);
+      return Number.isFinite(number) ? number : null;
+    };
+    const chapterRegex = String(document.getElementById('reading-chapter-regex')?.value || '').trim();
+    if (chapterRegex) {
+      try {
+        new RegExp(chapterRegex, 'i');
+      } catch (error) {
+        await showCustomAlert('章节规则无效', '这个正则表达式无法解析，请检查后再保存。');
+        return;
+      }
+    }
+    chat.readingSettings = {
+      summaryEnabled: document.getElementById('reading-summary-enabled')?.checked !== false,
+      summaryPrompt: String(document.getElementById('reading-summary-prompt')?.value || '').trim(),
+      summaryTemperature: parseOptionalNumber(document.getElementById('reading-summary-temperature')?.value),
+      summaryMaxTokens: parseOptionalNumber(document.getElementById('reading-summary-max-tokens')?.value)
+    };
+    if (session?.activeBookId) {
+      const guideValue = String(document.getElementById('reading-settings-guide-input')?.value || '').trim();
+      await db.readingLibrary.update(session.activeBookId, {
+        annotationGuide: guideValue || getDefaultReadingGuideTemplate(),
+        annotationTemperature: parseOptionalNumber(document.getElementById('reading-settings-role-temperature')?.value),
+        annotationMaxTokens: parseOptionalNumber(document.getElementById('reading-settings-role-max-tokens')?.value),
+        chapterSplitRegex: chapterRegex
+      });
+      session.chapterSplitRegex = chapterRegex;
+    }
+    await db.chats.put(chat);
+    document.getElementById('reading-settings-modal')?.classList.remove('visible');
+    renderReadingRoom(state.activeChatId);
+    window.showToast?.('阅读设置已保存');
+  }
+  function bindReadingAnnotationUi() {
+    const readingWindow = document.getElementById('reading-window');
+    const contentEl = document.getElementById('reading-content');
+    if (!contentEl || !readingWindow) return;
+    if (readingWindow.dataset.readingAnnotationUiBound === '1') return;
+    readingWindow.dataset.readingAnnotationUiBound = '1';
+    if (!contentEl.dataset.readingAnnotationBound) {
+      contentEl.dataset.readingAnnotationBound = '1';
+      const capture = () => setTimeout(captureReadingSelection, 30);
+      contentEl.addEventListener('mouseup', capture);
+      contentEl.addEventListener('touchend', capture);
+      document.addEventListener('selectionchange', debounce(() => {
+        if (document.getElementById('reading-overlay')?.style.display !== 'none') captureReadingSelection();
+      }, 250));
+      contentEl.addEventListener('click', event => {
+        const mark = event.target.closest('[data-reading-annotation-id]');
+        if (!mark) return;
+        focusReadingAnnotationCard(mark.dataset.readingAnnotationId);
+      });
+    }
+
+    const toolbar = document.getElementById('reading-selection-toolbar');
+    if (toolbar && !toolbar.dataset.bound) {
+      toolbar.dataset.bound = '1';
+      toolbar.addEventListener('mousedown', event => {
+        if (event.target.closest('button')) event.preventDefault();
+      });
+      toolbar.querySelectorAll('[data-reading-style]').forEach(button => {
+        button.addEventListener('click', () => saveReadingAnnotation(button.dataset.readingStyle));
+      });
+      document.getElementById('reading-selection-note')?.addEventListener('click', async () => {
+        const pendingSelection = readingSelection ? { ...readingSelection } : null;
+        const note = await showCustomPrompt('添加批注', '写下你的想法：', '');
+        if (note === null || !pendingSelection) return;
+        const annotation = await saveReadingAnnotation('note', note, false, pendingSelection);
+        if (annotation) openReadingAnnotationPanel();
+      });
+      document.getElementById('reading-selection-copy')?.addEventListener('click', async () => {
+        if (!readingSelection) return;
+        await navigator.clipboard?.writeText(readingSelection.quote).catch(() => {});
+        window.showToast?.('已复制');
+      });
+      document.getElementById('reading-selection-ask')?.addEventListener('click', async () => {
+        const annotation = await saveReadingAnnotation('highlight');
+        if (annotation) await reactToReadingAnnotation(annotation.id);
+      });
+      document.getElementById('reading-selection-bookmark')?.addEventListener('click', saveReadingBookmark);      document.getElementById('reading-selection-cancel')?.addEventListener('click', () => {
+        window.getSelection()?.removeAllRanges();
+        hideReadingSelectionToolbar();
+      });
+    }
+
+    document.getElementById('reading-annotations-btn')?.addEventListener('click', openReadingAnnotationPanel);
+    document.getElementById('reading-annotation-panel-close')?.addEventListener('click', () => {
+      document.getElementById('reading-annotation-panel')?.classList.remove('visible');
+    });
+    document.getElementById('reading-book-guide-btn')?.addEventListener('click', openReadingGuideModal);
+    document.getElementById('reading-generate-reflection-btn')?.addEventListener('click', generateReadingChapterReflection);
+    document.getElementById('reading-toc-tab-chapters')?.addEventListener('click', () => {
+      readingTocTab = 'chapters';
+      renderReadingToc();
+    });
+    document.getElementById('reading-toc-tab-bookmarks')?.addEventListener('click', () => {
+      readingTocTab = 'bookmarks';
+      renderReadingToc();
+    });
+    document.getElementById('reading-toc-btn')?.addEventListener('click', openReadingToc);
+    document.getElementById('close-reading-toc-btn')?.addEventListener('click', () => {
+      document.getElementById('reading-toc-modal')?.classList.remove('visible');
+    });
+    document.getElementById('reading-settings-btn')?.addEventListener('click', openReadingSettings);
+    document.getElementById('close-reading-settings-btn')?.addEventListener('click', () => {
+      document.getElementById('reading-settings-modal')?.classList.remove('visible');
+    });
+    document.getElementById('cancel-reading-settings-btn')?.addEventListener('click', () => {
+      document.getElementById('reading-settings-modal')?.classList.remove('visible');
+    });
+    document.getElementById('save-reading-settings-btn')?.addEventListener('click', saveReadingSettings);
+    document.getElementById('reset-reading-summary-prompt')?.addEventListener('click', () => {
+      const input = document.getElementById('reading-summary-prompt');
+      if (input) input.value = getReadingSummaryPromptDefault();
+    });
+    document.getElementById('reset-reading-settings-guide')?.addEventListener('click', () => {
+      const input = document.getElementById('reading-settings-guide-input');
+      if (input) input.value = getDefaultReadingGuideTemplate();
+    });
+    document.getElementById('reading-chapter-preset-select')?.addEventListener('change', event => {
+      const input = document.getElementById('reading-chapter-regex');
+      if (input) input.value = event.target.value || '';
+    });
+    document.getElementById('close-reading-guide-btn')?.addEventListener('click', () => {
+      document.getElementById('reading-guide-modal')?.classList.remove('visible');
+    });
+    document.getElementById('cancel-reading-guide-btn')?.addEventListener('click', () => {
+      document.getElementById('reading-guide-modal')?.classList.remove('visible');
+    });
+    document.getElementById('save-reading-guide-btn')?.addEventListener('click', saveReadingGuide);
+    document.getElementById('close-reading-annotation-edit-btn')?.addEventListener('click', () => {
+      document.getElementById('reading-annotation-edit-modal')?.classList.remove('visible');
+    });
+    document.getElementById('cancel-reading-annotation-edit-btn')?.addEventListener('click', () => {
+      document.getElementById('reading-annotation-edit-modal')?.classList.remove('visible');
+    });
+    document.getElementById('reading-annotation-edit-shrink')?.addEventListener('click', () => adjustReadingAnnotationEdit(-1));
+    document.getElementById('reading-annotation-edit-grow')?.addEventListener('click', () => adjustReadingAnnotationEdit(1));
+    document.getElementById('save-reading-annotation-edit-btn')?.addEventListener('click', saveReadingAnnotationEdit);
+
+    const listEl = document.getElementById('reading-annotation-list');
+    if (listEl && !listEl.dataset.bound) {
+      listEl.dataset.bound = '1';
+      listEl.addEventListener('click', event => {
+        const button = event.target.closest('[data-reading-annotation-action]');
+        if (!button) return;
+        const id = button.dataset.annotationId;
+        if (button.dataset.readingAnnotationAction === 'edit') openReadingAnnotationEdit(id);
+        if (button.dataset.readingAnnotationAction === 'react') reactToReadingAnnotation(id);
+        if (button.dataset.readingAnnotationAction === 'followup') followUpReadingAnnotation(id);
+        if (button.dataset.readingAnnotationAction === 'delete') {
+          showCustomConfirm('删除批注', '确定删除这条批注吗？').then(async ok => {
+            if (!ok) return;
+            await db.readingAnnotations.delete(Number(id) || id);
+            readingAnnotationsCache = readingAnnotationsCache.filter(item => String(item.id) !== String(id));
+            renderReadingRoom(state.activeChatId);
+            openReadingAnnotationPanel();
+          });
+        }
+      });
+    }
   }
 
   // showNextPage 旧版（同步版，无 notifyAiOfPageTurn）已删除
@@ -157,9 +1345,170 @@
   }
 
 
-  function importBook() {
+  function closeReadingImportModal() {
+    document.getElementById('reading-import-modal')?.classList.remove('visible');
+  }
 
+  function openLocalBookPicker() {
+    closeReadingImportModal();
     document.getElementById('book-upload-input').click();
+  }
+
+  function bindReadingImportModal() {
+    const modal = document.getElementById('reading-import-modal');
+    if (!modal || modal.dataset.readingImportBound === '1') return;
+    modal.dataset.readingImportBound = '1';
+    document.getElementById('close-reading-import-btn')?.addEventListener('click', closeReadingImportModal);
+    document.getElementById('import-local-book-btn')?.addEventListener('click', openLocalBookPicker);
+    document.getElementById('import-url-book-btn')?.addEventListener('click', () => {
+      closeReadingImportModal();
+      importBookFromUrl();
+    });
+    modal.addEventListener('click', event => {
+      if (event.target === modal) closeReadingImportModal();
+    });
+  }
+
+  function importBook() {
+    const modal = document.getElementById('reading-import-modal');
+    if (!modal) {
+      openLocalBookPicker();
+      return;
+    }
+    bindReadingImportModal();
+    modal.classList.add('visible');
+  }
+
+  function htmlToPlainText(html) {
+    const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+    doc.querySelectorAll('script,style,noscript,svg,iframe').forEach(el => el.remove());
+    doc.querySelectorAll('br,p,div,li,tr,h1,h2,h3,h4,h5,h6,section,article,blockquote')
+      .forEach(el => el.append('\n'));
+    return String(doc.body?.textContent || '')
+      .replace(/\u00a0/g, ' ')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  function resolveZipPath(basePath, href) {
+    const baseParts = String(basePath || '').split('/');
+    baseParts.pop();
+    const parts = baseParts.concat(String(href || '').split('/'));
+    const resolved = [];
+    parts.forEach(part => {
+      if (!part || part === '.') return;
+      if (part === '..') resolved.pop();
+      else resolved.push(part);
+    });
+    return resolved.join('/');
+  }
+
+  async function extractEpubText(arrayBuffer, fileName = '') {
+    if (typeof JSZip === 'undefined') {
+      throw new Error('EPUB 解析库未加载，请刷新页面后重试。');
+    }
+    const zip = await JSZip.loadAsync(arrayBuffer);
+    const containerFile = zip.file('META-INF/container.xml');
+    if (!containerFile) throw new Error('不是有效的 EPUB：缺少 META-INF/container.xml。');
+
+    const containerDoc = new DOMParser().parseFromString(await containerFile.async('string'), 'application/xml');
+    const rootfile = Array.from(containerDoc.getElementsByTagName('*'))
+      .find(el => String(el.localName || el.nodeName).toLowerCase() === 'rootfile');
+    const opfPath = rootfile?.getAttribute('full-path');
+    if (!opfPath) throw new Error('无法读取 EPUB 的 OPF 文件路径。');
+
+    const opfFile = zip.file(opfPath) || zip.file(decodeURIComponent(opfPath));
+    if (!opfFile) throw new Error('无法读取 EPUB 的 OPF 文件。');
+    const opfDoc = new DOMParser().parseFromString(await opfFile.async('string'), 'application/xml');
+    const allElements = Array.from(opfDoc.getElementsByTagName('*'));
+    const localName = el => String(el.localName || el.nodeName).split(':').pop().toLowerCase();
+
+    const titleEl = allElements.find(el => localName(el) === 'title' && el.textContent.trim());
+    const manifest = {};
+    allElements.filter(el => localName(el) === 'item').forEach(item => {
+      const id = item.getAttribute('id');
+      const href = item.getAttribute('href');
+      if (id && href) manifest[id] = href;
+    });
+    const spine = allElements.filter(el => localName(el) === 'itemref')
+      .map(item => item.getAttribute('idref'))
+      .filter(Boolean);
+
+    const ordered = spine.length ? spine : Object.keys(manifest);
+    const parts = [];
+    for (const id of ordered) {
+      const href = manifest[id];
+      if (!href) continue;
+      const path = resolveZipPath(opfPath, href);
+      const file = zip.file(path) || zip.file(decodeURIComponent(path));
+      if (!file) continue;
+      const text = htmlToPlainText(await file.async('string'));
+      if (text) parts.push(text);
+    }
+
+    const text = parts.join('\n\n').trim();
+    if (!text) throw new Error('EPUB 中没有可提取的文本内容。');
+    return {
+      text,
+      title: cleanImportedBookTitle(titleEl?.textContent || fileName)
+    };
+  }
+
+  async function importBookFromUrl() {
+    const url = await showCustomPrompt(
+      '从网络 URL 导入',
+      '请输入返回纯文本的 URL（网页正文请先转换成文本链接）：',
+      'https://'
+    );
+    if (!url || !url.trim()) return;
+    const target = url.trim();
+    if (!/^https?:\/\//i.test(target)) {
+      await showCustomAlert('URL 无效', '请输入以 http:// 或 https:// 开头的地址。');
+      return;
+    }
+
+    try {
+      const response = await fetch(target, { credentials: 'omit' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+      const raw = await response.text();
+      const isHtml = contentType.includes('html') || /^\s*<!doctype html|^\s*<html/i.test(raw);
+      const textContent = isHtml ? htmlToPlainText(raw) : raw;
+      if (!textContent.trim()) throw new Error('URL 返回的内容为空。');
+
+      let title = '';
+      if (isHtml) {
+        const doc = new DOMParser().parseFromString(raw, 'text/html');
+        title = cleanImportedBookTitle(doc.title || '');
+      }
+      if (!title) title = inferBookTitleFromText(textContent);
+      if (!title) {
+        try {
+          const pathname = new URL(target).pathname;
+          title = cleanImportedBookTitle(decodeURIComponent(pathname.split('/').filter(Boolean).pop() || ''));
+        } catch (_) {}
+      }
+      if (!title) {
+        const entered = await showCustomPrompt('填写书名', '未能从 URL 推断书名，请输入：', '网络书籍');
+        if (entered === null) return;
+        title = cleanImportedBookTitle(entered) || '网络书籍';
+      }
+
+      const newBookId = await db.readingLibrary.add({
+        title,
+        content: textContent,
+        sourceUrl: target,
+        lastOpened: Date.now()
+      });
+      await loadBookFromLibrary(newBookId);
+      if (document.getElementById('reading-library-modal')?.classList.contains('visible')) {
+        renderBookLibrary(document.getElementById('reading-library-search-input')?.value.trim() || '');
+      }
+    } catch (error) {
+      console.error('从 URL 导入书籍失败:', error);
+      await showCustomAlert('导入失败', error.message || String(error));
+    }
   }
 
   async function decodeTextFile(arrayBuffer) {
@@ -206,7 +1555,7 @@
   function cleanImportedBookTitle(value) {
     return String(value || '')
       .replace(/^\uFEFF/, '')
-      .replace(/\.txt$/i, '')
+      .replace(/\.(?:txt|epub)$/i, '')
       .replace(/[\u0000-\u001F\u007F]/g, '')
       .trim();
   }
@@ -278,15 +1627,17 @@
     try {
 
       const arrayBuffer = await file.arrayBuffer();
+      const isEpub = /\.epub$/i.test(file.name);
+      const epub = isEpub ? await extractEpubText(arrayBuffer, file.name) : null;
+      const textContent = epub ? epub.text : await decodeTextFile(arrayBuffer);
 
-      const textContent = await decodeTextFile(arrayBuffer);
-
-      const title = await resolveImportedBookTitle(file.name, textContent);
+      const title = (epub && epub.title) || await resolveImportedBookTitle(file.name, textContent);
       if (!title) return;
 
       const newBookId = await db.readingLibrary.add({
         title: title,
         content: textContent,
+        sourceType: isEpub ? 'epub' : 'txt',
         lastOpened: Date.now()
       });
 
@@ -309,8 +1660,8 @@
     if (!session || session.totalPages <= 1) return;
 
     const targetPageStr = await showCustomPrompt(
-      '页面跳转',
-      `请输入想跳转的页码 (1 - ${session.totalPages})`,
+      '章节跳转',
+      `请输入想跳转的章节 (1 - ${session.totalPages})`,
       session.currentPage + 1
     );
 
@@ -361,7 +1712,14 @@
 
   async function openBookLibrary() {
 
-    document.getElementById('reading-library-search-input').value = '';
+    const searchInput = document.getElementById('reading-library-search-input');
+    searchInput.value = '';
+    if (!searchInput.dataset.readingSearchBound) {
+      searchInput.dataset.readingSearchBound = '1';
+      searchInput.addEventListener('input', debounce(() => {
+        renderBookLibrary(searchInput.value.trim());
+      }, 200));
+    }
 
     await renderBookLibrary();
     document.getElementById('reading-library-modal').classList.add('visible');
@@ -375,8 +1733,10 @@
 
 
     if (searchTerm) {
+      const needle = searchTerm.toLowerCase();
       books = books.filter(book =>
-        book.title.toLowerCase().includes(searchTerm.toLowerCase())
+        String(book.title || '').toLowerCase().includes(needle) ||
+        String(book.content || '').toLowerCase().includes(needle)
       );
     }
 
@@ -459,12 +1819,15 @@
     session.title = book.title;
     // 处理内容换行
     session.contentLines = (book.content || "").split(/\r\n?|\n/).map(line => line.replace(/ +/g, ' '));
-    session.totalPages = Math.ceil(session.contentLines.length / session.linesPerPage);
+    session.chapterSplitRegex = book.chapterSplitRegex || '';
+    session.bookmarks = Array.isArray(book.bookmarks) ? book.bookmarks.slice() : [];
+    session.totalPages = Math.max(1, getReadingChapters(session).length);
 
     // 如果总页数为0，至少设为1
     if (session.totalPages === 0) session.totalPages = 1;
 
     session.currentPage = book.currentPage || 0;
+    await loadReadingAnnotations(bookId);
 
     // 防止页码越界（比如同步后内容变短了，虽然一般是变长）
     if (session.currentPage >= session.totalPages) {
@@ -594,7 +1957,8 @@
     const session = readingState[chatId];
     session.title = title.replace(/\.txt$/i, '');
     session.contentLines = textContent.split(/\r\n?|\n/);
-    session.totalPages = Math.ceil(session.contentLines.length / session.linesPerPage);
+    session.chapterSplitRegex = session.chapterSplitRegex || '';
+    session.totalPages = Math.max(1, getReadingChapters(session).length);
     session.currentPage = 0;
 
     renderReadingRoom(chatId);
@@ -762,10 +2126,9 @@
       contentForAI = session.currentSnippet;
       contextLabel = '你正在阅读的段落';
     } else if (session.contentLines.length > 0) {
-      const startLine = session.currentPage * session.linesPerPage;
-      const endLine = startLine + session.linesPerPage;
-      contentForAI = session.contentLines.slice(startLine, endLine).join('\n').substring(0, 200);
-      contextLabel = '当前页内容摘要';
+      const chapter = getCurrentReadingChapter(session);
+      contentForAI = session.contentLines.slice(chapter.startLine, chapter.endLine).join('\n').substring(0, 500);
+      contextLabel = `当前章节：${chapter.title}`;
     } else {
       contentForAI = '(无内容)';
       contextLabel = '内容';
@@ -796,38 +2159,13 @@
     if (!container) return;
 
 
-    const chat = state.chats[chatId];
-
-    const fontSize = (chat && chat.settings && chat.settings.fontSize) ? chat.settings.fontSize : 13;
-
-    const approximateLineHeight = fontSize * 1.6;
-
-    const scrollTop = container.scrollTop;
-    const clientHeight = container.clientHeight;
-    const scrollBottom = scrollTop + clientHeight;
-
-
-    const firstVisibleLine = Math.floor(scrollTop / approximateLineHeight);
-    const lastVisibleLine = Math.ceil(scrollBottom / approximateLineHeight);
-
-
-    const absoluteStartIndex = (session.currentPage * session.linesPerPage) + firstVisibleLine;
-    const absoluteEndIndex = (session.currentPage * session.linesPerPage) + lastVisibleLine;
-
-    if (absoluteStartIndex < 0 || absoluteStartIndex >= session.contentLines.length) {
-      return;
-    }
-
-
-    const newSnippet = session.contentLines.slice(
-      Math.max(0, absoluteStartIndex),
-      Math.min(session.contentLines.length, absoluteEndIndex)
-    ).join('\n');
-
-    session.currentSnippet = newSnippet;
-
-    // 调试日志（可选，如果你想在控制台看效果）
-    // console.log(`[阅读视口更新] 字体:${fontSize}px, 行高:${approximateLineHeight}, 可见行:${firstVisibleLine}-${lastVisibleLine}`);
+    const chapter = getCurrentReadingChapter(session);
+    if (!chapter) return;
+    const chapterText = session.contentLines.slice(chapter.startLine, chapter.endLine).join('\n');
+    const maxScroll = Math.max(1, container.scrollHeight - container.clientHeight);
+    const ratio = Math.max(0, Math.min(1, container.scrollTop / maxScroll));
+    const start = Math.floor(chapterText.length * ratio);
+    session.currentSnippet = chapterText.slice(start, start + 600);
   }
 
   // ========== 全局暴露 ==========

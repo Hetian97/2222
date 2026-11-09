@@ -4092,7 +4092,7 @@ ${truthGameHistoryContext}
 2. 第一句交代时间、人物和片名，格式参考：下午 13:35–15:50，{{char}} 陪 {{user}} 看了《{{title}}》，影片全部播放完毕。/ 影片播放到 01:23:45（共 02:00:00）。
 3. 接着用 1–3 句话概括影片大概讲了什么。只能依据片名、听到的台词和你们的讨论来写；如果不确定剧情，就写“剧情以实际观看为准”，不要编造具体情节。
 4. 再用 1–3 句话写你们聊了什么、氛围如何；如果几乎没有交流，就写“这次没有过多讨论，主要是一起安静地看”。
-5. 全文 80–200 字，一段话，不要分点、不要 Markdown、不要加“总结：”前缀，不要加引号。`;
+5. 全文 100–300 字，一段话，不要分点、不要 Markdown、不要加“总结：”前缀，不要加引号。`;
 
     function ensureWatchTogetherFloatingHost() {
       const phone = document.getElementById('phone-screen');
@@ -4339,6 +4339,20 @@ ${info.join('\n')}`;
       const settings = chat.watchTogetherSettings || {};
       if (settings.summaryEnabled === false) return;
       if (!payload.dialogue.length && !payload.transcripts.length && !payload.ended && payload.position < 60) return;
+      const mainTemperature = Number.isFinite(Number(state.globalSettings?.apiTemperature))
+        ? Number(state.globalSettings.apiTemperature)
+        : 0.8;
+      const mainMaxTokens = state.globalSettings?.apiMaxTokensEnabled && Number(state.globalSettings?.apiMaxTokens) > 0
+        ? Number(state.globalSettings.apiMaxTokens)
+        : null;
+      const hasSummaryTemperature = settings.summaryTemperature !== null && settings.summaryTemperature !== undefined && String(settings.summaryTemperature).trim() !== '';
+      const hasSummaryMaxTokens = settings.summaryMaxTokens !== null && settings.summaryMaxTokens !== undefined && String(settings.summaryMaxTokens).trim() !== '';
+      const summaryTemperature = hasSummaryTemperature && Number.isFinite(Number(settings.summaryTemperature))
+        ? Number(settings.summaryTemperature)
+        : mainTemperature;
+      const summaryMaxTokens = hasSummaryMaxTokens && Number.isFinite(Number(settings.summaryMaxTokens))
+        ? Number(settings.summaryMaxTokens)
+        : (mainMaxTokens || 600);
       const { proxyUrl, apiKey, model } = state.apiConfig || {};
       if (!proxyUrl || !apiKey || !model) {
         console.warn('[一起看电影] 未配置主 API，跳过观影总结');
@@ -4355,8 +4369,8 @@ ${info.join('\n')}`;
           body: JSON.stringify({
             model,
             messages: [{ role: 'system', content: prompt }],
-            temperature: 0.5,
-            max_tokens: 600
+            temperature: summaryTemperature,
+            max_tokens: summaryMaxTokens
           })
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -4602,8 +4616,8 @@ ${info.join('\n')}`;
     document.getElementById('reset-watch-together-summary-prompt')?.addEventListener('click', () => {
       const area = document.getElementById('watch-together-summary-prompt');
       if (area) {
-        area.value = '';
-        area.placeholder = DEFAULT_WATCH_SUMMARY_PROMPT;
+        area.value = DEFAULT_WATCH_SUMMARY_PROMPT;
+        area.placeholder = '';
       }
     });
 
@@ -5152,6 +5166,21 @@ ${info.join('\n')}`;
       const chat = state.chats[watchTogetherState.chatId];
       const video = document.getElementById('watch-together-video');
       const isOnlineMode = watchTogetherState.mode === 'online';
+      const watchDialogueSettings = chat?.watchTogetherSettings || {};
+      const mainTemperature = Number.isFinite(Number(state.globalSettings?.apiTemperature))
+        ? Number(state.globalSettings.apiTemperature)
+        : 0.8;
+      const mainMaxTokens = state.globalSettings?.apiMaxTokensEnabled && Number(state.globalSettings?.apiMaxTokens) > 0
+        ? Number(state.globalSettings.apiMaxTokens)
+        : null;
+      const rawDialogueTemperature = watchDialogueSettings.dialogueTemperature;
+      const hasDialogueTemperature = rawDialogueTemperature !== null && rawDialogueTemperature !== undefined &&
+        String(rawDialogueTemperature).trim() !== '' && Number.isFinite(Number(rawDialogueTemperature));
+      const rawDialogueMaxTokens = watchDialogueSettings.dialogueMaxTokens;
+      const hasDialogueMaxTokens = rawDialogueMaxTokens !== null && rawDialogueMaxTokens !== undefined &&
+        String(rawDialogueMaxTokens).trim() !== '' && Number.isFinite(Number(rawDialogueMaxTokens));
+      const dialogueTemperature = hasDialogueTemperature ? Number(rawDialogueTemperature) : mainTemperature;
+      const dialogueMaxTokens = hasDialogueMaxTokens ? Number(rawDialogueMaxTokens) : mainMaxTokens;
 
       // 禁用按钮
       document.getElementById('watch-together-call-api-btn').disabled = true;
@@ -5405,10 +5434,11 @@ ${linkedContents}
             let reqBody = {
               model: model,
               messages: messagesPayload,
-              temperature: state.globalSettings.apiTemperature || 0.8
+              temperature: dialogueTemperature
             };
             if (state.globalSettings.apiTopPEnabled && state.globalSettings.apiTopP !== undefined) reqBody.top_p = state.globalSettings.apiTopP;
-            if (state.globalSettings.apiMaxTokensEnabled && state.globalSettings.apiMaxTokens > 0) reqBody.max_tokens = state.globalSettings.apiMaxTokens;
+            if (hasDialogueMaxTokens) reqBody.max_tokens = dialogueMaxTokens;
+            else if (mainMaxTokens) reqBody.max_tokens = mainMaxTokens;
             if (state.globalSettings.apiPresencePenaltyEnabled && state.globalSettings.apiPresencePenalty !== undefined) reqBody.presence_penalty = state.globalSettings.apiPresencePenalty;
             if (state.globalSettings.apiFrequencyPenaltyEnabled && state.globalSettings.apiFrequencyPenalty !== undefined) reqBody.frequency_penalty = state.globalSettings.apiFrequencyPenalty;
             return reqBody;
@@ -5620,9 +5650,17 @@ ${linkedContents}
       if (summaryEnabled) summaryEnabled.checked = settings.summaryEnabled !== false;
       const summaryPrompt = document.getElementById('watch-together-summary-prompt');
       if (summaryPrompt) {
-        summaryPrompt.value = settings.summaryPrompt || '';
-        summaryPrompt.placeholder = DEFAULT_WATCH_SUMMARY_PROMPT;
+        summaryPrompt.value = settings.summaryPrompt || DEFAULT_WATCH_SUMMARY_PROMPT;
+        summaryPrompt.placeholder = '';
       }
+      const dialogueTemperature = document.getElementById('watch-together-dialogue-temperature');
+      if (dialogueTemperature) dialogueTemperature.value = settings.dialogueTemperature ?? '';
+      const dialogueMaxTokens = document.getElementById('watch-together-dialogue-max-tokens');
+      if (dialogueMaxTokens) dialogueMaxTokens.value = settings.dialogueMaxTokens ?? '';
+      const summaryTemperature = document.getElementById('watch-together-summary-temperature');
+      if (summaryTemperature) summaryTemperature.value = settings.summaryTemperature ?? '';
+      const summaryMaxTokens = document.getElementById('watch-together-summary-max-tokens');
+      if (summaryMaxTokens) summaryMaxTokens.value = settings.summaryMaxTokens ?? '';
 
       const whisperConfig = document.getElementById('watch-together-whisper-config');
       whisperConfig.style.display = (settings.speechApi === 'whisper') ? 'block' : 'none';
@@ -5641,8 +5679,28 @@ ${linkedContents}
         maxScreenshots: parseInt(document.getElementById('watch-together-max-screenshots').value) || 10,
         maxAudios: parseInt(document.getElementById('watch-together-max-audios').value) || 10,
         maxMessages: parseInt(document.getElementById('watch-together-max-messages').value) || 20,
+        dialogueTemperature: (() => {
+          const raw = document.getElementById('watch-together-dialogue-temperature')?.value;
+          const value = parseFloat(raw);
+          return String(raw ?? '').trim() !== '' && Number.isFinite(value) ? value : null;
+        })(),
+        dialogueMaxTokens: (() => {
+          const raw = document.getElementById('watch-together-dialogue-max-tokens')?.value;
+          const value = parseInt(raw, 10);
+          return String(raw ?? '').trim() !== '' && Number.isFinite(value) ? value : null;
+        })(),
         summaryEnabled: document.getElementById('watch-together-summary-enabled')?.checked !== false,
-        summaryPrompt: String(document.getElementById('watch-together-summary-prompt')?.value || '').trim()
+        summaryPrompt: String(document.getElementById('watch-together-summary-prompt')?.value || '').trim(),
+        summaryTemperature: (() => {
+          const raw = document.getElementById('watch-together-summary-temperature')?.value;
+          const value = parseFloat(raw);
+          return String(raw ?? '').trim() !== '' && Number.isFinite(value) ? value : null;
+        })(),
+        summaryMaxTokens: (() => {
+          const raw = document.getElementById('watch-together-summary-max-tokens')?.value;
+          const value = parseInt(raw, 10);
+          return String(raw ?? '').trim() !== '' && Number.isFinite(value) ? value : null;
+        })()
       };
 
       watchTogetherState.mode = chat.watchTogetherSettings.mode;
