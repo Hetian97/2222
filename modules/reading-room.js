@@ -131,6 +131,17 @@
       /^(注|注释|注解|校注|脚注)\s*[:：]/.test(text);
   }
 
+  function isDateTitleHeading(line, index, lines) {
+    const text = String(line || '').trim();
+    if (!text) return false;
+    const isDate = /^(?:19|20)\d{2}\s*年(?:\s*\d{1,2}\s*月)?(?:\s*\d{1,2}\s*日)?$/.test(text) ||
+      /^(?:19|20)\d{2}[./-]\d{1,2}(?:[./-]\d{1,2})?$/.test(text);
+    if (!isDate) return false;
+    const prevBlank = index === 0 || !String(lines[index - 1] || '').trim();
+    const nextBlank = index === lines.length - 1 || !String(lines[index + 1] || '').trim();
+    return prevBlank && nextBlank;
+  }
+
   function isLooseShortReadingHeading(line, index, lines) {
     if (isShortReadingHeading(line, index, lines)) return true;
     const text = String(line || '').trim();
@@ -176,11 +187,12 @@
 
   function getReadingChapters(session) {
     const lines = session.contentLines || [];
-    const builtInPattern = /^\s*(?:第\s*[0-9零〇一二三四五六七八九十百千万两]{1,9}\s*[章节節回卷部篇集]|chapter\s+[0-9ivxlcdm]+|【[^】]{1,30}】|\[[^\]]{1,30}\]|[0-9]{1,3}[、.．]|={3,}.+={3,})/i;
+    const builtInPattern = /^\s*(?:第\s*[0-9零〇一二三四五六七八九十百千万两]{1,9}\s*[章节節回卷部篇集]|chapter\s+[0-9ivxlcdm]+|【[^】]{1,30}】|\[[^\]]{1,30}\]|[0-9]{1,3}(?:、|[.．](?![0-9]))|={3,}.+={3,})/i;
     const customPattern = String(session.chapterSplitRegex || '').trim();
     const shortTitleMode = customPattern === '__short_titles__';
+    const dateTitleMode = customPattern === '__date_titles__';
     let headingPattern = builtInPattern;
-    if (customPattern && !shortTitleMode) {
+    if (customPattern && !shortTitleMode && !dateTitleMode) {
       try {
         headingPattern = new RegExp(customPattern, 'i');
       } catch (error) {
@@ -189,9 +201,16 @@
     }
 
     let starts = [];
-    if (customPattern && !shortTitleMode) {
+    if (customPattern && !shortTitleMode && !dateTitleMode) {
       lines.forEach((line, index) => {
         if (headingPattern.test(line)) starts.push({ startLine: index, title: String(line || '').trim() });
+      });
+    } else if (dateTitleMode) {
+      lines.forEach((line, index) => {
+        if (isReadingAnnotationLikeLine(String(line || '').trim())) return;
+        if (isDateTitleHeading(line, index, lines) || headingPattern.test(line)) {
+          starts.push({ startLine: index, title: String(line || '').trim() });
+        }
       });
     } else {
       const tocChapters = findReadingTocChapters(lines);
@@ -1172,7 +1191,7 @@
     if (roleMaxTokens) roleMaxTokens.value = book?.annotationMaxTokens ?? '';
     const savedChapterMode = book?.chapterSplitRegex || '';
     const chapterRegex = document.getElementById('reading-chapter-regex');
-    if (chapterRegex) chapterRegex.value = savedChapterMode === '__short_titles__' ? '' : savedChapterMode;
+    if (chapterRegex) chapterRegex.value = (savedChapterMode === '__short_titles__' || savedChapterMode === '__date_titles__') ? '' : savedChapterMode;
     const chapterPreset = document.getElementById('reading-chapter-preset-select');
     if (chapterPreset) chapterPreset.value = savedChapterMode;
     document.getElementById('reading-settings-modal')?.classList.add('visible');
@@ -1189,10 +1208,10 @@
       return Number.isFinite(number) ? number : null;
     };
     const chapterPresetValue = String(document.getElementById('reading-chapter-preset-select')?.value || '').trim();
-    const chapterRegex = chapterPresetValue === '__short_titles__'
-      ? '__short_titles__'
+    const chapterRegex = (chapterPresetValue === '__short_titles__' || chapterPresetValue === '__date_titles__')
+      ? chapterPresetValue
       : String(document.getElementById('reading-chapter-regex')?.value || '').trim();
-    if (chapterRegex && chapterRegex !== '__short_titles__') {
+    if (chapterRegex && chapterRegex !== '__short_titles__' && chapterRegex !== '__date_titles__') {
       try {
         new RegExp(chapterRegex, 'i');
       } catch (error) {
@@ -1309,7 +1328,7 @@
     });
     document.getElementById('reading-chapter-preset-select')?.addEventListener('change', event => {
       const input = document.getElementById('reading-chapter-regex');
-      if (input) input.value = event.target.value === '__short_titles__' ? '' : (event.target.value || '');
+      if (input) input.value = (event.target.value === '__short_titles__' || event.target.value === '__date_titles__') ? '' : (event.target.value || '');
     });
     document.getElementById('close-reading-guide-btn')?.addEventListener('click', () => {
       document.getElementById('reading-guide-modal')?.classList.remove('visible');
