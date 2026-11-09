@@ -557,7 +557,7 @@
     // 1. 获取当前聊天的字体设置
     const chat = state.chats[chatId];
     // 默认 13px，如果有设置则使用设置值
-    const fontSize = (chat && chat.settings && chat.settings.fontSize) ? chat.settings.fontSize : 13;
+    const fontSize = Number(chat?.readingSettings?.fontSize) || (chat && chat.settings && chat.settings.fontSize) || 13;
 
     const contentEl = document.getElementById('reading-content');
     const previousScrollTop = contentEl ? contentEl.scrollTop : 0;
@@ -1257,6 +1257,8 @@
     if (!chat) return;
     const settings = chat.readingSettings || {};
     const book = session?.activeBookId ? await db.readingLibrary.get(session.activeBookId) : null;
+    const fontSizeInput = document.getElementById('reading-font-size');
+    if (fontSizeInput) fontSizeInput.value = Number(settings.fontSize) || Number(chat.settings?.fontSize) || 13;
     const enabled = document.getElementById('reading-summary-enabled');
     if (enabled) enabled.checked = settings.summaryEnabled !== false;
     const prompt = document.getElementById('reading-summary-prompt');
@@ -1301,7 +1303,9 @@
         return;
       }
     }
+    const readingFontSize = Math.max(10, Math.min(32, parseInt(document.getElementById('reading-font-size')?.value, 10) || 13));
     chat.readingSettings = {
+      fontSize: readingFontSize,
       summaryEnabled: document.getElementById('reading-summary-enabled')?.checked !== false,
       summaryPrompt: String(document.getElementById('reading-summary-prompt')?.value || '').trim(),
       summaryTemperature: parseOptionalNumber(document.getElementById('reading-summary-temperature')?.value),
@@ -1413,7 +1417,13 @@
         input.checked = false;
       });
     });
-    document.getElementById('reading-settings-btn')?.addEventListener('click', openReadingSettings);
+    document.getElementById('reading-settings-btn')?.addEventListener('click', openReadingSettings);    const adjustReadingFontSize = delta => {
+      const input = document.getElementById('reading-font-size');
+      if (!input) return;
+      input.value = Math.max(10, Math.min(32, (parseInt(input.value, 10) || 13) + delta));
+    };
+    document.getElementById('reading-font-size-minus')?.addEventListener('click', () => adjustReadingFontSize(-1));
+    document.getElementById('reading-font-size-plus')?.addEventListener('click', () => adjustReadingFontSize(1));
     document.getElementById('close-reading-settings-btn')?.addEventListener('click', () => {
       document.getElementById('reading-settings-modal')?.classList.remove('visible');
     });
