@@ -123,7 +123,7 @@
   <script src="modules/cphone.js?v=0.0.37" defer></script>
   <script src="modules/myphone.js?v=0.0.36" defer></script>
   <script src="modules/werewolf.js?v=0.0.36" defer></script>
-  <script src="modules/reading-room.js?v=0.0.90-reader" defer></script>
+  <script src="modules/reading-room.js?v=0.0.91-reader" defer></script>
   <script src="modules/douban.js?v=0.0.36" defer></script>
   <script src="modules/living-space.js?v=0.0.14" defer></script>
   <!-- 第七层：其余功能 -->
@@ -9356,10 +9356,24 @@
   </div>
   <div id="reading-toc-modal" class="modal">
     <div class="modal-content" style="height:auto; max-height:78%;">
-      <div class="modal-header"><span class="reading-toc-tabs"><button type="button" id="reading-toc-tab-chapters" class="is-active">目录</button><button type="button" id="reading-toc-tab-bookmarks">书签</button></span><span class="action-btn" id="close-reading-toc-btn">×</span></div>
+      <div class="modal-header"><span class="reading-toc-tabs"><button type="button" id="reading-toc-tab-chapters" class="is-active">目录</button><button type="button" id="reading-toc-tab-bookmarks">书签</button></span><span><button type="button" id="reading-edit-chapters-btn" class="settings-mini-btn" style="margin-right:8px;">编辑章节</button><span class="action-btn" id="close-reading-toc-btn">×</span></span></div>
       <div class="modal-body" style="padding:8px 0; overflow-y:auto;">
         <div id="reading-toc-list"></div>
       </div>
+    </div>
+  </div>
+  <div id="reading-chapter-editor-modal" class="modal">
+    <div class="modal-content" style="height:auto; max-height:82%;">
+      <div class="modal-header"><span>手动章节</span><span class="action-btn" id="close-reading-chapter-editor-btn">×</span></div>
+      <div class="modal-body" style="padding:12px; overflow-y:auto;">
+        <p class="settings-desc" style="margin-top:0;">勾选真正的章节标题行。取消勾选误判的菜谱、日期、元数据。没有勾选时使用自动识别。</p>
+        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
+          <button type="button" class="settings-mini-btn" id="reading-chapters-use-auto">载入自动章节</button>
+          <button type="button" class="settings-mini-btn" id="reading-chapters-clear">全部清空</button>
+        </div>
+        <div id="reading-chapter-candidate-list"></div>
+      </div>
+      <div class="modal-footer"><button class="cancel" id="cancel-reading-chapter-editor-btn">取消</button><button class="save" id="save-reading-chapter-editor-btn">保存手动章节</button></div>
     </div>
   </div>
   <div id="reading-settings-modal" class="modal">

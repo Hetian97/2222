@@ -185,7 +185,28 @@
     return starts.length >= 2 ? starts : null;
   }
 
+  function buildReadingChaptersFromStartLines(session, startLines) {
+    const lines = session.contentLines || [];
+    const sorted = Array.from(new Set(startLines.map(Number).filter(line => Number.isInteger(line) && line >= 0)))
+      .sort((a, b) => a - b);
+    if (!sorted.length) return null;
+    return sorted.map((startLine, index) => {
+      const endLine = index + 1 < sorted.length ? sorted[index + 1] : lines.length;
+      const heading = String(lines[startLine] || '').trim();
+      return {
+        index,
+        title: heading || `第 ${index + 1} 章`,
+        startLine,
+        endLine,
+        startOffset: getReadingPageStartOffset(session, startLine),
+        endOffset: getReadingPageStartOffset(session, endLine)
+      };
+    });
+  }
+
   function getReadingChapters(session) {
+    const manualChapters = buildReadingChaptersFromStartLines(session, session.manualChapterStarts || []);
+    if (manualChapters) return manualChapters;
     const lines = session.contentLines || [];
     const builtInPattern = /^\s*(?:第\s*[0-9零〇一二三四五六七八九十百千万两]{1,9}\s*[章节節回卷部篇集]|chapter\s+[0-9ivxlcdm]+|【[^】]{1,30}】|\[[^\]]{1,30}\]|[0-9]{1,3}(?:、|[.．](?![0-9]))|={3,}.+={3,})/i;
     const customPattern = String(session.chapterSplitRegex || '').trim();
@@ -1162,6 +1183,67 @@
     });
   }
 
+  function getReadingChapterCandidates(session) {
+    const lines = session.contentLines || [];
+    const candidates = new Set();
+    lines.forEach((line, index) => {
+      const text = String(line || '').trim();
+      if (!text || text.length > 60) return;
+      if (isReadingAnnotationLikeLine(text)) return;
+      const prevBlank = index === 0 || !String(lines[index - 1] || '').trim();
+      const nextBlank = index === lines.length - 1 || !String(lines[index + 1] || '').trim();
+      if (prevBlank && nextBlank) candidates.add(index);
+    });
+    const savedManual = session.manualChapterStarts;
+    session.manualChapterStarts = [];
+    getReadingChapters(session).forEach(chapter => candidates.add(chapter.startLine));
+    session.manualChapterStarts = savedManual;
+    return Array.from(candidates).sort((a, b) => a - b);
+  }
+
+  function renderReadingChapterCandidates() {
+    const session = getActiveReadingSession();
+    const listEl = document.getElementById('reading-chapter-candidate-list');
+    if (!session || !listEl) return;
+    const selected = new Set((session.manualChapterStarts || []).map(Number));
+    const hasManual = selected.size > 0;
+    const autoStarts = new Set();
+    const savedManual = session.manualChapterStarts;
+    session.manualChapterStarts = [];
+    getReadingChapters(session).forEach(chapter => autoStarts.add(chapter.startLine));
+    session.manualChapterStarts = savedManual;
+    listEl.innerHTML = '';
+    getReadingChapterCandidates(session).forEach((lineIndex, index) => {
+      const text = String(session.contentLines[lineIndex] || '').trim();
+      const checked = hasManual ? selected.has(lineIndex) : autoStarts.has(lineIndex);
+      const label = document.createElement('label');
+      label.style.cssText = 'display:flex;gap:8px;align-items:flex-start;padding:7px 2px;border-bottom:1px solid var(--border-color,#eee);font-size:12px;line-height:1.4;';
+      label.innerHTML = `<input type="checkbox" data-chapter-line="${lineIndex}" ${checked ? 'checked' : ''}><span style="flex:1;min-width:0;">${escapeReadingHtml(text)}</span><small style="color:var(--text-secondary,#999);">${lineIndex + 1}</small>`;
+      listEl.appendChild(label);
+    });
+  }
+
+  function openReadingChapterEditor() {
+    const session = getActiveReadingSession();
+    if (!session) return;
+    renderReadingChapterCandidates();
+    document.getElementById('reading-toc-modal')?.classList.remove('visible');
+    document.getElementById('reading-chapter-editor-modal')?.classList.add('visible');
+  }
+
+  async function saveReadingChapterEditor() {
+    const session = getActiveReadingSession();
+    if (!session?.activeBookId) return;
+    const checked = Array.from(document.querySelectorAll('#reading-chapter-candidate-list input[data-chapter-line]:checked'))
+      .map(input => Number(input.dataset.chapterLine))
+      .filter(Number.isInteger)
+      .sort((a, b) => a - b);
+    await db.readingLibrary.update(session.activeBookId, { manualChapterStarts: checked });
+    session.manualChapterStarts = checked;
+    document.getElementById('reading-chapter-editor-modal')?.classList.remove('visible');
+    renderReadingRoom(state.activeChatId);
+    window.showToast?.(checked.length ? '手动章节已保存' : '已恢复自动章节');
+  }
   function openReadingToc() {
     const session = getActiveReadingSession();
     if (!session) return;
@@ -1309,6 +1391,27 @@
     document.getElementById('reading-toc-btn')?.addEventListener('click', openReadingToc);
     document.getElementById('close-reading-toc-btn')?.addEventListener('click', () => {
       document.getElementById('reading-toc-modal')?.classList.remove('visible');
+    });
+    document.getElementById('reading-edit-chapters-btn')?.addEventListener('click', openReadingChapterEditor);
+    document.getElementById('close-reading-chapter-editor-btn')?.addEventListener('click', () => {
+      document.getElementById('reading-chapter-editor-modal')?.classList.remove('visible');
+    });
+    document.getElementById('cancel-reading-chapter-editor-btn')?.addEventListener('click', () => {
+      document.getElementById('reading-chapter-editor-modal')?.classList.remove('visible');
+    });
+    document.getElementById('save-reading-chapter-editor-btn')?.addEventListener('click', saveReadingChapterEditor);
+    document.getElementById('reading-chapters-use-auto')?.addEventListener('click', () => {
+      const session = getActiveReadingSession();
+      if (!session) return;
+      const saved = session.manualChapterStarts;
+      session.manualChapterStarts = [];
+      renderReadingChapterCandidates();
+      session.manualChapterStarts = saved;
+    });
+    document.getElementById('reading-chapters-clear')?.addEventListener('click', () => {
+      document.querySelectorAll('#reading-chapter-candidate-list input[data-chapter-line]').forEach(input => {
+        input.checked = false;
+      });
     });
     document.getElementById('reading-settings-btn')?.addEventListener('click', openReadingSettings);
     document.getElementById('close-reading-settings-btn')?.addEventListener('click', () => {
@@ -1863,6 +1966,7 @@
     session.contentLines = (book.content || "").split(/\r\n?|\n/).map(line => line.replace(/ +/g, ' '));
     session.chapterSplitRegex = book.chapterSplitRegex || '';
     session.bookmarks = Array.isArray(book.bookmarks) ? book.bookmarks.slice() : [];
+    session.manualChapterStarts = Array.isArray(book.manualChapterStarts) ? book.manualChapterStarts.slice() : [];
     session.totalPages = Math.max(1, getReadingChapters(session).length);
 
     // 如果总页数为0，至少设为1
