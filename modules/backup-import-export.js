@@ -436,6 +436,8 @@
         shoppingCategories,
         customAvatarFrames,
         readingLibrary,
+        readingAnnotations,
+        readingChapterReflections,
         quickReplies,
         quickReplyCategories,
         npcGroups,
@@ -494,6 +496,8 @@
         db.shoppingCategories.toArray(),
         db.customAvatarFrames.toArray(),
         db.readingLibrary.toArray(),
+        db.readingAnnotations.toArray(),
+        db.readingChapterReflections.toArray(),
         db.quickReplies.toArray(),
         db.quickReplyCategories.toArray(),
         db.npcGroups.toArray(),
@@ -564,6 +568,8 @@
         shoppingCategories,
         customAvatarFrames,
         readingLibrary,
+        readingAnnotations,
+        readingChapterReflections,
         quickReplies,
         quickReplyCategories,
         npcGroups,
@@ -1571,6 +1577,8 @@
         if (Array.isArray(backupData.shoppingCategories)) await db.shoppingCategories.bulkPut(backupData.shoppingCategories);
         if (Array.isArray(backupData.customAvatarFrames)) await db.customAvatarFrames.bulkPut(backupData.customAvatarFrames);
         if (Array.isArray(backupData.readingLibrary)) await db.readingLibrary.bulkPut(backupData.readingLibrary);
+        if (Array.isArray(backupData.readingAnnotations)) await db.readingAnnotations.bulkPut(backupData.readingAnnotations);
+        if (Array.isArray(backupData.readingChapterReflections)) await db.readingChapterReflections.bulkPut(backupData.readingChapterReflections);
         if (Array.isArray(backupData.quickReplies)) await db.quickReplies.bulkPut(backupData.quickReplies);
         if (Array.isArray(backupData.quickReplyCategories)) await db.quickReplyCategories.bulkPut(backupData.quickReplyCategories);
         if (Array.isArray(backupData.npcGroups)) await db.npcGroups.bulkPut(backupData.npcGroups);

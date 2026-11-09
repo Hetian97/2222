@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="css/media/music-settings-and-groups.css?v=0.0.54-upstream">
   <link rel="stylesheet" href="css/video-voice-call.css?v=0.0.36">
   <link rel="stylesheet" href="css/settings-font.css?v=0.0.56-font-upstream">
-  <link rel="stylesheet" href="css/main-ui.css?v=0.0.36">
+  <link rel="stylesheet" href="css/main-ui.css?v=0.0.55">
   <link rel="stylesheet" href="css/voice-recording.css?v=0.0.36">
   <link rel="stylesheet" href="css/features-1.css?v=0.0.37">
   <link rel="stylesheet" href="css/features-2.css?v=0.0.47">
@@ -97,7 +97,7 @@
   <script src="modules/message-actions.js?v=0.0.103-mcp" defer></script>
   <script src="modules/nai-imagen.js?v=0.0.103-mcp" defer></script>
   <script src="modules/image-presets.js?v=0.0.103-mcp" defer></script>
-  <script src="modules/backup-import-export.js?v=0.0.103-mcp" defer></script>
+  <script src="modules/backup-import-export.js?v=0.0.106-mcp" defer></script>
   <script src="modules/settings/prompt-entry-manager.js?v=0.0.103-mcp" defer></script>
   <script src="modules/settings-presets.js?v=0.0.103-mcp" defer></script>
   <script src="modules/settings/font-presets.js?v=0.0.56-font-upstream" defer></script>
@@ -123,7 +123,7 @@
   <script src="modules/cphone.js?v=0.0.37" defer></script>
   <script src="modules/myphone.js?v=0.0.36" defer></script>
   <script src="modules/werewolf.js?v=0.0.36" defer></script>
-  <script src="modules/reading-room.js?v=0.0.57-reader" defer></script>
+  <script src="modules/reading-room.js?v=0.0.88-reader" defer></script>
   <script src="modules/douban.js?v=0.0.36" defer></script>
   <script src="modules/living-space.js?v=0.0.14" defer></script>
   <!-- 第七层：其余功能 -->
@@ -145,7 +145,7 @@
   <!-- 第八层：初始化（必须在所有模块之后） -->
   <!-- 数据定义（无依赖） -->
   <script src="modules/init-avatar-frames.js?v=0.0.36" defer></script>
-  <script src="modules/init-db-schema.js?v=0.0.53-focus" defer></script>
+  <script src="modules/init-db-schema.js?v=0.0.57-reading" defer></script>
   <script src="modules/api-key-storage.js?v=0.0.103-mcp" defer></script>
   <!-- 数据保护（依赖 db） -->
   <script src="modules/init-data-protection.js?v=0.0.37" defer></script>
@@ -156,7 +156,7 @@
   <!-- 事件绑定和功能（依赖 state, db） -->
   <script src="modules/init-event-bindingsA.js?v=0.0.103-mcp" defer></script>
   <script src="modules/init-event-bindingsB.js?v=0.0.103-mcp" defer></script>
-  <script src="modules/init-features.js?v=0.0.103-mcp" defer></script>
+  <script src="modules/init-features.js?v=0.0.117-mcp" defer></script>
   <!-- 自由桌面 / 经典桌面切换与桌面小组件 -->
   <script src="modules/ui/free-home-layout.js?v=0.0.2" defer></script>
   <script src="modules/ui/custom-widget-studio.js?v=0.0.1" defer></script>
@@ -4380,11 +4380,7 @@
         </svg>
     </button><button id="minimize-reading-btn" title="最小化" style="font-size: 20px; line-height: 1;"> <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
                   <line x1="5" y1="12" x2="19" y2="12"></line>
-                </svg> </button> <button id="open-reading-library-btn" title="打开书库" style="font-size: 22px; line-height: 1;"> <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="3" y1="12" x2="21" y2="12"></line>
-                  <line x1="3" y1="6" x2="21" y2="6"></line>
-                  <line x1="3" y1="18" x2="21" y2="18"></line>
-                </svg></button> <button id="close-reading-btn" title="关闭"> <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                </svg> </button> <button id="open-reading-library-btn" title="打开书库" style="font-size: 22px; line-height: 1;"> <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button> <button id="reading-toc-btn" title="章节" style="font-size: 17px; padding: 0 5px; display:inline-flex; align-items:center;"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22.5z"></path><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5a2.5 2.5 0 0 1 2.5 2.5z"></path></svg></button> <button id="reading-annotations-btn" title="摘录本" style="font-size: 17px; padding: 0 5px;">✎</button> <button id="reading-settings-btn" title="阅读设置" style="font-size: 17px; padding: 0 5px;">⚙</button> <button id="close-reading-btn" title="关闭"> <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <line x1="18" y1="6" x2="6" y2="18"></line>
                   <line x1="6" y1="6" x2="18" y2="18"></line>
                 </svg> </button></div>
@@ -4392,9 +4388,36 @@
           <div id="reading-content">
             <p>点击“导入”按钮，<br>从本地.txt文件或网络URL加载书籍内容。</p>
           </div>
+          <div id="reading-selection-toolbar">
+            <div class="reading-selection-row">
+              <button type="button" data-reading-style="highlight">高亮</button>
+              <button type="button" data-reading-style="underline">直线</button>
+              <button type="button" data-reading-style="wavy">波浪</button>
+              <input type="color" id="reading-annotation-color" value="#ffd54f" title="划线颜色">
+            </div>
+            <div class="reading-selection-row">
+              <button type="button" id="reading-selection-note">批注</button>
+              <button type="button" id="reading-selection-copy">复制</button>
+              <button type="button" id="reading-selection-ask">问角色</button>
+              <button type="button" id="reading-selection-bookmark">书签</button>
+              <button type="button" id="reading-selection-cancel" title="取消选取">取消</button>
+            </div>
+          </div>
+          <div id="reading-annotation-panel">
+            <div class="reading-annotation-panel-header">
+              <strong>批注与摘抄</strong>
+              <span>
+                <button type="button" id="reading-annotation-panel-close" title="关闭批注面板">×</button>
+              </span>
+            </div>
+            <div id="reading-annotation-list"></div>
+            <div class="reading-panel-tools">
+              <button type="button" id="reading-generate-reflection-btn">生成本章反思</button>
+            </div>
+          </div>
           <div class="reading-footer"> <button id="prev-page-btn">上一页</button> <span id="page-indicator">0 / 0</span> <button id="next-page-btn">下一页</button> </div>
         </div>
-      </div><input type="file" id="book-upload-input" accept=".txt, text/plain" hidden>
+      </div><input type="file" id="book-upload-input" accept=".txt,.epub,text/plain,application/epub+zip" hidden>
       <div class="header">
         <div class="default-controls"> <span class="back-btn" id="back-to-list-btn">‹</span>
           <div id="global-lyrics-bar"></div>
@@ -8713,13 +8736,32 @@
           <p style="font-size: 12px; color: #999; margin-top: 5px;">AI能记住的最近对话记录数量，超出部分将被删除</p>
         </div>
         <div class="form-group" style="margin-bottom: 20px;">
+          <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #333;">观影对话参数</label>
+          <div style="display:flex; gap:10px;">
+            <label style="flex:1; font-size:13px; color:#333;">Temperature（留空跟随主 API）
+              <input type="number" id="watch-together-dialogue-temperature" min="0" max="2" step="0.1" placeholder="跟随主 API" style="width:100%; margin-top:4px; padding:7px; border:1px solid #d0d0d0; border-radius:4px; box-sizing:border-box;">
+            </label>
+            <label style="flex:1; font-size:13px; color:#333;">Max tokens（留空跟随主 API）
+              <input type="number" id="watch-together-dialogue-max-tokens" min="50" max="4000" step="10" placeholder="跟随主 API" style="width:100%; margin-top:4px; padding:7px; border:1px solid #d0d0d0; border-radius:4px; box-sizing:border-box;">
+            </label>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom: 20px;">
           <label style="display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; color: #333; margin-bottom: 8px;">
-            <span>关闭时生成观影总结</span>
+            <span style="white-space:nowrap;">关闭时生成观影总结</span>
             <input type="checkbox" id="watch-together-summary-enabled" checked>
           </label>
           <textarea id="watch-together-summary-prompt" rows="5" placeholder="留空使用默认提示词" style="width: 100%; padding: 8px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 13px; line-height: 1.5; box-sizing: border-box; resize: vertical;"></textarea>
-          <button id="reset-watch-together-summary-prompt" type="button" style="width: 100%; margin-top: 8px; padding: 8px; background: #f0f0f0; border: 1px solid #d0d0d0; border-radius: 4px; cursor: pointer; font-size: 13px;">恢复默认提示词</button>
+          <button id="reset-watch-together-summary-prompt" type="button" class="settings-mini-btn" style="margin-top:8px;">恢复默认提示词</button>
           <p style="font-size: 12px; color: #999; margin-top: 5px; line-height: 1.5;">关闭观影时，用主 API 把片名、时间、播放进度和你们的讨论总结成一段第三人称文字，写入当前聊天记录。提示词可使用 {{user}}、{{char}}、{{title}} 占位符；留空使用默认提示词。</p>
+          <div style="display:flex; gap:10px; margin-top:10px;">
+            <label style="flex:1; font-size:13px; color:#333;">Temperature（留空跟随主 API）
+              <input type="number" id="watch-together-summary-temperature" min="0" max="2" step="0.1" placeholder="跟随主 API" style="width:100%; margin-top:4px; padding:7px; border:1px solid #d0d0d0; border-radius:4px; box-sizing:border-box;">
+            </label>
+            <label style="flex:1; font-size:13px; color:#333;">Max tokens（留空跟随主 API）
+              <input type="number" id="watch-together-summary-max-tokens" min="50" max="4000" step="10" placeholder="跟随主 API" style="width:100%; margin-top:4px; padding:7px; border:1px solid #d0d0d0; border-radius:4px; box-sizing:border-box;">
+            </label>
+          </div>
         </div>
         <div class="form-group" style="margin-bottom: 20px;">
           <label style="display: block; margin-bottom: 8px; font-size: 14px; color: #333;">对话框位置</label>
@@ -9292,10 +9334,120 @@
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg> </span> </div>
       </div>
-      <div id="reading-library-search-container"> <input type="search" id="reading-library-search-input" placeholder="搜索书名..."> </div>
+      <div id="reading-library-search-container"> <input type="search" id="reading-library-search-input" placeholder="搜索书名或内容..."> </div>
       <div class="modal-body" style="padding: 0; flex-grow: 1; overflow-y: auto;">
         <div id="reading-library-list"> </div>
       </div>
+    </div>
+  </div>
+  <div id="reading-import-modal" class="modal">
+    <div class="modal-content" style="height: auto; max-height: 72%;">
+      <div class="modal-header">
+        <span>导入书籍</span>
+        <span class="action-btn" id="close-reading-import-btn" title="关闭">×</span>
+      </div>
+      <div class="modal-body" style="display:flex; flex-direction:column; gap:12px; padding:18px;">
+        <button type="button" class="form-button" id="import-local-book-btn" style="margin:0;">从本地文件导入</button>
+        <div class="settings-desc" style="margin-top:-6px;">支持 TXT、EPUB。PDF / AZW3 请先转换为 TXT 或 EPUB。</div>
+        <button type="button" class="form-button" id="import-url-book-btn" style="margin:0;">从网络 URL 导入</button>
+        <div class="settings-desc" style="margin-top:-6px;">URL 需返回可直接读取的纯文本；网页正文需要先转换成文本链接。</div>
+      </div>
+    </div>
+  </div>
+  <div id="reading-toc-modal" class="modal">
+    <div class="modal-content" style="height:auto; max-height:78%;">
+      <div class="modal-header"><span class="reading-toc-tabs"><button type="button" id="reading-toc-tab-chapters" class="is-active">目录</button><button type="button" id="reading-toc-tab-bookmarks">书签</button></span><span class="action-btn" id="close-reading-toc-btn">×</span></div>
+      <div class="modal-body" style="padding:8px 0; overflow-y:auto;">
+        <div id="reading-toc-list"></div>
+      </div>
+    </div>
+  </div>
+  <div id="reading-settings-modal" class="modal">
+    <div class="modal-content" style="height:auto; max-height:78%;">
+      <div class="modal-header"><span>阅读设置</span><span class="action-btn" id="close-reading-settings-btn">×</span></div>
+      <div class="modal-body" style="padding:18px;">
+        <label style="display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:14px; color:var(--text-primary); margin-bottom:10px;">
+          <span>关闭阅读时生成读书总结</span>
+          <input type="checkbox" id="reading-summary-enabled" checked>
+        </label>
+        <div class="settings-desc" style="margin-bottom:6px;">总结提示词，支持 {{user}}、{{char}}、{{title}}；留空使用默认提示词。</div>
+        <textarea id="reading-summary-prompt" rows="6" placeholder="留空使用默认提示词" style="width:100%; box-sizing:border-box; padding:9px; border-radius:8px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary); resize:vertical;"></textarea><button type="button" id="reset-reading-summary-prompt" class="settings-mini-btn" style="margin-top:6px;">恢复默认提示词</button>
+        <div style="display:flex; gap:10px; margin-top:10px;">
+          <label style="flex:1; font-size:13px; color:var(--text-primary);">总结 Temperature（留空跟随主 API）
+            <input type="number" id="reading-summary-temperature" min="0" max="2" step="0.1" placeholder="跟随主 API" style="width:100%; margin-top:4px; padding:7px; border:1px solid var(--border-color); border-radius:6px; background:var(--secondary-bg); color:var(--text-primary); box-sizing:border-box;">
+          </label>
+          <label style="flex:1; font-size:13px; color:var(--text-primary);">总结 Max tokens（留空跟随主 API）
+            <input type="number" id="reading-summary-max-tokens" min="50" max="3000" step="10" placeholder="跟随主 API" style="width:100%; margin-top:4px; padding:7px; border:1px solid var(--border-color); border-radius:6px; background:var(--secondary-bg); color:var(--text-primary); box-sizing:border-box;">
+          </label>
+        </div>
+        <hr style="opacity:.18; margin:16px 0;">
+        <div class="settings-desc" style="margin-bottom:6px;">本书角色批注引导词。支持 {{user}}、{{char}}、{{title}}。</div>
+        <textarea id="reading-settings-guide-input" rows="7" style="width:100%; box-sizing:border-box; padding:9px; border-radius:8px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary); resize:vertical;"></textarea><button type="button" id="reset-reading-settings-guide" class="settings-mini-btn" style="margin-top:6px;">恢复默认提示词</button>
+        <div style="display:flex; gap:10px; margin-top:10px;">
+          <label style="flex:1; font-size:13px; color:var(--text-primary);">批注 Temperature（留空跟随主 API）
+            <input type="number" id="reading-settings-role-temperature" min="0" max="2" step="0.1" placeholder="跟随主 API" style="width:100%; margin-top:4px; padding:7px; border:1px solid var(--border-color); border-radius:6px; background:var(--secondary-bg); color:var(--text-primary); box-sizing:border-box;">
+          </label>
+          <label style="flex:1; font-size:13px; color:var(--text-primary);">批注 Max tokens（留空跟随主 API）
+            <input type="number" id="reading-settings-role-max-tokens" min="50" max="2000" step="10" placeholder="跟随主 API" style="width:100%; margin-top:4px; padding:7px; border:1px solid var(--border-color); border-radius:6px; background:var(--secondary-bg); color:var(--text-primary); box-sizing:border-box;">
+          </label>
+        </div>
+        <div class="settings-desc" style="margin:14px 0 6px;">章节切分规则（可选）</div>
+        <select id="reading-chapter-preset-select" style="width:100%; padding:9px; border-radius:8px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary); margin-bottom:6px;">
+          <option value="">自动识别（推荐，兼容多种标题）</option>
+          <option value="^第.{1,9}[章节節回卷篇]">第X章</option>
+          <option value="^chapter\s+\d+">Chapter N</option>
+          <option value="^【[^】]{1,30}】$">【标题】</option>
+        </select>
+        <input type="text" id="reading-chapter-regex" placeholder="自定义正则；留空使用自动识别" style="width:100%; box-sizing:border-box; padding:9px; border-radius:8px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary);">
+              </div>
+      <div class="modal-footer"><button class="cancel" id="cancel-reading-settings-btn">取消</button><button class="save" id="save-reading-settings-btn">保存</button></div>
+    </div>
+  </div>
+  <div id="reading-guide-modal" class="modal">
+    <div class="modal-content" style="height: auto; max-height: 72%;">
+      <div class="modal-header"><span>本书角色批注引导词</span><span class="action-btn" id="close-reading-guide-btn">×</span></div>
+      <div class="modal-body" style="padding:18px;">
+        <p class="settings-desc" style="margin-top:0;">只对本书生效，留空则使用默认阅读规则。支持 {{user}}、{{char}}、{{title}}。</p>
+        <textarea id="reading-guide-input" rows="8" style="width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary); resize:vertical;" placeholder="例如：多谈谈书中人物命运和情节发展。结合你自己的出身和价值观解读，不要只顺着用户说。"></textarea>
+        <div class="settings-desc" style="margin:14px 0 6px;">默认引导词（留空时使用）</div>
+        <div id="reading-default-guide" style="padding:10px; border-radius:8px; background:var(--secondary-bg); border:1px solid var(--border-color); font-size:12px; line-height:1.6; color:var(--text-secondary); white-space:pre-wrap;">你是 {{char}}，正在和 {{user}} 一起读《{{title}}》。
+
+只作为读者，不扮演书中角色，不续写剧情，不写动作、神态、场景。
+以你自己的认知、经历和价值观阅读本书，可以赞同、质疑或联想。
+不要为了讨好用户而解释，不要只顺着用户说。
+重点关注人物命运、情节发展和书中表达，落点留在书上。</div>
+        <div style="display:flex; gap:10px; margin-top:14px;">
+          <label style="flex:1; font-size:13px; color:var(--text-primary);">Temperature（留空跟随主 API）
+            <input type="number" id="reading-role-temperature" min="0" max="2" step="0.1" placeholder="跟随主 API" style="width:100%; margin-top:4px; padding:7px; border:1px solid var(--border-color); border-radius:6px; background:var(--secondary-bg); color:var(--text-primary); box-sizing:border-box;">
+          </label>
+          <label style="flex:1; font-size:13px; color:var(--text-primary);">Max tokens（留空跟随主 API）
+            <input type="number" id="reading-role-max-tokens" min="50" max="2000" step="10" placeholder="跟随主 API" style="width:100%; margin-top:4px; padding:7px; border:1px solid var(--border-color); border-radius:6px; background:var(--secondary-bg); color:var(--text-primary); box-sizing:border-box;">
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer"><button class="cancel" id="cancel-reading-guide-btn">取消</button><button class="save" id="save-reading-guide-btn">保存</button></div>
+    </div>
+  </div>
+  <div id="reading-annotation-edit-modal" class="modal">
+    <div class="modal-content" style="height:auto; max-height:76%;">
+      <div class="modal-header"><span>编辑批注</span><span class="action-btn" id="close-reading-annotation-edit-btn">×</span></div>
+      <div class="modal-body" style="padding:18px;">
+        <div class="reading-annotation-quote" id="reading-annotation-edit-quote" style="margin-bottom:10px; max-height:140px; overflow-y:auto;"></div>
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+          <select id="reading-annotation-edit-style" style="padding:7px; border-radius:6px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary);">
+            <option value="highlight">高亮</option>
+            <option value="underline">直线</option>
+            <option value="wavy">波浪</option>
+            <option value="note">批注（虚线下划线）</option>
+          </select>
+          <input type="color" id="reading-annotation-edit-color" value="#ffd54f" title="颜色">
+          <button type="button" id="reading-annotation-edit-shrink" class="settings-mini-btn">−1 字</button>
+          <span id="reading-annotation-edit-length" style="font-size:12px; color:var(--text-secondary);">0 字</span>
+          <button type="button" id="reading-annotation-edit-grow" class="settings-mini-btn">+1 字</button>
+        </div>
+        <textarea id="reading-annotation-edit-note" rows="4" placeholder="我的批注（可留空）" style="width:100%; box-sizing:border-box; padding:9px; border-radius:8px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary); resize:vertical;"></textarea>
+      </div>
+      <div class="modal-footer"><button class="cancel" id="cancel-reading-annotation-edit-btn">取消</button><button class="save" id="save-reading-annotation-edit-btn">保存</button></div>
     </div>
   </div>
   <div id="product-category-manager-modal" class="modal">
