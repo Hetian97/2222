@@ -123,7 +123,7 @@
   <script src="modules/cphone.js?v=0.0.37" defer></script>
   <script src="modules/myphone.js?v=0.0.36" defer></script>
   <script src="modules/werewolf.js?v=0.0.36" defer></script>
-  <script src="modules/reading-room.js?v=0.0.88-reader" defer></script>
+  <script src="modules/reading-room.js?v=0.0.89-reader" defer></script>
   <script src="modules/douban.js?v=0.0.36" defer></script>
   <script src="modules/living-space.js?v=0.0.14" defer></script>
   <!-- 第七层：其余功能 -->
@@ -9393,7 +9393,7 @@
         </div>
         <div class="settings-desc" style="margin:14px 0 6px;">章节切分规则（可选）</div>
         <select id="reading-chapter-preset-select" style="width:100%; padding:9px; border-radius:8px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary); margin-bottom:6px;">
-          <option value="">自动识别（推荐，兼容多种标题）</option>
+          <option value="">自动识别（推荐，兼容多种标题）</option><option value="__short_titles__">短标题（谨慎，兼容普通小标题）</option>
           <option value="^第.{1,9}[章节節回卷篇]">第X章</option>
           <option value="^chapter\s+\d+">Chapter N</option>
           <option value="^【[^】]{1,30}】$">【标题】</option>

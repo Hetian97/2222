@@ -125,6 +125,23 @@
     return false;
   }
 
+  function isReadingAnnotationLikeLine(text) {
+    return /^[\[【(（]\s*\d{1,4}\s*[\]】)）]/.test(text) ||
+      /^[①-⑳]/.test(text) ||
+      /^(注|注释|注解|校注|脚注)\s*[:：]/.test(text);
+  }
+
+  function isLooseShortReadingHeading(line, index, lines) {
+    if (isShortReadingHeading(line, index, lines)) return true;
+    const text = String(line || '').trim();
+    if (!text || text.length > 18) return false;
+    if (isReadingAnnotationLikeLine(text)) return false;
+    if (/[。！？；，、]/.test(text)) return false;
+    const prevBlank = index === 0 || !String(lines[index - 1] || '').trim();
+    const nextBlank = index === lines.length - 1 || !String(lines[index + 1] || '').trim();
+    return prevBlank && nextBlank;
+  }
+
   function findReadingTocChapters(lines) {
     const tocIndex = lines.findIndex((line, index) =>
       index < 160 && /^(目录|目\s*录|contents)$/i.test(String(line || '').trim())
@@ -161,8 +178,9 @@
     const lines = session.contentLines || [];
     const builtInPattern = /^\s*(?:第\s*[0-9零〇一二三四五六七八九十百千万两]{1,9}\s*[章节節回卷部篇集]|chapter\s+[0-9ivxlcdm]+|【[^】]{1,30}】|\[[^\]]{1,30}\]|[0-9]{1,3}[、.．]|={3,}.+={3,})/i;
     const customPattern = String(session.chapterSplitRegex || '').trim();
+    const shortTitleMode = customPattern === '__short_titles__';
     let headingPattern = builtInPattern;
-    if (customPattern) {
+    if (customPattern && !shortTitleMode) {
       try {
         headingPattern = new RegExp(customPattern, 'i');
       } catch (error) {
@@ -171,7 +189,7 @@
     }
 
     let starts = [];
-    if (customPattern) {
+    if (customPattern && !shortTitleMode) {
       lines.forEach((line, index) => {
         if (headingPattern.test(line)) starts.push({ startLine: index, title: String(line || '').trim() });
       });
@@ -181,7 +199,8 @@
         starts = tocChapters;
       } else {
         lines.forEach((line, index) => {
-          if (headingPattern.test(line) || isShortReadingHeading(line, index, lines)) {
+          if (isReadingAnnotationLikeLine(String(line || '').trim())) return;
+          if (headingPattern.test(line) || (shortTitleMode ? isLooseShortReadingHeading(line, index, lines) : isShortReadingHeading(line, index, lines))) {
             starts.push({ startLine: index, title: String(line || '').trim() });
           }
         });
@@ -1151,10 +1170,11 @@
     if (roleTemperature) roleTemperature.value = book?.annotationTemperature ?? '';
     const roleMaxTokens = document.getElementById('reading-settings-role-max-tokens');
     if (roleMaxTokens) roleMaxTokens.value = book?.annotationMaxTokens ?? '';
+    const savedChapterMode = book?.chapterSplitRegex || '';
     const chapterRegex = document.getElementById('reading-chapter-regex');
-    if (chapterRegex) chapterRegex.value = book?.chapterSplitRegex || '';
+    if (chapterRegex) chapterRegex.value = savedChapterMode === '__short_titles__' ? '' : savedChapterMode;
     const chapterPreset = document.getElementById('reading-chapter-preset-select');
-    if (chapterPreset) chapterPreset.value = book?.chapterSplitRegex || '';
+    if (chapterPreset) chapterPreset.value = savedChapterMode;
     document.getElementById('reading-settings-modal')?.classList.add('visible');
   }
 
@@ -1168,8 +1188,11 @@
       const number = Number(raw);
       return Number.isFinite(number) ? number : null;
     };
-    const chapterRegex = String(document.getElementById('reading-chapter-regex')?.value || '').trim();
-    if (chapterRegex) {
+    const chapterPresetValue = String(document.getElementById('reading-chapter-preset-select')?.value || '').trim();
+    const chapterRegex = chapterPresetValue === '__short_titles__'
+      ? '__short_titles__'
+      : String(document.getElementById('reading-chapter-regex')?.value || '').trim();
+    if (chapterRegex && chapterRegex !== '__short_titles__') {
       try {
         new RegExp(chapterRegex, 'i');
       } catch (error) {
@@ -1286,7 +1309,7 @@
     });
     document.getElementById('reading-chapter-preset-select')?.addEventListener('change', event => {
       const input = document.getElementById('reading-chapter-regex');
-      if (input) input.value = event.target.value || '';
+      if (input) input.value = event.target.value === '__short_titles__' ? '' : (event.target.value || '');
     });
     document.getElementById('close-reading-guide-btn')?.addEventListener('click', () => {
       document.getElementById('reading-guide-modal')?.classList.remove('visible');
