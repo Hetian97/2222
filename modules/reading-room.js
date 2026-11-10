@@ -207,6 +207,17 @@
   function getReadingChapters(session) {
     const manualChapters = buildReadingChaptersFromStartLines(session, session.manualChapterStarts || []);
     if (manualChapters) return manualChapters;
+    const epubHeadings = Array.isArray(session.epubHeadings) ? session.epubHeadings : [];
+    if (epubHeadings.length) {
+      const startLines = epubHeadings.map(heading => getReadingLineIndexForOffset(session, Number(heading.offset) || 0));
+      const chapters = buildReadingChaptersFromStartLines(session, startLines);
+      if (chapters) {
+        chapters.forEach((chapter, index) => {
+          if (epubHeadings[index]?.title) chapter.title = epubHeadings[index].title;
+        });
+        return chapters;
+      }
+    }
     const lines = session.contentLines || [];
     const builtInPattern = /^\s*(?:第\s*[0-9零〇一二三四五六七八九十百千万两]{1,9}\s*[章节節回卷部篇集]|chapter\s+[0-9ivxlcdm]+|【[^】]{1,30}】|\[[^\]]{1,30}\]|[0-9]{1,3}(?:、|[.．](?![0-9]))|={3,}.+={3,})/i;
     const customPattern = String(session.chapterSplitRegex || '').trim();
@@ -1546,6 +1557,32 @@
       .trim();
   }
 
+  function htmlToPlainTextWithHeadings(html) {
+    const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+    const text = htmlToPlainText(html);
+    const headings = [];
+    let cursor = 0;
+    doc.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(element => {
+      const title = String(element.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!title) return;
+      const index = text.indexOf(title, cursor);
+      if (index < 0) return;
+      headings.push({ title, offset: index });
+      cursor = index + title.length;
+    });
+    return { text, headings };
+  }
+
+  function getReadingLineIndexForOffset(session, offset) {
+    let cursor = 0;
+    for (let i = 0; i < session.contentLines.length; i++) {
+      const next = cursor + String(session.contentLines[i] || '').length + 1;
+      if (offset < next) return i;
+      cursor = next;
+    }
+    return Math.max(0, session.contentLines.length - 1);
+  }
+
   function resolveZipPath(basePath, href) {
     const baseParts = String(basePath || '').split('/');
     baseParts.pop();
@@ -1591,22 +1628,30 @@
       .filter(Boolean);
 
     const ordered = spine.length ? spine : Object.keys(manifest);
-    const parts = [];
+    let text = '';
+    const headings = [];
     for (const id of ordered) {
       const href = manifest[id];
       if (!href) continue;
       const path = resolveZipPath(opfPath, href);
       const file = zip.file(path) || zip.file(decodeURIComponent(path));
       if (!file) continue;
-      const text = htmlToPlainText(await file.async('string'));
-      if (text) parts.push(text);
+      const extracted = htmlToPlainTextWithHeadings(await file.async('string'));
+      if (!extracted.text) continue;
+      if (text) text += '\n\n';
+      const baseOffset = text.length;
+      text += extracted.text;
+      extracted.headings.forEach(heading => {
+        headings.push({ title: heading.title, offset: baseOffset + heading.offset });
+      });
     }
 
-    const text = parts.join('\n\n').trim();
+    text = text.trim();
     if (!text) throw new Error('EPUB 中没有可提取的文本内容。');
     return {
       text,
-      title: cleanImportedBookTitle(titleEl?.textContent || fileName)
+      title: cleanImportedBookTitle(titleEl?.textContent || fileName),
+      headings
     };
   }
 
@@ -1793,6 +1838,7 @@
         title: title,
         content: textContent,
         sourceType: isEpub ? 'epub' : 'txt',
+        epubHeadings: epub ? epub.headings : [],
         lastOpened: Date.now()
       });
 
@@ -1977,6 +2023,7 @@
     session.chapterSplitRegex = book.chapterSplitRegex || '';
     session.bookmarks = Array.isArray(book.bookmarks) ? book.bookmarks.slice() : [];
     session.manualChapterStarts = Array.isArray(book.manualChapterStarts) ? book.manualChapterStarts.slice() : [];
+    session.epubHeadings = Array.isArray(book.epubHeadings) ? book.epubHeadings.slice() : [];
     session.totalPages = Math.max(1, getReadingChapters(session).length);
 
     // 如果总页数为0，至少设为1
