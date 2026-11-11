@@ -124,6 +124,7 @@
   <script src="modules/myphone.js?v=0.0.36" defer></script>
   <script src="modules/werewolf.js?v=0.0.36" defer></script>
   <script src="modules/reading-room.js?v=0.0.93-reader" defer></script>
+  <script src='modules/weread-app.js?v=0.0.1-weread' defer></script>
   <script src="modules/douban.js?v=0.0.36" defer></script>
   <script src="modules/living-space.js?v=0.0.14" defer></script>
   <!-- 第七层：其余功能 -->
@@ -569,6 +570,10 @@
                     <img id="icon-img-mcp-service" src="https://i.postimg.cc/MTC3Tkw8/IMG-6436.jpg" alt="MCP服务">
                   </div>
                   <span class="label">MCP服务</span>
+                </div>
+                <div class="desktop-app-icon" onclick="openWereadApp()">
+                  <div class="icon-bg-desktop"><img id="icon-img-weread" src="https://rescdn.qqmail.com/node/wr/wrpage/style/images/independent/appleTouchIcon/apple-touch-icon-144x144.png" alt="微信读书"></div>
+                  <span class="label">微信读书</span>
                 </div>
                 <div class="desktop-app-icon" onclick="showScreen('thought-chain-screen')">
                   <div class="icon-bg-desktop"><img id="icon-img-thought-chain" src="https://i.postimg.cc/MTC3Tkw8/IMG-6436.jpg" alt="思维链"></div>
@@ -2306,6 +2311,16 @@
       </div>
     </div>
     <!-- 思维链/预设配置屏幕 -->
+    <div id="weread-screen" class="screen">
+      <div class="header">
+        <span class="back-btn" onclick="showScreen('home-screen')">‹</span>
+        <span>微信读书</span>
+        <span class="save-btn" id="weread-settings-btn">设置</span>
+      </div>
+      <div class="settings-container" style="padding-bottom:30px;">
+        <div id="weread-content" style="padding:0 15px 20px;"></div>
+      </div>
+    </div>
     <div id="thought-chain-screen" class="screen ios-settings-screen">
       <div class="header">
         <span class="back-btn" id="thought-chain-back-btn">‹</span>
@@ -9352,6 +9367,17 @@
         <button type="button" class="form-button" id="import-url-book-btn" style="margin:0;">从网络 URL 导入</button>
         <div class="settings-desc" style="margin-top:-6px;">URL 需返回可直接读取的纯文本；网页正文需要先转换成文本链接。</div>
       </div>
+    </div>
+  </div>
+  <div id="weread-settings-modal" class="modal">
+    <div class="modal-content" style="height:auto; max-height:70%;">
+      <div class="modal-header"><span>微信读书同步设置</span><span class="action-btn" id="close-weread-settings-btn">×</span></div>
+      <div class="modal-body" style="padding:18px;">
+        <p class="settings-desc" style="margin-top:0;">API Key 保存在 Cloudflare Worker 的环境变量中，这里只填写 Worker 地址。</p>
+        <div class="form-group"><label>Worker 地址</label><input type="url" id="weread-proxy-url" placeholder="https://xxxx.workers.dev/api/weread" style="width:100%; box-sizing:border-box; padding:9px; border-radius:8px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary);"></div>
+        <div class="form-group" style="margin-top:12px;"><label>访问口令（可选）</label><input type="password" id="weread-app-token" placeholder="与 Worker 的 APP_TOKEN 一致" style="width:100%; box-sizing:border-box; padding:9px; border-radius:8px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary);"></div>
+      </div>
+      <div class="modal-footer"><button class="cancel" id="cancel-weread-settings-btn">取消</button><button class="save" id="save-weread-settings-btn">保存</button></div>
     </div>
   </div>
   <div id="reading-toc-modal" class="modal">

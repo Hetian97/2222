@@ -1,0 +1,8 @@
+name = "ephone-weread-proxy"
+main = "weread-proxy.js"
+compatibility_date = "2026-11-01"
+
+# 可选：限制允许来源，例如 https://yourname.github.io
+# [vars]
+# ALLOWED_ORIGIN = "https://yourname.github.io"
+# WEREAD_SKILL_VERSION = "1.0.5"

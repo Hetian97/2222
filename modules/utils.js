@@ -901,6 +901,7 @@ const DEFAULT_APP_ICONS = {
     'auction': 'https://i.postimg.cc/Hs7BLh76/alipay.png',
     'green-river': 'https://i.postimg.cc/0j55Pj1L/green-river-icon.png',
     'mail': 'https://i.postimg.cc/PfR7f37x/mail.png',
+    'weread': 'https://rescdn.qqmail.com/node/wr/wrpage/style/images/independent/appleTouchIcon/apple-touch-icon-144x144.png',
     'period-tracker': 'https://i.postimg.cc/RVGt0yMN/calendar-pink.png',
     'focus-timer': 'https://i.postimg.cc/Kz8d9YJy/tomato-timer.png',
 
