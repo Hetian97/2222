@@ -166,6 +166,11 @@ db.version(67).stores({
   readingAnnotations: '++id, bookId, chatId, createdAt',
   readingExcerpts: null
 });
+
+// 微信读书划线角色讨论（独立于聊天和一起读书）
+db.version(68).stores({
+  wereadDiscussions: '++id, bookId, bookmarkId, chatId, updatedAt'
+});
 window.db = db;
 
 // Every chat save stamps newly-created messages with the time zone in which

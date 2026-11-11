@@ -438,6 +438,7 @@
         readingLibrary,
         readingAnnotations,
         readingChapterReflections,
+        wereadDiscussions,
         quickReplies,
         quickReplyCategories,
         npcGroups,
@@ -498,6 +499,7 @@
         db.readingLibrary.toArray(),
         db.readingAnnotations.toArray(),
         db.readingChapterReflections.toArray(),
+        db.wereadDiscussions.toArray(),
         db.quickReplies.toArray(),
         db.quickReplyCategories.toArray(),
         db.npcGroups.toArray(),
@@ -570,6 +572,7 @@
         readingLibrary,
         readingAnnotations,
         readingChapterReflections,
+        wereadDiscussions,
         quickReplies,
         quickReplyCategories,
         npcGroups,
@@ -707,6 +710,7 @@
         shoppingCategories: '商品分类',
         customAvatarFrames: '自定义头像框',
         readingLibrary: '阅读库',
+        wereadDiscussions: '微信读书讨论',
         quickReplies: '快捷回复',
         quickReplyCategories: '快捷回复分类',
         npcGroups: 'NPC分组',
@@ -1126,6 +1130,7 @@
       'doubanPosts': '豆瓣动态',
       'stickerVisionCache': '表情缓存',
       'readingLibrary': '阅读库',
+      'wereadDiscussions': '微信读书讨论',
       'quickReplies': '快捷回复',
       'quickReplyCategories': '快捷回复分类',
       'naiPresets': 'NAI预设',
@@ -1295,6 +1300,7 @@
       'doubanPosts': '豆瓣动态',
       'stickerVisionCache': '表情缓存',
       'readingLibrary': '阅读库',
+      'wereadDiscussions': '微信读书讨论',
       'quickReplies': '快捷回复',
       'quickReplyCategories': '快捷回复分类',
       'naiPresets': 'NAI预设',
@@ -1579,6 +1585,7 @@
         if (Array.isArray(backupData.readingLibrary)) await db.readingLibrary.bulkPut(backupData.readingLibrary);
         if (Array.isArray(backupData.readingAnnotations)) await db.readingAnnotations.bulkPut(backupData.readingAnnotations);
         if (Array.isArray(backupData.readingChapterReflections)) await db.readingChapterReflections.bulkPut(backupData.readingChapterReflections);
+        if (Array.isArray(backupData.wereadDiscussions)) await db.wereadDiscussions.bulkPut(backupData.wereadDiscussions);
         if (Array.isArray(backupData.quickReplies)) await db.quickReplies.bulkPut(backupData.quickReplies);
         if (Array.isArray(backupData.quickReplyCategories)) await db.quickReplyCategories.bulkPut(backupData.quickReplyCategories);
         if (Array.isArray(backupData.npcGroups)) await db.npcGroups.bulkPut(backupData.npcGroups);
@@ -2083,7 +2090,7 @@
       '世界书与预设': ['worldBooks', 'worldBookCategories', 'presets', 'presetCategories', 'personaPresets'],
       'API与配置': ['apiConfig', 'apiPresets', 'soundPresets', 'globalSettings', 'renderingRules', 'naiPresets'],
       '贴纸与表情': ['userStickers', 'stickerCategories', 'stickerVisionCache', 'customAvatarFrames'],
-      '音乐与媒体': ['musicLibrary', 'readingLibrary', 'watchTogetherPlaylist'],
+      '音乐与媒体': ['musicLibrary', 'readingLibrary', 'wereadDiscussions', 'watchTogetherPlaylist'],
       '记忆与记录': ['memories', 'callRecords', 'favorites'],
       '商城与物品': ['shoppingProducts', 'shoppingCategories', 'inventory', 'auctions'],
       '金融系统': ['userWallet', 'userTransactions', 'funds'],
