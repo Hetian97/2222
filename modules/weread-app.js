@@ -5,7 +5,8 @@
 
   const CONFIG_KEY = 'wereadSyncConfig';
   const SKILL_VERSION = '1.0.5';
-  let state = { shelf: null, book: null, notes: null, loading: false, search: '', sort: 'recent' };
+  const SHELF_PAGE_SIZE = 50;
+  let state = { shelf: null, book: null, notes: null, loading: false, search: '', sort: 'recent', page: 1 };
 
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -155,32 +156,53 @@
     const list = document.getElementById('weread-shelf-list');
     if (!list) return;
     const { books, total } = getVisibleShelfBooks();
+    const totalPages = Math.max(1, Math.ceil(books.length / SHELF_PAGE_SIZE));
+    state.page = Math.max(1, Math.min(totalPages, Number(state.page) || 1));
+    const start = (state.page - 1) * SHELF_PAGE_SIZE;
+    const pageBooks = books.slice(start, start + SHELF_PAGE_SIZE);
     const countEl = document.getElementById('weread-shelf-count');
-    if (countEl) countEl.textContent = state.search ? `${books.length} / ${total} 个条目` : `${total} 个条目`;
+    if (countEl) {
+      countEl.textContent = books.length
+        ? `${start + 1}–${Math.min(books.length, start + SHELF_PAGE_SIZE)} / ${books.length} 个条目`
+        : '0 个条目';
+    }
     list.innerHTML = '';
     if (!books.length) {
       list.innerHTML = `<div style="padding:30px; text-align:center; color:var(--text-secondary);">${state.search ? '没有匹配的书籍。' : '书架为空。'}</div>`;
-      return;
+    } else {
+      pageBooks.forEach(book => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.style.cssText = 'display:flex; width:100%; gap:12px; align-items:center; padding:12px 0; border:none; border-bottom:1px solid var(--border-color,#eee); background:transparent; text-align:left; color:inherit;';
+        item.innerHTML = `
+          <div style="width:54px; height:76px; border-radius:5px; overflow:hidden; background:#eee; flex-shrink:0;">
+            ${book.cover ? `<img src="${esc(book.cover)}" alt="" style="width:100%; height:100%; object-fit:cover;">` : ''}
+          </div>
+          <div style="flex:1; min-width:0;">
+            <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(book.title)}</div>
+            <div class="settings-desc" style="margin-top:3px;">${esc(book.author || book.category || '')}</div>
+            <div class="settings-desc" style="margin-top:3px;">${book.isAlbum ? '有声书' : '电子书'}${book.finishReading ? ' · 已读完' : ''}</div>
+          </div>
+          <span style="color:#bbb;">›</span>`;
+        item.addEventListener('click', () => openBook(book));
+        list.appendChild(item);
+      });
     }
-    books.forEach(book => {
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.style.cssText = 'display:flex; width:100%; gap:12px; align-items:center; padding:12px 0; border:none; border-bottom:1px solid var(--border-color,#eee); background:transparent; text-align:left; color:inherit;';
-      item.innerHTML = `
-        <div style="width:54px; height:76px; border-radius:5px; overflow:hidden; background:#eee; flex-shrink:0;">
-          ${book.cover ? `<img src="${esc(book.cover)}" alt="" style="width:100%; height:100%; object-fit:cover;">` : ''}
-        </div>
-        <div style="flex:1; min-width:0;">
-          <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(book.title)}</div>
-          <div class="settings-desc" style="margin-top:3px;">${esc(book.author || book.category || '')}</div>
-          <div class="settings-desc" style="margin-top:3px;">${book.isAlbum ? '有声书' : '电子书'}${book.finishReading ? ' · 已读完' : ''}</div>
-        </div>
-        <span style="color:#bbb;">›</span>`;
-      item.addEventListener('click', () => openBook(book));
-      list.appendChild(item);
-    });
+    const pagination = document.getElementById('weread-shelf-pagination');
+    if (pagination) {
+      pagination.innerHTML = totalPages > 1
+        ? `<button type="button" class="settings-mini-btn" id="weread-page-prev" ${state.page <= 1 ? 'disabled' : ''}>上一页</button><span style="font-size:12px; color:var(--text-secondary);">第 ${state.page} / ${totalPages} 页</span><button type="button" class="settings-mini-btn" id="weread-page-next" ${state.page >= totalPages ? 'disabled' : ''}>下一页</button>`
+        : '';
+      document.getElementById('weread-page-prev')?.addEventListener('click', () => {
+        state.page = Math.max(1, state.page - 1);
+        renderShelfBookList();
+      });
+      document.getElementById('weread-page-next')?.addEventListener('click', () => {
+        state.page = Math.min(totalPages, state.page + 1);
+        renderShelfBookList();
+      });
+    }
   }
-
   function renderShelf() {
     setContent(`
       <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 0 10px;">
@@ -194,14 +216,17 @@
           <option value="alpha" ${state.sort === 'alpha' ? 'selected' : ''}>书名首字母</option>
         </select>
       </div>
-      <div id="weread-shelf-list"></div>`);
+      <div id="weread-shelf-list"></div>
+      <div id="weread-shelf-pagination" style="display:flex; align-items:center; justify-content:center; gap:10px; padding:14px 0;"></div>`);
     document.getElementById('weread-refresh-shelf')?.addEventListener('click', loadShelf);
     document.getElementById('weread-shelf-search')?.addEventListener('input', event => {
       state.search = event.target.value;
+      state.page = 1;
       renderShelfBookList();
     });
     document.getElementById('weread-shelf-sort')?.addEventListener('change', event => {
       state.sort = event.target.value === 'alpha' ? 'alpha' : 'recent';
+      state.page = 1;
       renderShelfBookList();
     });
     renderShelfBookList();
