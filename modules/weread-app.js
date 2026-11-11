@@ -5,7 +5,7 @@
 
   const CONFIG_KEY = 'wereadSyncConfig';
   const SKILL_VERSION = '1.0.5';
-  let state = { shelf: null, book: null, notes: null, loading: false };
+  let state = { shelf: null, book: null, notes: null, loading: false, search: '', sort: 'recent' };
 
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -111,7 +111,8 @@
       deepLink: book.deepLink || '',
       isAlbum: false,
       finishReading: Number(book.finishReading) === 1,
-      updateTime: book.readUpdateTime || book.updateTime
+      updateTime: book.updateTime,
+      readUpdateTime: Number(book.readUpdateTime || book.updateTime) || 0
     })) : [];
     const albums = Array.isArray(data?.albums) ? data.albums.map(item => {
       const info = item.albumInfo || {};
@@ -125,25 +126,40 @@
         deepLink: info.deepLink || '',
         isAlbum: true,
         finishReading: Number(info.finish) === 1,
-        updateTime: info.updateTime
+        updateTime: info.updateTime,
+        readUpdateTime: Number(item.albumInfoExtra?.lectureReadUpdateTime || info.updateTime) || 0
       };
     }) : [];
     return [...books, ...albums];
   }
 
-  function renderShelf() {
+  function getVisibleShelfBooks() {
     const books = getBooks(state.shelf);
-    const count = books.length + (state.shelf?.mp ? 1 : 0);
-    setContent(`
-      <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 0 10px;">
-        <div><h2 style="margin:0;">书架</h2><div class="settings-desc">${count} 个条目</div></div>
-        <button type="button" class="settings-mini-btn" id="weread-refresh-shelf">刷新</button>
-      </div>
-      <div id="weread-shelf-list"></div>`);
-    document.getElementById('weread-refresh-shelf')?.addEventListener('click', loadShelf);
+    const query = String(state.search || '').trim().toLowerCase();
+    const filtered = query
+      ? books.filter(book =>
+        String(book.title || '').toLowerCase().includes(query) ||
+        String(book.author || '').toLowerCase().includes(query)
+      )
+      : books;
+    filtered.sort((a, b) => {
+      if (state.sort === 'alpha') {
+        return String(a.title || '').localeCompare(String(b.title || ''), 'zh-Hans-CN', { sensitivity: 'base' });
+      }
+      return (Number(b.readUpdateTime) || 0) - (Number(a.readUpdateTime) || 0);
+    });
+    return { books: filtered, total: books.length };
+  }
+
+  function renderShelfBookList() {
     const list = document.getElementById('weread-shelf-list');
+    if (!list) return;
+    const { books, total } = getVisibleShelfBooks();
+    const countEl = document.getElementById('weread-shelf-count');
+    if (countEl) countEl.textContent = state.search ? `${books.length} / ${total} 个条目` : `${total} 个条目`;
+    list.innerHTML = '';
     if (!books.length) {
-      list.innerHTML = '<div style="padding:30px; text-align:center; color:var(--text-secondary);">书架为空。</div>';
+      list.innerHTML = `<div style="padding:30px; text-align:center; color:var(--text-secondary);">${state.search ? '没有匹配的书籍。' : '书架为空。'}</div>`;
       return;
     }
     books.forEach(book => {
@@ -165,6 +181,31 @@
     });
   }
 
+  function renderShelf() {
+    setContent(`
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 0 10px;">
+        <div><h2 style="margin:0;">书架</h2><div class="settings-desc" id="weread-shelf-count"></div></div>
+        <button type="button" class="settings-mini-btn" id="weread-refresh-shelf">刷新</button>
+      </div>
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
+        <input type="search" id="weread-shelf-search" placeholder="搜索书名或作者…" value="${esc(state.search)}" style="flex:1; min-width:0; padding:8px 10px; border:1px solid var(--border-color); border-radius:7px; background:var(--secondary-bg); color:var(--text-primary);">
+        <select id="weread-shelf-sort" style="padding:8px; border:1px solid var(--border-color); border-radius:7px; background:var(--secondary-bg); color:var(--text-primary);">
+          <option value="recent" ${state.sort === 'recent' ? 'selected' : ''}>最近阅读</option>
+          <option value="alpha" ${state.sort === 'alpha' ? 'selected' : ''}>书名首字母</option>
+        </select>
+      </div>
+      <div id="weread-shelf-list"></div>`);
+    document.getElementById('weread-refresh-shelf')?.addEventListener('click', loadShelf);
+    document.getElementById('weread-shelf-search')?.addEventListener('input', event => {
+      state.search = event.target.value;
+      renderShelfBookList();
+    });
+    document.getElementById('weread-shelf-sort')?.addEventListener('change', event => {
+      state.sort = event.target.value === 'alpha' ? 'alpha' : 'recent';
+      renderShelfBookList();
+    });
+    renderShelfBookList();
+  }
   async function openBook(book) {
     state.book = book;
     state.notes = null;
