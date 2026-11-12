@@ -406,6 +406,58 @@
   // 导出函数
   // ============================================================
 
+  async function writeBackupJsonStream(backupData, write) {
+    await write('{');
+    const keys = Object.keys(backupData);
+    for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+      const key = keys[keyIndex];
+      const value = backupData[key];
+      await write(`${keyIndex ? ',' : ''}${JSON.stringify(key)}:`);
+      if (Array.isArray(value) && value.length > 1) {
+        await write('[');
+        for (let i = 0; i < value.length; i++) {
+          if (i) await write(',');
+          await write(JSON.stringify(value[i]));
+        }
+        await write(']');
+      } else {
+        await write(JSON.stringify(value));
+      }
+    }
+    await write('}');
+  }
+
+  async function saveBackupFile(backupData) {
+    const filename = `EPhone-Full-Backup-${new Date().toISOString().split('T')[0]}.json`;
+    if (typeof window.showSaveFilePicker === 'function') {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: filename,
+          types: [{ description: 'JSON 备份', accept: { 'application/json': ['.json'] } }]
+        });
+        const writable = await handle.createWritable();
+        await writeBackupJsonStream(backupData, chunk => writable.write(chunk));
+        await writable.close();
+        return true;
+      } catch (error) {
+        if (error?.name === 'AbortError') return false;
+        console.warn('文件保存对话框不可用，回退到 Blob 下载', error);
+      }
+    }
+    const chunks = [];
+    await writeBackupJsonStream(backupData, chunk => {
+      chunks.push(chunk);
+    });
+    const blob = new Blob(chunks, { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = Object.assign(document.createElement('a'), {
+      href: url,
+      download: filename
+    });
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    return true;
+  }
   async function exportBackup() {
     try {
       const backupData = {
@@ -608,18 +660,8 @@
         thoughtChainLocalStorage
       });
 
-      const blob = new Blob(
-        [JSON.stringify(backupData, null, 2)], {
-        type: 'application/json'
-      }
-      );
-      const url = URL.createObjectURL(blob);
-      const link = Object.assign(document.createElement('a'), {
-        href: url,
-        download: `EPhone-Full-Backup-${new Date().toISOString().split('T')[0]}.json`
-      });
-      link.click();
-      URL.revokeObjectURL(url);
+      const saved = await saveBackupFile(backupData);
+      if (!saved) return;
 
       await showCustomAlert('导出成功', '已成功导出所有数据！备份包含明文 API Key，请勿公开分享。');
 

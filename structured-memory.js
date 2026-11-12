@@ -5,6 +5,9 @@
 
 class StructuredMemoryManager {
   constructor() {
+    this._currentChat = null;
+    this._sectionLimits = {};
+    this.SECTION_PAGE_SIZE = 80;
     // 默认分类标签定义
     this.DEFAULT_CATEGORIES = {
       F: { name: '偏好/事实', color: '#007aff', icon: '📌', mergeMode: 'keyvalue' },
@@ -449,7 +452,9 @@ class StructuredMemoryManager {
 
   // ==================== UI 渲染 ====================
 
-  renderMemoryTable(chat, container) {
+  renderMemoryTable(chat, container, options = {}) {
+    this._currentChat = chat;
+    if (!options.keepLimits) this._sectionLimits = {};
     const mem = this.getStructuredMemory(chat);
     const stats = this.getStats(chat);
     const categories = this.getCategories(chat);
@@ -556,6 +561,8 @@ class StructuredMemoryManager {
   }
 
   _renderSection(container, categoryCode, catInfo, items, isCustom) {
+    const limit = this._sectionLimits?.[categoryCode] || this.SECTION_PAGE_SIZE;
+    const visibleItems = items.slice(0, limit);
     const section = document.createElement('div');
     section.className = 'sm-section';
     section.dataset.category = categoryCode;
@@ -585,7 +592,7 @@ class StructuredMemoryManager {
     } else if (items.length === 0 && !isCustom) {
       list.innerHTML = `<div class="sm-item-row sm-empty-hint" style="justify-content:center; color:var(--text-secondary,#999); font-size:12px;">暂无条目，点击 ➕ 添加</div>`;
     } else {
-      items.forEach((item, idx) => {
+      visibleItems.forEach((item, idx) => {
         const row = document.createElement('div');
         row.className = 'sm-item-row';
         row.dataset.category = categoryCode;
@@ -601,6 +608,18 @@ class StructuredMemoryManager {
         `;
         list.appendChild(row);
       });
+      if (items.length > limit) {
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.className = 'sm-item-btn';
+        more.style.cssText = 'margin:8px auto; display:block; padding:6px 12px;';
+        more.textContent = `显示更多（剩余 ${items.length - limit} 条）`;
+        more.addEventListener('click', () => {
+          this._sectionLimits[categoryCode] = limit + this.SECTION_PAGE_SIZE;
+          this.renderMemoryTable(this._currentChat, container, { keepLimits: true });
+        });
+        list.appendChild(more);
+      }
     }
 
     section.appendChild(list);
