@@ -7,6 +7,7 @@
   const SKILL_VERSION = '1.0.5';
   const SHELF_PAGE_SIZE = 50;
   const NOTES_PAGE_SIZE = 50;
+  const DISCUSSION_AI_HISTORY_LIMIT = 20;
   const DEFAULT_DISCUSSION_PROMPT = `你是{{char}}，正在和{{user}}讨论《{{title}}》中的一段划线。
 
 你只是读者，不是书中角色。不要续写书中剧情，不要扮演书中人物。请以你自己的性格、经历和价值观来讨论这段文字。
@@ -874,7 +875,7 @@
       const answer = await callDiscussionAi(
         systemPrompt,
         userText || '请说说你对这段划线的看法。',
-        prior.map(message => ({ role: message.role, content: message.content })),
+        prior.slice(-DISCUSSION_AI_HISTORY_LIMIT).map(message => ({ role: message.role, content: message.content })),
         temperature,
         maxTokens
       );

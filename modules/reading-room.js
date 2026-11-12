@@ -1557,14 +1557,29 @@
       .trim();
   }
 
+  function isEpubHeadingElement(element) {
+    const tag = String(element?.tagName || '').toLowerCase();
+    if (/^h[1-6]$/.test(tag)) return true;
+    const type = String(element?.getAttribute?.('epub:type') || '').toLowerCase();
+    if (/(?:^|\s)(?:chapter|part)(?:\s|$)/.test(type)) return true;
+    const role = String(element?.getAttribute?.('role') || '').toLowerCase();
+    if (role === 'doc-chapter') return true;
+    const className = String(element?.getAttribute?.('class') || '');
+    return /(?:chapter|section|part)[-_ ]?(?:title|heading|name)(?:$|[\s_-])/i.test(className);
+  }
+
+  function collectEpubHeadingElements(doc) {
+    const candidates = Array.from(doc.body?.querySelectorAll('*') || []).filter(isEpubHeadingElement);
+    return candidates.filter(element => !candidates.some(other => other !== element && element.contains(other)));
+  }
   function htmlToPlainTextWithHeadings(html) {
     const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
     const text = htmlToPlainText(html);
     const headings = [];
     let cursor = 0;
-    doc.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(element => {
+    collectEpubHeadingElements(doc).forEach(element => {
       const title = String(element.textContent || '').replace(/\s+/g, ' ').trim();
-      if (!title) return;
+      if (!title || title.length > 120) return;
       const index = text.indexOf(title, cursor);
       if (index < 0) return;
       headings.push({ title, offset: index });
