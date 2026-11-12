@@ -353,13 +353,46 @@
     }
   }
 
+  async function fetchAllMyReviews(bookId) {
+    const all = [];
+    const seen = new Set();
+    let synckey = 0;
+    let hasMore = true;
+    let page = 0;
+    let lastData = {};
+    while (hasMore && page < 50) {
+      page += 1;
+      const data = await gateway('/review/list/mine', {
+        bookid: bookId,
+        count: 100,
+        ...(synckey ? { synckey } : {})
+      });
+      lastData = data;
+      const pageReviews = Array.isArray(data?.reviews) ? data.reviews : [];
+      pageReviews.forEach(item => {
+        const review = item.review || item;
+        const key = review.reviewId
+          ? `id:${review.reviewId}`
+          : `content:${review.content || ''}|${review.createTime || ''}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        all.push(item);
+      });
+      hasMore = Number(data?.hasMore) === 1;
+      const nextSynckey = Number(data?.synckey) || 0;
+      if (!hasMore || !nextSynckey || nextSynckey === synckey || !pageReviews.length) break;
+      synckey = nextSynckey;
+    }
+    return { ...lastData, reviews: all };
+  }
+
   async function loadNotes(book) {
     const target = document.getElementById('weread-note-list');
     if (target) target.innerHTML = '<div style="padding:12px 0; color:var(--text-secondary);">正在读取笔记…</div>';
     try {
       const [highlights, reviews] = await Promise.all([
         gateway('/book/bookmarklist', { bookId: book.bookId }).catch(() => ({})),
-        gateway('/review/list/mine', { bookid: book.bookId }).catch(() => ({}))
+        fetchAllMyReviews(book.bookId).catch(() => ({}))
       ]);
       const chapterMap = {};
       (Array.isArray(highlights?.chapters) ? highlights.chapters : []).forEach(chapter => {
