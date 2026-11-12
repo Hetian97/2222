@@ -13,6 +13,7 @@
 
 书名：{{title}}
 作者：{{author}}
+书籍简介：{{bookIntro}}
 章节：{{chapter}}
 划线：{{quote}}
 我的批注：{{note}}
@@ -20,8 +21,10 @@
 最近聊天记录：
 {{recentChat}}
 
+如果划线或想法不足以判断上下文，不要编造书中情节，可以先问用户这段出自哪个场景。
+
 请针对这段划线，写 100–200 字左右的看法。不要写成分析报告。`;
-  let state = { shelf: null, book: null, notes: null, loading: false, search: '', sort: 'recent', page: 1, notesType: 'all', notesStatus: 'all', notesSort: 'time-desc', notesSearch: '', notesPage: 1 };
+  let state = { shelf: null, book: null, notes: null, loading: false, search: '', sort: 'recent', page: 1, notesType: 'all', notesStatus: 'all', notesSort: 'time-desc', notesSearch: '', notesPage: 1, notesRole: 'all' };
 
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -477,6 +480,7 @@
     const query = String(state.notesSearch || '').trim().toLowerCase();
     let visible = records.filter(record => {
       if (state.notesType !== 'all' && record.type !== state.notesType) return false;
+      if (state.notesRole !== 'all' && getDiscussionRoleCount(record.key, state.notesRole) <= 0) return false;
       if (state.notesStatus === 'discussed' && record.discussionCount <= 0) return false;
       if (state.notesStatus === 'undiscussed' && record.discussionCount > 0) return false;
       if (!query) return true;
@@ -494,6 +498,24 @@
       return b.createdAt - a.createdAt;
     });
     return visible;
+  }
+
+  function populateNoteRoleOptions() {
+    const select = document.getElementById('weread-note-role');
+    if (!select) return;
+    const rows = Array.isArray(state.notes?.discussionRows) ? state.notes.discussionRows : [];
+    const roleIds = [...new Set(rows
+      .filter(row => Array.isArray(row.messages) && row.messages.length)
+      .map(row => String(row.chatId || ''))
+      .filter(Boolean))];
+    const current = roleIds.includes(String(state.notesRole)) ? String(state.notesRole) : 'all';
+    state.notesRole = current;
+    select.innerHTML = '<option value="all">全部角色</option>' + roleIds.map(chatId => {
+      const chat = window.state?.chats?.[chatId];
+      const name = chat?.name || chat?.originalName || '角色';
+      return `<option value="${esc(chatId)}">${esc(name)}</option>`;
+    }).join('');
+    select.value = state.notesRole;
   }
 
   function updateNoteFilterControls(records) {
@@ -575,7 +597,7 @@
         <button type="button" class="settings-mini-btn" data-note-type="highlight">划线</button>
         <button type="button" class="settings-mini-btn" data-note-type="review">想法/点评</button>
       </div>
-      <div style="display:flex; gap:8px; margin-bottom:8px;">
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
         <select id="weread-note-status" style="padding:7px; border:1px solid var(--border-color); border-radius:7px; background:var(--secondary-bg); color:var(--text-primary);">
           <option value="all">全部讨论状态</option>
           <option value="undiscussed">未聊</option>
@@ -586,6 +608,9 @@
           <option value="time-asc">时间正序</option>
           <option value="chapter">章节顺序</option>
         </select>
+        <select id="weread-note-role" style="padding:7px; border:1px solid var(--border-color); border-radius:7px; background:var(--secondary-bg); color:var(--text-primary);">
+          <option value="all">全部角色</option>
+        </select>
       </div>
       <input type="search" id="weread-note-search" placeholder="搜索原文、想法或章节…" value="${esc(state.notesSearch)}" style="width:100%; box-sizing:border-box; padding:7px 9px; margin-bottom:10px; border:1px solid var(--border-color); border-radius:7px; background:var(--secondary-bg); color:var(--text-primary);">
       <div id="weread-note-cards"></div>
@@ -593,6 +618,7 @@
     const records = buildNoteRecords();
     state.notes.records = records;
     updateNoteFilterControls(records);
+    populateNoteRoleOptions();
     document.querySelectorAll('#weread-note-list [data-note-type]').forEach(button => {
       button.addEventListener('click', () => {
         state.notesType = button.dataset.noteType || 'all';
@@ -608,6 +634,11 @@
     });
     document.getElementById('weread-note-sort')?.addEventListener('change', event => {
       state.notesSort = event.target.value;
+      state.notesPage = 1;
+      renderNoteCards(records);
+    });
+    document.getElementById('weread-note-role')?.addEventListener('change', event => {
+      state.notesRole = event.target.value;
       state.notesPage = 1;
       renderNoteCards(records);
     });
@@ -738,18 +769,28 @@
     const config = getConfig();
     const chapterTitle = getDiscussionChapterTitle(highlight) || '未知章节';
     const userName = chat.settings?.myNickname || window.state?.qzoneSettings?.nickname || '用户';
+    const rawIntro = String(state.bookDetail?.intro || '').replace(/\s+/g, ' ').trim();
+    const bookIntro = rawIntro ? `${rawIntro.slice(0, 500)}${rawIntro.length > 500 ? '…' : ''}` : '';
     const values = {
       user: userName,
       char: chat.name || chat.originalName || '角色',
       title: state.bookDetail?.title || state.book?.title || '未知书名',
       author: state.bookDetail?.author || state.book?.author || '未知作者',
+      bookIntro: bookIntro || '（暂无简介）',
       chapter: chapterTitle,
       quote: highlight.markText || '',
       note: highlight.note || '',
       recentChat: getRecentChatContext(chat, Number(config.historyCount) || 0)
     };
     const template = config.prompt || DEFAULT_DISCUSSION_PROMPT;
-    return template.replace(/\{\{(\w+)\}\}/g, (_match, key) => values[key] ?? '');
+    let rendered = template.replace(/\{\{(\w+)\}\}/g, (_match, key) => values[key] ?? '');
+    if (!template.includes('{{bookIntro}}') && bookIntro) {
+      rendered += `\n\n书籍简介：\n${bookIntro}`;
+    }
+    if (!rendered.includes('不要编造')) {
+      rendered += '\n\n如果上下文不足，不要编造书中情节，可以先询问用户这段出自哪里。';
+    }
+    return rendered;
   }
 
   async function saveDiscussion() {
@@ -782,6 +823,26 @@
   function refreshNotesAfterDiscussion() {
     if (!state.notes?.highlights) return;
     renderNotes(state.notes.highlights, state.notes.reviews, state.notes.chapterMap || {});
+  }
+
+  async function clearCurrentDiscussion() {
+    const discussion = state.discussion;
+    if (!discussion) return;
+    const message = '清空后这条划线/想法与当前角色的讨论记录会被删除，无法恢复。';
+    const confirmed = typeof window.showCustomConfirm === 'function'
+      ? await window.showCustomConfirm('清空当前讨论', message)
+      : window.confirm(message);
+    if (!confirmed) return;
+    try {
+      if (discussion.recordId) await db.wereadDiscussions.delete(discussion.recordId);
+      if (state.notes?.discussionRows) {
+        state.notes.discussionRows = state.notes.discussionRows.filter(row => row.id !== discussion.recordId);
+      }
+    } catch (_) {}
+    discussion.recordId = null;
+    discussion.messages = [];
+    renderDiscussionMessages();
+    window.showToast?.('当前讨论已清空');
   }
 
   async function askDiscussion(question = '') {
@@ -885,6 +946,7 @@
       document.getElementById('weread-discussion-modal')?.classList.remove('visible');
       refreshNotesAfterDiscussion();
     });
+    document.getElementById('weread-discussion-clear')?.addEventListener('click', clearCurrentDiscussion);
     document.getElementById('weread-discussion-say')?.addEventListener('click', () => askDiscussion(''));
     document.getElementById('weread-discussion-send')?.addEventListener('click', () => {
       const input = document.getElementById('weread-discussion-input');

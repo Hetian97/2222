@@ -9385,7 +9385,7 @@
         <hr style="opacity:.18; margin:16px 0;">
         <div class="form-group">
           <label style="display:block; margin-bottom:4px; font-size:13px; color:var(--text-primary);">划线讨论提示词</label>
-          <div class="settings-desc" style="margin-bottom:6px;">支持 {{user}}、{{char}}、{{title}}、{{author}}、{{chapter}}、{{quote}}、{{note}}、{{recentChat}}。</div>
+          <div class="settings-desc" style="margin-bottom:6px;">支持 {{user}}、{{char}}、{{title}}、{{author}}、{{bookIntro}}、{{chapter}}、{{quote}}、{{note}}、{{recentChat}}。</div>
           <textarea id="weread-discussion-prompt" rows="7" style="width:100%; box-sizing:border-box; padding:9px; border-radius:8px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary); resize:vertical;"></textarea>
           <button type="button" class="settings-mini-btn" id="reset-weread-discussion-prompt" style="margin-top:6px;">恢复默认提示词</button>
         </div>
@@ -9414,7 +9414,7 @@
   </div>
   <div id="weread-discussion-modal" class="modal">
     <div class="modal-content" style="height:78%;">
-      <div class="modal-header"><span id="weread-discussion-title">划线讨论</span><span class="action-btn" id="close-weread-discussion-btn">×</span></div>
+      <div class="modal-header"><span id="weread-discussion-title">划线讨论</span><span style="display:flex; align-items:center; gap:8px;"><button type="button" class="settings-mini-btn" id="weread-discussion-clear">清空</button><span class="action-btn" id="close-weread-discussion-btn">×</span></span></div>
       <div class="modal-body" style="padding:12px 15px; overflow-y:auto; display:flex; flex-direction:column;">
         <div id="weread-discussion-quote" style="writing-mode:horizontal-tb; padding:10px; border-left:3px solid #c9a063; background:rgba(201,160,99,.10); font-size:13px; line-height:1.6; margin-bottom:10px;"></div>
         <div id="weread-discussion-messages" style="flex:1; overflow-y:auto; min-height:80px;"></div>
