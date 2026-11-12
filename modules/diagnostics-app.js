@@ -51,6 +51,28 @@
       </div>`).join('');
   }
 
+  function formatChars(chars) {
+    const value = Number(chars) || 0;
+    if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M 字符`;
+    if (value >= 1000) return `${(value / 1000).toFixed(1)}k 字符`;
+    return `${value} 字符`;
+  }
+
+  function renderBreakdown(breakdown = {}) {
+    const rows = [
+      ['聊天数量', `${breakdown.chatCount || 0} 个`],
+      ['消息总数', `${breakdown.totalMessages || 0} 条`],
+      ['最大历史长度', `${breakdown.largestHistory || 0} 条`],
+      ['聊天历史字符', formatChars(breakdown.historyChars)],
+      ['结构化记忆', `${breakdown.structuredEntries || 0} 条 / ${formatChars(breakdown.structuredChars)}`],
+      ['向量片段', `${breakdown.vectorFragments || 0} 个`],
+      ['向量核心 / 时间线', `${breakdown.vectorCoreMemories || 0} / ${breakdown.vectorTimelines || 0}`],
+      ['API 历史', `${breakdown.apiHistoryEntries || 0} 条`],
+      ['localStorage', formatBytes(breakdown.localStorageBytes)]
+    ];
+    return `<div style="margin-top:16px;"><div class="settings-desc" style="margin-bottom:4px;">数据分类</div>${rows.map(([label, value]) => `<div style="display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px solid var(--border-color,#eee); font-size:12px;"><span>${esc(label)}</span><span class="settings-desc">${esc(value)}</span></div>`).join('')}</div>`;
+  }
+
   function renderErrors(errors) {
     if (!errors.length) return '<div class="settings-desc" style="padding:12px 0;">还没有记录到错误。</div>';
     return errors.slice(-20).reverse().map(error => `
@@ -69,7 +91,8 @@
       return `<div style="display:flex; justify-content:space-between; gap:8px; padding:6px 0; border-bottom:1px solid var(--border-color,#eee); font-size:12px;">
         <span>${esc(formatTime(sample.at))}</span>
         <span class="settings-desc">堆 ${heap ? formatBytes(heap.used) : '—'} · DOM ${esc(sample.domNodes)} · 定时器 ${esc(sample.activeIntervals)}</span>
-      </div>`;
+      </div>
+      ${sample.memoryBreakdown ? `<div class="settings-desc" style="padding:0 0 6px; font-size:11px;">消息 ${esc(sample.memoryBreakdown.totalMessages)} · 历史 ${formatChars(sample.memoryBreakdown.historyChars)} · 结构化 ${formatChars(sample.memoryBreakdown.structuredChars)} · 向量 ${esc(sample.memoryBreakdown.vectorFragments)}</div>` : ''}`;
     }).join('');
   }
 
@@ -93,6 +116,7 @@
       </div>
       ${abnormal ? `<div style="padding:10px; margin-bottom:10px; border-radius:8px; background:rgba(192,57,43,.10); color:#c0392b; font-size:12px; line-height:1.6;">上次会话未正常结束：${esc(formatTime(previous.last))}。可能是闪退、系统回收或被强制关闭。</div>` : ''}
       <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px;">${renderCards(snapshot)}</div>
+      ${renderBreakdown(snapshot.memoryBreakdown)}
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
         <button type="button" class="settings-mini-btn" id="diagnostics-refresh">刷新</button>
         <button type="button" class="settings-mini-btn" id="diagnostics-export">导出诊断日志</button>

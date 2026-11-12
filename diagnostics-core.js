@@ -74,10 +74,107 @@
     }
   } catch (_) {}
 
+  function contentChars(content) {
+    if (typeof content === 'string') return content.length;
+    if (Array.isArray(content)) {
+      return content.reduce((sum, part) => {
+        if (typeof part === 'string') return sum + part.length;
+        if (part && typeof part === 'object') return sum + String(part.text || part.content || '').length;
+        return sum;
+      }, 0);
+    }
+    return String(content || '').length;
+  }
+
+  function getMemoryBreakdown() {
+    const chats = window.state?.chats || {};
+    let chatCount = 0;
+    let totalMessages = 0;
+    let largestHistory = 0;
+    let historyChars = 0;
+    let structuredEntries = 0;
+    let structuredChars = 0;
+    let vectorFragments = 0;
+    let vectorCoreMemories = 0;
+    let vectorTimelines = 0;
+    let apiHistoryEntries = 0;
+
+    Object.values(chats).forEach(chat => {
+      if (!chat) return;
+      chatCount += 1;
+      const history = Array.isArray(chat.history) ? chat.history : [];
+      totalMessages += history.length;
+      largestHistory = Math.max(largestHistory, history.length);
+      historyChars += history.reduce((sum, message) => sum + contentChars(message?.content), 0);
+      apiHistoryEntries += Array.isArray(chat.apiHistory) ? chat.apiHistory.length : 0;
+
+      const sm = chat.structuredMemory;
+      if (sm) {
+        const facts = sm.facts && typeof sm.facts === 'object' ? sm.facts : {};
+        Object.entries(facts).forEach(([key, value]) => {
+          structuredEntries += 1;
+          structuredChars += String(key || '').length + String(value || '').length;
+        });
+        const events = sm.events && typeof sm.events === 'object' ? sm.events : {};
+        Object.values(events).forEach(value => {
+          const text = String(value || '');
+          structuredEntries += text ? text.split('|').length : 0;
+          structuredChars += text.length;
+        });
+        ['decisions', 'plans', 'emotions'].forEach(key => {
+          if (!Array.isArray(sm[key])) return;
+          structuredEntries += sm[key].length;
+          structuredChars += sm[key].reduce((sum, item) => sum + String(item || '').length, 0);
+        });
+        if (sm.relationship) {
+          structuredEntries += 1;
+          structuredChars += String(sm.relationship).length;
+        }
+        const custom = sm._custom && typeof sm._custom === 'object' ? sm._custom : {};
+        Object.values(custom).forEach(items => {
+          if (!Array.isArray(items)) return;
+          structuredEntries += items.length;
+          structuredChars += items.reduce((sum, item) => sum + String(item || '').length, 0);
+        });
+      }
+
+      const vm = chat.vectorMemory;
+      if (vm) {
+        vectorFragments += Array.isArray(vm.fragments) ? vm.fragments.length : 0;
+        vectorCoreMemories += Array.isArray(vm.coreMemories) ? vm.coreMemories.length : 0;
+        vectorTimelines += vm.timelineSummaries && typeof vm.timelineSummaries === 'object'
+          ? Object.keys(vm.timelineSummaries).length : 0;
+      }
+    });
+
+    let localStorageBytes = 0;
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i) || '';
+        localStorageBytes += key.length + String(localStorage.getItem(key) || '').length;
+      }
+    } catch (_) {}
+
+    return {
+      chatCount,
+      totalMessages,
+      largestHistory,
+      historyChars,
+      structuredEntries,
+      structuredChars,
+      vectorFragments,
+      vectorCoreMemories,
+      vectorTimelines,
+      apiHistoryEntries,
+      localStorageBytes
+    };
+  }
+
   function snapshot() {
     const screens = Array.from(document.querySelectorAll('.screen'));
     return {
       at: Date.now(),
+      memoryBreakdown: getMemoryBreakdown(),
       heap: getHeap(),
       domNodes: document.getElementsByTagName('*').length,
       activeIntervals,
