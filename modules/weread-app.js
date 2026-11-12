@@ -31,7 +31,11 @@
       const value = JSON.parse(localStorage.getItem(CONFIG_KEY) || '{}');
       return {
         proxyUrl: String(value.proxyUrl || '').trim(),
-        appToken: String(value.appToken || '')
+        appToken: String(value.appToken || ''),
+        prompt: String(value.prompt || DEFAULT_DISCUSSION_PROMPT),
+        historyCount: Math.max(0, Math.min(100, Number(value.historyCount ?? 30) || 0)),
+        temperature: value.temperature === undefined || value.temperature === null || value.temperature === '' ? '' : String(value.temperature),
+        maxTokens: value.maxTokens === undefined || value.maxTokens === null || value.maxTokens === '' ? '' : String(value.maxTokens)
       };
     } catch (_) {
       return { proxyUrl: '', appToken: '', prompt: DEFAULT_DISCUSSION_PROMPT, historyCount: 30, temperature: '', maxTokens: '' };
@@ -41,7 +45,11 @@
   function saveConfig(config) {
     localStorage.setItem(CONFIG_KEY, JSON.stringify({
       proxyUrl: String(config.proxyUrl || '').trim(),
-      appToken: String(config.appToken || '')
+      appToken: String(config.appToken || ''),
+      prompt: String(config.prompt || DEFAULT_DISCUSSION_PROMPT),
+      historyCount: Math.max(0, Math.min(100, Number(config.historyCount ?? 30) || 0)),
+      temperature: config.temperature === '' || config.temperature === undefined || config.temperature === null ? '' : String(config.temperature),
+      maxTokens: config.maxTokens === '' || config.maxTokens === undefined || config.maxTokens === null ? '' : String(config.maxTokens)
     }));
   }
 

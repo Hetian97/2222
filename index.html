@@ -124,7 +124,7 @@
   <script src="modules/myphone.js?v=0.0.36" defer></script>
   <script src="modules/werewolf.js?v=0.0.36" defer></script>
   <script src="modules/reading-room.js?v=0.0.93-reader" defer></script>
-  <script src='modules/weread-app.js?v=0.0.4-weread' defer></script>
+  <script src='modules/weread-app.js?v=0.0.5-weread' defer></script>
   <script src="modules/douban.js?v=0.0.36" defer></script>
   <script src="modules/living-space.js?v=0.0.14" defer></script>
   <!-- 第七层：其余功能 -->
@@ -9374,26 +9374,35 @@
       <div class="modal-header"><span>微信读书同步设置</span><span class="action-btn" id="close-weread-settings-btn">×</span></div>
       <div class="modal-body" style="padding:18px; overflow-y:auto;">
         <p class="settings-desc" style="margin-top:0;">API Key 保存在 Cloudflare Worker 的环境变量中，这里只填写 Worker 地址。</p>
-        <div class="form-group"><label>Worker 地址</label><input type="url" id="weread-proxy-url" placeholder="https://xxxx.workers.dev/api/weread" style="width:100%; box-sizing:border-box; padding:9px; border-radius:8px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary);"></div>
+        <div class="form-group">
+          <label style="display:block; margin-bottom:5px; font-size:13px; color:var(--text-primary);">Worker 地址</label>
+          <input type="url" id="weread-proxy-url" placeholder="https://xxxx.workers.dev/api/weread" style="width:100%; box-sizing:border-box; padding:9px; border-radius:8px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary);">
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label style="display:block; margin-bottom:5px; font-size:13px; color:var(--text-primary);">访问口令（可选）</label>
+          <input type="password" id="weread-app-token" placeholder="与 Worker 的 APP_TOKEN 一致" style="width:100%; box-sizing:border-box; padding:9px; border-radius:8px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary);">
+        </div>
         <hr style="opacity:.18; margin:16px 0;">
-        <div class="settings-desc" style="margin-bottom:6px;">划线讨论提示词。支持 {{user}}、{{char}}、{{title}}、{{author}}、{{chapter}}、{{quote}}、{{note}}、{{recentChat}}。</div>
-        <textarea id="weread-discussion-prompt" rows="7" style="width:100%; box-sizing:border-box; padding:9px; border-radius:8px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary); resize:vertical;"></textarea>
-        <button type="button" class="settings-mini-btn" id="reset-weread-discussion-prompt" style="margin-top:6px;">恢复默认提示词</button>
-        <div style="display:flex; gap:10px; margin-top:14px;">
-          <label style="flex:1; font-size:13px; color:var(--text-primary);">最近聊天条数（0–100）
-            <input type="number" id="weread-history-count" min="0" max="100" step="1" value="30" style="width:100%; margin-top:4px; padding:7px; border:1px solid var(--border-color); border-radius:6px; background:var(--secondary-bg); color:var(--text-primary); box-sizing:border-box;">
-          </label>
+        <div class="form-group">
+          <label style="display:block; margin-bottom:4px; font-size:13px; color:var(--text-primary);">划线讨论提示词</label>
+          <div class="settings-desc" style="margin-bottom:6px;">支持 {{user}}、{{char}}、{{title}}、{{author}}、{{chapter}}、{{quote}}、{{note}}、{{recentChat}}。</div>
+          <textarea id="weread-discussion-prompt" rows="7" style="width:100%; box-sizing:border-box; padding:9px; border-radius:8px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary); resize:vertical;"></textarea>
+          <button type="button" class="settings-mini-btn" id="reset-weread-discussion-prompt" style="margin-top:6px;">恢复默认提示词</button>
+        </div>
+        <div class="form-group" style="margin-top:14px;">
+          <label style="display:block; margin-bottom:5px; font-size:13px; color:var(--text-primary);">最近聊天条数（0–100）</label>
+          <input type="number" id="weread-history-count" min="0" max="100" step="1" value="30" style="width:100%; padding:7px; border:1px solid var(--border-color); border-radius:6px; background:var(--secondary-bg); color:var(--text-primary); box-sizing:border-box;">
         </div>
         <div style="display:flex; gap:10px; margin-top:10px;">
-          <label style="flex:1; font-size:13px; color:var(--text-primary);">Temperature（留空跟随主 API）
-            <input type="number" id="weread-discussion-temperature" min="0" max="2" step="0.1" placeholder="跟随主 API" style="width:100%; margin-top:4px; padding:7px; border:1px solid var(--border-color); border-radius:6px; background:var(--secondary-bg); color:var(--text-primary); box-sizing:border-box;">
-          </label>
-          <label style="flex:1; font-size:13px; color:var(--text-primary);">Max tokens（留空跟随主 API）
-            <input type="number" id="weread-discussion-max-tokens" min="50" max="3000" step="10" placeholder="跟随主 API" style="width:100%; margin-top:4px; padding:7px; border:1px solid var(--border-color); border-radius:6px; background:var(--secondary-bg); color:var(--text-primary); box-sizing:border-box;">
-          </label>
-        </div>
-        <div class="form-group" style="margin-top:12px;"><label>访问口令（可选）</label><input type="password" id="weread-app-token" placeholder="与 Worker 的 APP_TOKEN 一致" style="width:100%; box-sizing:border-box; padding:9px; border-radius:8px; border:1px solid var(--border-color); background:var(--secondary-bg); color:var(--text-primary);"></div>
-      </div>
+          <div style="flex:1; min-width:0;">
+            <label style="display:block; margin-bottom:5px; font-size:13px; color:var(--text-primary);">Temperature</label>
+            <input type="number" id="weread-discussion-temperature" min="0" max="2" step="0.1" placeholder="跟随主 API" style="width:100%; padding:7px; border:1px solid var(--border-color); border-radius:6px; background:var(--secondary-bg); color:var(--text-primary); box-sizing:border-box;">
+          </div>
+          <div style="flex:1; min-width:0;">
+            <label style="display:block; margin-bottom:5px; font-size:13px; color:var(--text-primary);">Max tokens</label>
+            <input type="number" id="weread-discussion-max-tokens" min="50" max="3000" step="10" placeholder="跟随主 API" style="width:100%; padding:7px; border:1px solid var(--border-color); border-radius:6px; background:var(--secondary-bg); color:var(--text-primary); box-sizing:border-box;">
+          </div>
+        </div>      </div>
       <div class="modal-footer"><button class="cancel" id="cancel-weread-settings-btn">取消</button><button class="save" id="save-weread-settings-btn">保存</button></div>
     </div>
   </div>
