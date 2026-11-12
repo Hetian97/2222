@@ -384,9 +384,11 @@
     });
     reviews.forEach((item, index) => {
       const review = item.review || item;
-      const content = review.content || review.abstract || '';
-      if (!content) return;
-      cards.push(`<div style="padding:10px; margin-bottom:8px; border-radius:8px; background:rgba(90,159,212,.10); font-size:13px; line-height:1.6;"><div>${esc(content)}</div><div class="settings-desc" style="margin-top:5px; display:flex; align-items:center; justify-content:space-between; gap:8px;"><span>想法/点评</span><button type="button" class="settings-mini-btn" data-weread-discuss-kind="review" data-weread-discuss="${index}">讨论</button></div></div>`);
+      const abstract = String(review.abstract || '').trim();
+      const content = String(review.content || '').trim();
+      if (!content && !abstract) return;
+      const chapter = review.chapterName || chapterMap[review.chapterUid] || '';
+      cards.push(`<div style="padding:10px; margin-bottom:8px; border-radius:8px; background:rgba(90,159,212,.10); font-size:13px; line-height:1.6;">${abstract ? `<div style="border-left:3px solid #9bb7d4; padding-left:8px; margin-bottom:7px; color:var(--text-secondary);">${esc(abstract)}</div>` : ''}${content ? `<div>${esc(content)}</div>` : ''}<div class="settings-desc" style="margin-top:5px; display:flex; align-items:center; justify-content:space-between; gap:8px;"><span>${chapter ? `${esc(chapter)} · ` : ''}想法/点评${review.createTime ? ` · ${formatTimestamp(review.createTime)}` : ''}</span><button type="button" class="settings-mini-btn" data-weread-discuss-kind="review" data-weread-discuss="${index}">讨论</button></div></div>`);
     });
     target.innerHTML = cards.length ? `<h3 style="font-size:15px; margin:4px 0 8px;">笔记与划线</h3>${cards.join('')}` : '<div style="color:var(--text-secondary); font-size:13px;">这本书还没有笔记或划线。</div>';
     target.querySelectorAll('button[data-weread-discuss]').forEach(button => {
