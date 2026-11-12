@@ -21,7 +21,7 @@
 {{recentChat}}
 
 请针对这段划线，写 100–200 字左右的看法。不要写成分析报告。`;
-  let state = { shelf: null, book: null, notes: null, loading: false, search: '', sort: 'recent', page: 1, notesType: 'all', notesStatus: 'all', notesSort: 'time-desc', notesSearch: '', notesPage: 1 };
+  let state = { shelf: null, book: null, notes: null, loading: false, search: '', sort: 'recent', page: 1, notesType: 'all', notesStatus: 'all', notesSort: 'time-desc', notesSearch: '', notesPage: 1, statsMode: 'monthly', stats: null };
 
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -828,6 +828,112 @@
       document.getElementById('weread-discussion-busy')?.remove();
     }
   }
+  function formatStatsDuration(seconds) {
+    const total = Math.max(0, Number(seconds) || 0);
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    if (hours && minutes) return `${hours} 小时 ${minutes} 分钟`;
+    if (hours) return `${hours} 小时`;
+    return `${minutes} 分钟`;
+  }
+
+  function getStatsBook(item) {
+    const book = item?.book || item?.albumInfo || {};
+    return {
+      title: book.title || book.name || '未命名',
+      author: book.author || book.authorName || '',
+      cover: book.cover || '',
+      time: Number(item?.readTime) || 0
+    };
+  }
+
+  function renderStatsTrend(data) {
+    const entries = Object.entries(data?.readTimes || {})
+      .map(([key, value]) => ({ time: Number(key) || 0, seconds: Number(value) || 0 }))
+      .filter(item => item.time > 0)
+      .sort((a, b) => a.time - b.time);
+    if (!entries.length) return '';
+    const max = Math.max(...entries.map(item => item.seconds), 1);
+    const bars = entries.map(item => {
+      const date = new Date(item.time * 1000);
+      const label = state.statsMode === 'annually'
+        ? `${date.getMonth() + 1}月`
+        : `${date.getMonth() + 1}/${date.getDate()}`;
+      return `<div style="flex:1; min-width:12px; display:flex; flex-direction:column; align-items:center; gap:4px;"><div title="${label} ${formatStatsDuration(item.seconds)}" style="width:100%; max-width:26px; height:${Math.max(4, Math.round(item.seconds / max * 90))}px; border-radius:3px 3px 0 0; background:#b7791f; opacity:.75;"></div><span style="font-size:9px; color:var(--text-secondary); white-space:nowrap;">${entries.length <= 14 ? label : ''}</span></div>`;
+    }).join('');
+    return `<div style="margin-top:14px;"><div class="settings-desc" style="margin-bottom:7px;">阅读趋势</div><div style="display:flex; align-items:flex-end; gap:3px; height:112px; padding-top:4px; border-bottom:1px solid var(--border-color,#eee);">${bars}</div></div>`;
+  }
+
+  function renderStats(data = {}) {
+    const total = Number(data.totalReadTime) || 0;
+    const days = Number(data.readDays) || 0;
+    const average = Number(data.dayAverageReadTime) || 0;
+    const compare = Number(data.compare);
+    const compareText = Number.isFinite(compare) && data.compare !== undefined && data.compare !== null
+      ? `较上期 ${compare >= 0 ? '+' : ''}${Math.round(compare * 100)}%`
+      : '';
+    const stats = Array.isArray(data.readStat) ? data.readStat : [];
+    const longest = Array.isArray(data.readLongest) ? data.readLongest : [];
+    const categories = Array.isArray(data.preferCategory) ? data.preferCategory : [];
+    const authors = Array.isArray(data.preferAuthor) ? data.preferAuthor : [];
+    const categoryMax = Math.max(...categories.map(item => Number(item.val) || Number(item.readingTime) || 0), 1);
+    const longestCards = longest.map(item => {
+      const book = getStatsBook(item);
+      return `<div style="display:flex; gap:10px; align-items:center; padding:8px 0; border-bottom:1px solid var(--border-color,#eee);"><div style="width:34px; height:48px; border-radius:4px; overflow:hidden; background:#eee; flex-shrink:0;">${book.cover ? `<img src="${esc(book.cover)}" alt="" style="width:100%; height:100%; object-fit:cover;">` : ''}</div><div style="flex:1; min-width:0;"><div style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(book.title)}</div><div class="settings-desc">${esc(book.author)}</div></div><div style="font-size:12px; color:var(--text-secondary);">${formatStatsDuration(book.time)}</div></div>`;
+    }).join('');
+    const categoryBars = categories.map(item => {
+      const value = Number(item.val) || Number(item.readingTime) || 0;
+      return `<div style="margin:6px 0;"><div style="display:flex; justify-content:space-between; font-size:12px;"><span>${esc(item.categoryTitle || '未分类')}</span><span class="settings-desc">${formatStatsDuration(item.readingTime || 0)}</span></div><div style="height:5px; border-radius:3px; background:rgba(183,121,31,.14); overflow:hidden; margin-top:3px;"><div style="height:100%; width:${Math.max(2, Math.round(value / categoryMax * 100))}%; background:#b7791f;"></div></div></div>`;
+    }).join('');
+    const authorCards = authors.map(item => `<div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border-color,#eee); font-size:12px;"><span>${esc(item.name || '')}</span><span class="settings-desc">${esc(item.readTime || '')}</span></div>`).join('');
+    const statCards = stats.map(item => `<div style="min-width:78px; padding:8px 10px; border-radius:8px; background:rgba(183,121,31,.08);"><div class="settings-desc">${esc(item.stat || '')}</div><div style="font-weight:600; margin-top:2px;">${esc(item.counts || '')}</div></div>`).join('');
+    setContent(`
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 0 10px;">
+        <button type="button" class="settings-mini-btn" id="weread-stats-back">‹ 返回书架</button>
+        <select id="weread-stats-mode" style="padding:7px; border:1px solid var(--border-color); border-radius:7px; background:var(--secondary-bg); color:var(--text-primary);">
+          <option value="weekly" ${state.statsMode === 'weekly' ? 'selected' : ''}>本周</option>
+          <option value="monthly" ${state.statsMode === 'monthly' ? 'selected' : ''}>本月</option>
+          <option value="annually" ${state.statsMode === 'annually' ? 'selected' : ''}>今年</option>
+          <option value="overall" ${state.statsMode === 'overall' ? 'selected' : ''}>总计</option>
+        </select>
+      </div>
+      <h2 style="margin:0 0 12px;">阅读统计</h2>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:100px; padding:12px; border-radius:9px; background:rgba(224,178,92,.12);"><div class="settings-desc">总时长</div><div style="font-size:19px; font-weight:600; margin-top:3px;">${formatStatsDuration(total)}</div></div>
+        <div style="flex:1; min-width:80px; padding:12px; border-radius:9px; background:rgba(90,159,212,.10);"><div class="settings-desc">阅读天数</div><div style="font-size:19px; font-weight:600; margin-top:3px;">${days} 天</div></div>
+        <div style="flex:1; min-width:100px; padding:12px; border-radius:9px; background:rgba(120,180,120,.10);"><div class="settings-desc">自然日均</div><div style="font-size:19px; font-weight:600; margin-top:3px;">${formatStatsDuration(average)}</div></div>
+      </div>
+      ${compareText ? `<div class="settings-desc" style="margin-top:6px;">${compareText}</div>` : ''}
+      ${statCards ? `<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">${statCards}</div>` : ''}
+      ${data.preferTimeWord ? `<div style="margin-top:12px; font-size:13px;">${esc(data.preferTimeWord)}</div>` : ''}
+      ${data.rank?.text ? `<div style="margin-top:6px; font-size:13px;">${esc(data.rank.text)}</div>` : ''}
+      ${longestCards ? `<div style="margin-top:16px;"><div class="settings-desc" style="margin-bottom:4px;">读得最多</div>${longestCards}</div>` : ''}
+      ${categoryBars ? `<div style="margin-top:16px;"><div class="settings-desc" style="margin-bottom:4px;">偏好分类</div>${categoryBars}</div>` : ''}
+      ${authorCards ? `<div style="margin-top:16px;"><div class="settings-desc" style="margin-bottom:4px;">偏好作者</div>${authorCards}</div>` : ''}
+      ${renderStatsTrend(data)}
+    `);
+    document.getElementById('weread-stats-back')?.addEventListener('click', renderShelf);
+    document.getElementById('weread-stats-mode')?.addEventListener('change', event => {
+      state.statsMode = event.target.value;
+      loadStats();
+    });
+  }
+
+  async function loadStats() {
+    if (!getConfig().proxyUrl) {
+      renderSetup();
+      return;
+    }
+    renderLoading('正在读取阅读统计…');
+    try {
+      const data = await gateway('/readdata/detail', { mode: state.statsMode, baseTime: 0 });
+      state.stats = data;
+      renderStats(data);
+    } catch (error) {
+      setContent(`<div style="padding:20px 4px;"><button type="button" class="settings-mini-btn" id="weread-stats-back">‹ 返回书架</button><div style="color:#c0392b; font-size:13px; margin-top:16px;">${esc(error.message || String(error))}</div></div>`);
+      document.getElementById('weread-stats-back')?.addEventListener('click', renderShelf);
+    }
+  }
   function openSettings() {
     const config = getConfig();
     const url = document.getElementById('weread-proxy-url');
@@ -871,6 +977,7 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('weread-settings-btn')?.addEventListener('click', openSettings);
+    document.getElementById('weread-stats-btn')?.addEventListener('click', loadStats);
     document.getElementById('close-weread-settings-btn')?.addEventListener('click', closeSettings);
     document.getElementById('cancel-weread-settings-btn')?.addEventListener('click', closeSettings);
     document.getElementById('save-weread-settings-btn')?.addEventListener('click', saveSettings);
