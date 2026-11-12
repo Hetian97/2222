@@ -39,11 +39,12 @@
         appToken: String(value.appToken || ''),
         prompt: String(value.prompt || DEFAULT_DISCUSSION_PROMPT),
         historyCount: Math.max(0, Math.min(100, Number(value.historyCount ?? 30) || 0)),
+        aiHistoryLimit: Math.max(4, Math.min(100, Number(value.aiHistoryLimit ?? DISCUSSION_AI_HISTORY_LIMIT) || DISCUSSION_AI_HISTORY_LIMIT)),
         temperature: value.temperature === undefined || value.temperature === null || value.temperature === '' ? '' : String(value.temperature),
         maxTokens: value.maxTokens === undefined || value.maxTokens === null || value.maxTokens === '' ? '' : String(value.maxTokens)
       };
     } catch (_) {
-      return { proxyUrl: '', appToken: '', prompt: DEFAULT_DISCUSSION_PROMPT, historyCount: 30, temperature: '', maxTokens: '' };
+      return { proxyUrl: '', appToken: '', prompt: DEFAULT_DISCUSSION_PROMPT, historyCount: 30, aiHistoryLimit: DISCUSSION_AI_HISTORY_LIMIT, temperature: '', maxTokens: '' };
     }
   }
 
@@ -53,6 +54,7 @@
       appToken: String(config.appToken || ''),
       prompt: String(config.prompt || DEFAULT_DISCUSSION_PROMPT),
       historyCount: Math.max(0, Math.min(100, Number(config.historyCount ?? 30) || 0)),
+      aiHistoryLimit: Math.max(4, Math.min(100, Number(config.aiHistoryLimit ?? DISCUSSION_AI_HISTORY_LIMIT) || DISCUSSION_AI_HISTORY_LIMIT)),
       temperature: config.temperature === '' || config.temperature === undefined || config.temperature === null ? '' : String(config.temperature),
       maxTokens: config.maxTokens === '' || config.maxTokens === undefined || config.maxTokens === null ? '' : String(config.maxTokens)
     }));
@@ -875,7 +877,7 @@
       const answer = await callDiscussionAi(
         systemPrompt,
         userText || '请说说你对这段划线的看法。',
-        prior.slice(-DISCUSSION_AI_HISTORY_LIMIT).map(message => ({ role: message.role, content: message.content })),
+        prior.slice(-(Number(config.aiHistoryLimit) || DISCUSSION_AI_HISTORY_LIMIT)).map(message => ({ role: message.role, content: message.content })),
         temperature,
         maxTokens
       );
@@ -896,12 +898,14 @@
     const token = document.getElementById('weread-app-token');
     const prompt = document.getElementById('weread-discussion-prompt');
     const history = document.getElementById('weread-history-count');
+    const aiHistory = document.getElementById('weread-ai-history-limit');
     const temperature = document.getElementById('weread-discussion-temperature');
     const maxTokens = document.getElementById('weread-discussion-max-tokens');
     if (url) url.value = config.proxyUrl;
     if (token) token.value = config.appToken;
     if (prompt) prompt.value = config.prompt;
     if (history) history.value = config.historyCount;
+    if (aiHistory) aiHistory.value = config.aiHistoryLimit;
     if (temperature) temperature.value = config.temperature;
     if (maxTokens) maxTokens.value = config.maxTokens;
     document.getElementById('weread-settings-modal')?.classList.add('visible');
@@ -917,6 +921,7 @@
       appToken: document.getElementById('weread-app-token')?.value,
       prompt: document.getElementById('weread-discussion-prompt')?.value,
       historyCount: document.getElementById('weread-history-count')?.value,
+      aiHistoryLimit: document.getElementById('weread-ai-history-limit')?.value,
       temperature: document.getElementById('weread-discussion-temperature')?.value,
       maxTokens: document.getElementById('weread-discussion-max-tokens')?.value
     });

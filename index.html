@@ -9393,6 +9393,11 @@
           <label style="display:block; margin-bottom:5px; font-size:13px; color:var(--text-primary);">最近聊天条数（0–100）</label>
           <input type="number" id="weread-history-count" min="0" max="100" step="1" value="30" style="width:100%; padding:7px; border:1px solid var(--border-color); border-radius:6px; background:var(--secondary-bg); color:var(--text-primary); box-sizing:border-box;">
         </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label style="display:block; margin-bottom:5px; font-size:13px; color:var(--text-primary);">发送给模型的最近讨论消息数（4–100）</label>
+          <input type="number" id="weread-ai-history-limit" min="4" max="100" step="1" value="20" style="width:100%; padding:7px; border:1px solid var(--border-color); border-radius:6px; background:var(--secondary-bg); color:var(--text-primary); box-sizing:border-box;">
+          <div class="settings-desc" style="margin-top:4px;">只影响发给模型的消息数量，界面和数据库仍保留全部讨论。</div>
+        </div>
         <div style="display:flex; gap:10px; margin-top:10px;">
           <div style="flex:1; min-width:0;">
             <label style="display:block; margin-bottom:5px; font-size:13px; color:var(--text-primary);">Temperature</label>
