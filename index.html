@@ -47,6 +47,7 @@
   <link rel="icon" type="image/png" href="https://i.postimg.cc/nMbyyt1t/D7CD735A73F5FD1D7B8407E0EB8BBAC0.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <script src="diagnostics-core.js?v=0.0.1" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
   <script src="vendor/dexie.js?v=4.4.5" defer></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
@@ -124,7 +125,8 @@
   <script src="modules/myphone.js?v=0.0.36" defer></script>
   <script src="modules/werewolf.js?v=0.0.36" defer></script>
   <script src="modules/reading-room.js?v=0.0.94-reader" defer></script>
-  <script src='modules/weread-app.js?v=0.0.12-weread' defer></script>
+  <script src='modules/weread-app.js?v=0.0.16-weread' defer></script>
+  <script src='modules/diagnostics-app.js?v=0.0.2' defer></script>
   <script src="modules/douban.js?v=0.0.36" defer></script>
   <script src="modules/living-space.js?v=0.0.14" defer></script>
   <!-- 第七层：其余功能 -->
@@ -575,7 +577,11 @@
                   <div class="icon-bg-desktop"><img id="icon-img-weread" src="https://rescdn.qqmail.com/node/wr/wrpage/style/images/independent/appleTouchIcon/apple-touch-icon-144x144.png" alt="微信读书"></div>
                   <span class="label">微信读书</span>
                 </div>
-                <div class="desktop-app-icon" onclick="showScreen('thought-chain-screen')">
+                <div class="desktop-app-icon" onclick="openDiagnosticsApp()">
+                  <div class="icon-bg-desktop"><img id="icon-img-diagnostics" src="https://i.postimg.cc/MTC3Tkw8/IMG-6436.jpg" alt="诊断"></div>
+                  <span class="label">诊断</span>
+                </div>
+                                <div class="desktop-app-icon" onclick="showScreen('thought-chain-screen')">
                   <div class="icon-bg-desktop"><img id="icon-img-thought-chain" src="https://i.postimg.cc/MTC3Tkw8/IMG-6436.jpg" alt="思维链"></div>
                   <span class="label">思维链</span>
                 </div>
@@ -2311,6 +2317,16 @@
       </div>
     </div>
     <!-- 思维链/预设配置屏幕 -->
+    <div id="diagnostics-screen" class="screen">
+      <div class="header">
+        <span class="back-btn" onclick="showScreen('home-screen')">‹</span>
+        <span>诊断</span>
+        <span class="save-btn" id="diagnostics-refresh-btn">刷新</span>
+      </div>
+      <div class="settings-container" style="padding-bottom:30px;">
+        <div id="diagnostics-content" style="padding:0 15px 20px;"></div>
+      </div>
+    </div>
     <div id="weread-screen" class="screen">
       <div class="header">
         <span class="back-btn" onclick="showScreen('home-screen')">‹</span>
