@@ -20,7 +20,7 @@
 {{recentChat}}
 
 请针对这段划线，写 100–200 字左右的看法。不要写成分析报告。`;
-  let state = { shelf: null, book: null, notes: null, loading: false, search: '', sort: 'recent', page: 1 };
+  let state = { shelf: null, book: null, notes: null, loading: false, search: '', sort: 'recent', page: 1, notesType: 'all', notesStatus: 'all', notesSort: 'time-desc', notesSearch: '' };
 
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -365,7 +365,11 @@
       (Array.isArray(highlights?.chapters) ? highlights.chapters : []).forEach(chapter => {
         if (chapter?.chapterUid) chapterMap[chapter.chapterUid] = chapter.title || '';
       });
-      state.notes = { highlights, reviews, chapterMap };
+      let discussionRows = [];
+      try {
+        discussionRows = await db.wereadDiscussions.where('bookId').equals(book.bookId).toArray();
+      } catch (_) {}
+      state.notes = { highlights, reviews, chapterMap, discussionRows };
       renderNotes(highlights, reviews, chapterMap);
     } catch (error) {
       if (target) target.innerHTML = `<div style="color:#c0392b; font-size:13px;">${esc(error.message || String(error))}</div>`;
@@ -388,39 +392,178 @@
       (state.bookChapters || []).find(chapter => String(chapter.chapterIdx) === String(review?.chapterIdx))?.title ||
       '';
   }
-  function renderNotes(highlightsData, reviewsData, chapterMap = {}) {
-    const target = document.getElementById('weread-note-list');
-    if (!target) return;
-    const highlights = Array.isArray(highlightsData?.updated) ? highlightsData.updated : [];
-    const reviews = Array.isArray(reviewsData?.reviews) ? reviewsData.reviews : [];
-    const cards = [];
-    highlights.forEach((item, index) => {
-      const chapter = chapterMap[item.chapterUid] || '';
-      cards.push(`<div style="padding:10px; margin-bottom:8px; border-radius:8px; background:rgba(224,178,92,.12); font-size:13px; line-height:1.6;"><div>${esc(item.markText || '')}</div><div class="settings-desc" style="margin-top:5px; display:flex; align-items:center; justify-content:space-between; gap:8px;"><span>${chapter ? `${esc(chapter)} · ` : ''}划线 · ${formatTimestamp(item.createTime)}</span><button type="button" class="settings-mini-btn" data-weread-discuss-kind="highlight" data-weread-discuss="${index}">讨论</button></div></div>`);
+  function getNoteDiscussionCount(key) {
+    const rows = Array.isArray(state.notes?.discussionRows) ? state.notes.discussionRows : [];
+    return rows
+      .filter(row => String(row.bookmarkId) === String(key))
+      .reduce((total, row) => total + (Array.isArray(row.messages) ? row.messages.length : 0), 0);
+  }
+
+  function buildNoteRecords() {
+    const highlights = Array.isArray(state.notes?.highlights?.updated) ? state.notes.highlights.updated : [];
+    const reviews = Array.isArray(state.notes?.reviews?.reviews) ? state.notes.reviews.reviews : [];
+    const records = [];
+    highlights.forEach(item => {
+      const key = getDiscussionBookmarkId(item);
+      records.push({
+        type: 'highlight',
+        key,
+        quote: String(item.markText || ''),
+        content: '',
+        note: String(item.note || ''),
+        chapterUid: item.chapterUid || null,
+        chapterIdx: item.chapterIdx || null,
+        chapterTitle: state.notes?.chapterMap?.[item.chapterUid] || '',
+        createdAt: Number(item.createTime) || 0,
+        discussionCount: getNoteDiscussionCount(key),
+        source: item
+      });
     });
-    reviews.forEach((item, index) => {
+    reviews.forEach(item => {
+      const source = reviewToDiscussionSource(item);
       const review = item.review || item;
-      const abstract = getReviewQuote(review);
-      const content = String(review.content || '').trim();
-      if (!content && !abstract) return;
-      const chapter = getReviewChapterTitle(review);
-      cards.push(`<div style="padding:10px; margin-bottom:8px; border-radius:8px; background:rgba(90,159,212,.10); font-size:13px; line-height:1.6;">${abstract ? `<div style="border-left:3px solid #9bb7d4; padding-left:8px; margin-bottom:7px; color:var(--text-secondary);">${esc(abstract)}</div>` : ''}${content ? `<div>${esc(content)}</div>` : ''}<div class="settings-desc" style="margin-top:5px; display:flex; align-items:center; justify-content:space-between; gap:8px;"><span>${chapter ? `${esc(chapter)} · ` : ''}想法/点评${review.createTime ? ` · ${formatTimestamp(review.createTime)}` : ''}</span><button type="button" class="settings-mini-btn" data-weread-discuss-kind="review" data-weread-discuss="${index}">讨论</button></div></div>`);
+      records.push({
+        type: 'review',
+        key: source.bookmarkId,
+        quote: String(source.markText || ''),
+        content: String(review.content || '').trim(),
+        note: String(source.note || ''),
+        chapterUid: review.chapterUid || null,
+        chapterIdx: review.chapterIdx || null,
+        chapterTitle: source.chapterName || '',
+        createdAt: Number(review.createTime) || 0,
+        discussionCount: getNoteDiscussionCount(source.bookmarkId),
+        source
+      });
     });
-    target.innerHTML = cards.length ? `<h3 style="font-size:15px; margin:4px 0 8px;">笔记与划线</h3>${cards.join('')}` : '<div style="color:var(--text-secondary); font-size:13px;">这本书还没有笔记或划线。</div>';
-    target.querySelectorAll('button[data-weread-discuss]').forEach(button => {
+    return records;
+  }
+
+  function getVisibleNoteRecords(records) {
+    const query = String(state.notesSearch || '').trim().toLowerCase();
+    let visible = records.filter(record => {
+      if (state.notesType !== 'all' && record.type !== state.notesType) return false;
+      if (state.notesStatus === 'discussed' && record.discussionCount <= 0) return false;
+      if (state.notesStatus === 'undiscussed' && record.discussionCount > 0) return false;
+      if (!query) return true;
+      return [record.quote, record.content, record.note, record.chapterTitle]
+        .some(value => String(value || '').toLowerCase().includes(query));
+    });
+    visible = visible.slice();
+    visible.sort((a, b) => {
+      if (state.notesSort === 'chapter') {
+        const chapterA = Number(a.chapterIdx) || 999999;
+        const chapterB = Number(b.chapterIdx) || 999999;
+        return chapterA - chapterB || a.createdAt - b.createdAt;
+      }
+      if (state.notesSort === 'time-asc') return a.createdAt - b.createdAt;
+      return b.createdAt - a.createdAt;
+    });
+    return visible;
+  }
+
+  function updateNoteFilterControls(records) {
+    const countAll = records.length;
+    const countHighlights = records.filter(record => record.type === 'highlight').length;
+    const countReviews = records.filter(record => record.type === 'review').length;
+    document.querySelectorAll('#weread-note-list [data-note-type]').forEach(button => {
+      const type = button.dataset.noteType;
+      const count = type === 'all' ? countAll : type === 'highlight' ? countHighlights : countReviews;
+      const label = type === 'all' ? '全部' : type === 'highlight' ? '划线' : '想法/点评';
+      button.textContent = `${label} ${count}`;
+      button.classList.toggle('is-active', state.notesType === type);
+    });
+    const status = document.getElementById('weread-note-status');
+    if (status) status.value = state.notesStatus;
+    const sort = document.getElementById('weread-note-sort');
+    if (sort) sort.value = state.notesSort;
+    const search = document.getElementById('weread-note-search');
+    if (search && search.value !== state.notesSearch) search.value = state.notesSearch;
+  }
+
+  function renderNoteCards(records) {
+    const visible = getVisibleNoteRecords(records);
+    state.notes.visibleRecords = visible;
+    const summary = document.getElementById('weread-note-summary');
+    if (summary) summary.textContent = `${visible.length} 条`;
+    const list = document.getElementById('weread-note-cards');
+    if (!list) return;
+    if (!visible.length) {
+      list.innerHTML = '<div style="padding:24px 4px; text-align:center; color:var(--text-secondary); font-size:13px;">没有符合条件的笔记。</div>';
+      return;
+    }
+    list.innerHTML = visible.map((record, index) => {
+      const isReview = record.type === 'review';
+      const statusText = record.discussionCount > 0 ? `在聊${record.discussionCount > 1 ? ` ${record.discussionCount}` : ''}` : '未聊';
+      const meta = [record.chapterTitle, isReview ? '想法/点评' : '划线', formatTimestamp(record.createdAt)].filter(Boolean).join(' · ');
+      return `<div style="padding:10px; margin-bottom:8px; border-radius:8px; background:${isReview ? 'rgba(90,159,212,.10)' : 'rgba(224,178,92,.12)'}; font-size:13px; line-height:1.6;">
+        ${isReview && record.quote ? `<div style="border-left:3px solid #9bb7d4; padding-left:8px; margin-bottom:7px; color:var(--text-secondary);">${esc(record.quote)}</div>` : ''}
+        ${isReview ? (record.content ? `<div>${esc(record.content)}</div>` : '') : `<div>${esc(record.quote)}</div>`}
+        <div class="settings-desc" style="margin-top:5px; display:flex; align-items:center; justify-content:space-between; gap:8px;">
+          <span>${[meta, statusText].filter(Boolean).join(' · ')}</span>
+          <button type="button" class="settings-mini-btn" data-note-discuss="${index}">${record.discussionCount > 0 ? '继续讨论' : '讨论'}</button>
+        </div>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('[data-note-discuss]').forEach(button => {
       button.addEventListener('click', () => {
-        const index = Number(button.dataset.wereadDiscuss);
-        if (button.dataset.wereadDiscussKind === 'review') {
-          const review = reviews[index];
-          if (review) openRolePicker(reviewToDiscussionSource(review));
-        } else {
-          const highlight = highlights[index];
-          if (highlight) openRolePicker(highlight);
-        }
+        const record = state.notes.visibleRecords[Number(button.dataset.noteDiscuss)];
+        if (record) openRolePicker(record.source);
       });
     });
   }
 
+  function renderNotes(highlightsData, reviewsData, chapterMap = {}) {
+    const target = document.getElementById('weread-note-list');
+    if (!target) return;
+    target.innerHTML = `
+      <div style="display:flex; align-items:center; justify-content:space-between; margin:4px 0 8px;">
+        <h3 style="font-size:15px; margin:0;">笔记与划线</h3>
+        <span class="settings-desc" id="weread-note-summary"></span>
+      </div>
+      <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
+        <button type="button" class="settings-mini-btn" data-note-type="all">全部</button>
+        <button type="button" class="settings-mini-btn" data-note-type="highlight">划线</button>
+        <button type="button" class="settings-mini-btn" data-note-type="review">想法/点评</button>
+      </div>
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
+        <select id="weread-note-status" style="padding:7px; border:1px solid var(--border-color); border-radius:7px; background:var(--secondary-bg); color:var(--text-primary);">
+          <option value="all">全部讨论状态</option>
+          <option value="undiscussed">未聊</option>
+          <option value="discussed">在聊</option>
+        </select>
+        <select id="weread-note-sort" style="padding:7px; border:1px solid var(--border-color); border-radius:7px; background:var(--secondary-bg); color:var(--text-primary);">
+          <option value="time-desc">时间倒序</option>
+          <option value="time-asc">时间正序</option>
+          <option value="chapter">章节顺序</option>
+        </select>
+      </div>
+      <input type="search" id="weread-note-search" placeholder="搜索原文、想法或章节…" value="${esc(state.notesSearch)}" style="width:100%; box-sizing:border-box; padding:7px 9px; margin-bottom:10px; border:1px solid var(--border-color); border-radius:7px; background:var(--secondary-bg); color:var(--text-primary);">
+      <div id="weread-note-cards"></div>`;
+    const records = buildNoteRecords();
+    state.notes.records = records;
+    updateNoteFilterControls(records);
+    document.querySelectorAll('#weread-note-list [data-note-type]').forEach(button => {
+      button.addEventListener('click', () => {
+        state.notesType = button.dataset.noteType || 'all';
+        updateNoteFilterControls(records);
+        renderNoteCards(records);
+      });
+    });
+    document.getElementById('weread-note-status')?.addEventListener('change', event => {
+      state.notesStatus = event.target.value;
+      renderNoteCards(records);
+    });
+    document.getElementById('weread-note-sort')?.addEventListener('change', event => {
+      state.notesSort = event.target.value;
+      renderNoteCards(records);
+    });
+    document.getElementById('weread-note-search')?.addEventListener('input', event => {
+      state.notesSearch = event.target.value;
+      renderNoteCards(records);
+    });
+    renderNoteCards(records);
+  }
   function reviewToDiscussionSource(item) {
     const review = item.review || item;
     const abstract = getReviewQuote(review);
@@ -447,6 +590,13 @@
       }));
   }
 
+  function getDiscussionRoleCount(key, chatId) {
+    const rows = Array.isArray(state.notes?.discussionRows) ? state.notes.discussionRows : [];
+    return rows
+      .filter(row => String(row.bookmarkId) === String(key) && String(row.chatId) === String(chatId))
+      .reduce((total, row) => total + (Array.isArray(row.messages) ? row.messages.length : 0), 0);
+  }
+
   function openRolePicker(highlight) {
     const list = document.getElementById('weread-role-list');
     if (!list) return;
@@ -460,7 +610,8 @@
       const button = document.createElement('button');
       button.type = 'button';
       button.style.cssText = 'display:flex; align-items:center; gap:10px; width:100%; padding:10px; border:none; border-bottom:1px solid var(--border-color,#eee); background:transparent; color:inherit; text-align:left;';
-      button.innerHTML = `${role.avatar ? `<img src="${esc(role.avatar)}" alt="" style="width:32px; height:32px; border-radius:50%; object-fit:cover;">` : ''}<span>${esc(role.name)}</span>`;
+      const existingCount = getDiscussionRoleCount(highlight.bookmarkId, role.chatId);
+      button.innerHTML = `${role.avatar ? `<img src="${esc(role.avatar)}" alt="" style="width:32px; height:32px; border-radius:50%; object-fit:cover;">` : ''}<span>${esc(role.name)}${existingCount ? ' · 在聊' : ''}</span>`;
       button.addEventListener('click', () => openDiscussion(highlight, role.chatId));
       list.appendChild(button);
     });
@@ -564,7 +715,19 @@
       } else {
         state.discussion.recordId = await db.wereadDiscussions.add(payload);
       }
+      if (state.notes) {
+        if (!Array.isArray(state.notes.discussionRows)) state.notes.discussionRows = [];
+        const row = { ...payload, id: state.discussion.recordId };
+        const rowIndex = state.notes.discussionRows.findIndex(item => item.id === row.id);
+        if (rowIndex >= 0) state.notes.discussionRows[rowIndex] = row;
+        else state.notes.discussionRows.push(row);
+      }
     } catch (_) {}
+  }
+
+  function refreshNotesAfterDiscussion() {
+    if (!state.notes?.highlights) return;
+    renderNotes(state.notes.highlights, state.notes.reviews, state.notes.chapterMap || {});
   }
 
   async function askDiscussion(question = '') {
@@ -666,6 +829,7 @@
     });
     document.getElementById('close-weread-discussion-btn')?.addEventListener('click', () => {
       document.getElementById('weread-discussion-modal')?.classList.remove('visible');
+      refreshNotesAfterDiscussion();
     });
     document.getElementById('weread-discussion-say')?.addEventListener('click', () => askDiscussion(''));
     document.getElementById('weread-discussion-send')?.addEventListener('click', () => {

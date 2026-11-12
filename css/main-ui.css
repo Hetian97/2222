@@ -5727,3 +5727,5 @@
 .reading-bookmark-marker { font-size: 0.85em; margin-right: 2px; }
 #reading-content mark.reading-annotation-note { background: transparent !important; text-decoration: underline dotted; text-underline-offset: 3px; }
 .reading-annotation-card.is-focused { outline: 2px solid #e0b25c; outline-offset: 1px; background: rgba(224,178,92,.16) !important; }
+
+#weread-note-list [data-note-type].is-active { color:#b7791f; background:rgba(224,178,92,.16); font-weight:600; }
