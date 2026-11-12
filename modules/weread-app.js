@@ -380,21 +380,42 @@
     const cards = [];
     highlights.forEach((item, index) => {
       const chapter = chapterMap[item.chapterUid] || '';
-      cards.push(`<div style="padding:10px; margin-bottom:8px; border-radius:8px; background:rgba(224,178,92,.12); font-size:13px; line-height:1.6;"><div>${esc(item.markText || '')}</div><div class="settings-desc" style="margin-top:5px; display:flex; align-items:center; justify-content:space-between; gap:8px;"><span>${chapter ? `${esc(chapter)} · ` : ''}划线 · ${formatTimestamp(item.createTime)}</span><button type="button" class="settings-mini-btn" data-weread-discuss="${index}">讨论</button></div></div>`);
+      cards.push(`<div style="padding:10px; margin-bottom:8px; border-radius:8px; background:rgba(224,178,92,.12); font-size:13px; line-height:1.6;"><div>${esc(item.markText || '')}</div><div class="settings-desc" style="margin-top:5px; display:flex; align-items:center; justify-content:space-between; gap:8px;"><span>${chapter ? `${esc(chapter)} · ` : ''}划线 · ${formatTimestamp(item.createTime)}</span><button type="button" class="settings-mini-btn" data-weread-discuss-kind="highlight" data-weread-discuss="${index}">讨论</button></div></div>`);
     });
-    reviews.forEach(item => {
+    reviews.forEach((item, index) => {
       const review = item.review || item;
       const content = review.content || review.abstract || '';
       if (!content) return;
-      cards.push(`<div style="padding:10px; margin-bottom:8px; border-radius:8px; background:rgba(90,159,212,.10); font-size:13px; line-height:1.6;"><div>${esc(content)}</div><div class="settings-desc" style="margin-top:5px;">想法/点评</div></div>`);
+      cards.push(`<div style="padding:10px; margin-bottom:8px; border-radius:8px; background:rgba(90,159,212,.10); font-size:13px; line-height:1.6;"><div>${esc(content)}</div><div class="settings-desc" style="margin-top:5px; display:flex; align-items:center; justify-content:space-between; gap:8px;"><span>想法/点评</span><button type="button" class="settings-mini-btn" data-weread-discuss-kind="review" data-weread-discuss="${index}">讨论</button></div></div>`);
     });
     target.innerHTML = cards.length ? `<h3 style="font-size:15px; margin:4px 0 8px;">笔记与划线</h3>${cards.join('')}` : '<div style="color:var(--text-secondary); font-size:13px;">这本书还没有笔记或划线。</div>';
     target.querySelectorAll('button[data-weread-discuss]').forEach(button => {
       button.addEventListener('click', () => {
-        const highlight = highlights[Number(button.dataset.wereadDiscuss)];
-        if (highlight) openRolePicker(highlight);
+        const index = Number(button.dataset.wereadDiscuss);
+        if (button.dataset.wereadDiscussKind === 'review') {
+          const review = reviews[index];
+          if (review) openRolePicker(reviewToDiscussionSource(review));
+        } else {
+          const highlight = highlights[index];
+          if (highlight) openRolePicker(highlight);
+        }
       });
     });
+  }
+
+  function reviewToDiscussionSource(item) {
+    const review = item.review || item;
+    const abstract = String(review.abstract || '').trim();
+    const content = String(review.content || '').trim();
+    return {
+      markText: abstract || content,
+      note: abstract ? content : '',
+      chapterUid: review.chapterUid || null,
+      chapterName: review.chapterName || '',
+      range: review.range || '',
+      bookmarkId: review.reviewId ? `review:${review.reviewId}` : `review:${content.slice(0, 40)}`,
+      isReview: true
+    };
   }
 
   function getDiscussionRoles() {
@@ -432,6 +453,10 @@
     return String(highlight?.bookmarkId || `${highlight?.chapterUid || ''}:${highlight?.range || ''}:${highlight?.markText || ''}`);
   }
 
+  function getDiscussionChapterTitle(highlight) {
+    return highlight?.chapterName || state.notes?.chapterMap?.[highlight?.chapterUid] || '';
+  }
+
   async function openDiscussion(highlight, chatId) {
     const chat = window.state?.chats?.[chatId];
     if (!chat) return;
@@ -440,7 +465,7 @@
     state.discussion = { highlight, chatId, bookmarkId, bookId, recordId: null, messages: [], busy: false };
     const quote = document.getElementById('weread-discussion-quote');
     if (quote) {
-      quote.innerHTML = `<div style="font-weight:600; margin-bottom:4px;">${esc(state.bookDetail?.title || state.book?.title || '')}</div><div class="settings-desc">${esc(state.notes?.chapterMap?.[highlight.chapterUid] || '')}</div><div style="margin-top:6px;">${esc(highlight.markText || '')}</div>`;
+      quote.innerHTML = `<div style="font-weight:600; margin-bottom:4px;">${esc(state.bookDetail?.title || state.book?.title || '')}</div><div class="settings-desc">${esc(getDiscussionChapterTitle(highlight))}</div><div style="margin-top:6px;">${esc(highlight.markText || '')}</div>`;
     }
     document.getElementById('weread-role-modal')?.classList.remove('visible');
     document.getElementById('weread-discussion-modal')?.classList.add('visible');
@@ -488,7 +513,7 @@
 
   function buildDiscussionPrompt(highlight, chat) {
     const config = getConfig();
-    const chapterTitle = state.notes?.chapterMap?.[highlight.chapterUid] || '未知章节';
+    const chapterTitle = getDiscussionChapterTitle(highlight) || '未知章节';
     const userName = chat.settings?.myNickname || window.state?.qzoneSettings?.nickname || '用户';
     const values = {
       user: userName,
@@ -512,7 +537,7 @@
         bookmarkId: state.discussion.bookmarkId,
         chatId: state.discussion.chatId,
         quote: state.discussion.highlight.markText || '',
-        chapterTitle: state.notes?.chapterMap?.[state.discussion.highlight.chapterUid] || '',
+        chapterTitle: getDiscussionChapterTitle(state.discussion.highlight),
         messages: state.discussion.messages.slice(-80),
         updatedAt: Date.now()
       };
