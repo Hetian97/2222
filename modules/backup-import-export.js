@@ -407,26 +407,44 @@
   // ============================================================
 
   async function writeBackupJsonStream(backupData, write) {
-    await write('{');
-    const keys = Object.keys(backupData);
-    for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
-      const key = keys[keyIndex];
-      const value = backupData[key];
-      await write(`${keyIndex ? ',' : ''}${JSON.stringify(key)}:`);
-      if (Array.isArray(value) && value.length > 1) {
-        await write('[');
-        for (let i = 0; i < value.length; i++) {
-          if (i) await write(',');
-          await write(JSON.stringify(value[i]));
-        }
-        await write(']');
-      } else {
-        await write(JSON.stringify(value));
-      }
-    }
-    await write('}');
+    await writeJsonValue(backupData, write, 0);
   }
 
+  async function writeJsonValue(value, write, depth = 0) {
+    if (value === undefined) {
+      await write('null');
+      return;
+    }
+    if (Array.isArray(value)) {
+      if (value.length <= 50 || depth >= 5) {
+        await write(JSON.stringify(value));
+        return;
+      }
+      await write('[');
+      for (let i = 0; i < value.length; i++) {
+        if (i) await write(',');
+        await writeJsonValue(value[i], write, depth + 1);
+      }
+      await write(']');
+      return;
+    }
+    if (value && typeof value === 'object') {
+      if (depth >= 5) {
+        await write(JSON.stringify(value));
+        return;
+      }
+      await write('{');
+      const keys = Object.keys(value);
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        await write(`${i ? ',' : ''}${JSON.stringify(key)}:`);
+        await writeJsonValue(value[key], write, depth + 1);
+      }
+      await write('}');
+      return;
+    }
+    await write(JSON.stringify(value));
+  }
   async function saveBackupFile(backupData) {
     const filename = `EPhone-Full-Backup-${new Date().toISOString().split('T')[0]}.json`;
     if (typeof window.showSaveFilePicker === 'function') {
@@ -2057,18 +2075,8 @@
       backupData.data.mcpLocalStorage = mcpLocalStorage;
       backupData.data.thoughtChainLocalStorage = thoughtChainLocalStorage;
 
-      const blob = new Blob(
-        [JSON.stringify(backupData, null, 2)], {
-        type: 'application/json'
-      }
-      );
-
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `330-EPhone-Full-Backup-Legacy-${new Date().toISOString().split('T')[0]}.json`;
-      link.click();
-      URL.revokeObjectURL(url);
+      const saved = await saveBackupFile(backupData);
+      if (!saved) return;
 
       await showCustomAlert('导出成功', '已成功导出所有数据！备份包含明文 API Key，请勿公开分享。');
 
