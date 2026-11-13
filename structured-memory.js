@@ -562,7 +562,8 @@ class StructuredMemoryManager {
 
   _renderSection(container, categoryCode, catInfo, items, isCustom) {
     const limit = this._sectionLimits?.[categoryCode] || this.SECTION_PAGE_SIZE;
-    const visibleItems = items.slice(0, limit);
+    const start = Math.max(0, items.length - limit);
+    const visibleItems = items.slice(start);
     const section = document.createElement('div');
     section.className = 'sm-section';
     section.dataset.category = categoryCode;
@@ -572,7 +573,7 @@ class StructuredMemoryManager {
         <div class="sm-section-select-all sm-batch-element" data-category="${categoryCode}" style="display:none"></div>
         <span class="sm-section-tag" style="background:${catInfo.color || '#666'}">${categoryCode}</span>
         <span class="sm-section-title">${catInfo.name}</span>
-        <span class="sm-section-count">${items.length}</span>
+        <span class="sm-section-count">${items.length}${start > 0 ? ` · 显示最近 ${visibleItems.length}` : ''}</span>
         <div class="sm-section-actions">
           <button class="sm-section-action-btn sm-add-to-cat-btn" data-code="${categoryCode}" title="添加条目到此分类">➕</button>
           ${isCustom ? `
@@ -593,17 +594,18 @@ class StructuredMemoryManager {
       list.innerHTML = `<div class="sm-item-row sm-empty-hint" style="justify-content:center; color:var(--text-secondary,#999); font-size:12px;">暂无条目，点击 ➕ 添加</div>`;
     } else {
       visibleItems.forEach((item, idx) => {
+        const absoluteIndex = start + idx;
         const row = document.createElement('div');
         row.className = 'sm-item-row';
         row.dataset.category = categoryCode;
-        row.dataset.index = idx;
+        row.dataset.index = absoluteIndex;
         const rawAttr = item.raw ? ` data-raw="${this._escapeHtml(item.raw)}"` : '';
         row.innerHTML = `
-          <div class="sm-item-checkbox sm-batch-element" data-category="${categoryCode}" data-index="${idx}" style="display:none"></div>
+          <div class="sm-item-checkbox sm-batch-element" data-category="${categoryCode}" data-index="${absoluteIndex}" style="display:none"></div>
           <span class="sm-item-content">${this._escapeHtml(item.display)}</span>
           <div class="sm-item-actions">
-            <button class="sm-item-btn sm-edit-btn" data-category="${categoryCode}" data-index="${idx}"${rawAttr} title="编辑">✏️</button>
-            <button class="sm-item-btn sm-delete-btn" data-category="${categoryCode}" data-index="${idx}" title="删除">🗑️</button>
+            <button class="sm-item-btn sm-edit-btn" data-category="${categoryCode}" data-index="${absoluteIndex}"${rawAttr} title="编辑">✏️</button>
+            <button class="sm-item-btn sm-delete-btn" data-category="${categoryCode}" data-index="${absoluteIndex}" title="删除">🗑️</button>
           </div>
         `;
         list.appendChild(row);
@@ -613,7 +615,7 @@ class StructuredMemoryManager {
         more.type = 'button';
         more.className = 'sm-item-btn';
         more.style.cssText = 'margin:8px auto; display:block; padding:6px 12px;';
-        more.textContent = `显示更多（剩余 ${items.length - limit} 条）`;
+        more.textContent = `加载更早（剩余 ${items.length - limit} 条）`;
         more.addEventListener('click', () => {
           this._sectionLimits[categoryCode] = limit + this.SECTION_PAGE_SIZE;
           this.renderMemoryTable(this._currentChat, container, { keepLimits: true });
