@@ -447,17 +447,22 @@
   }
   async function saveBackupFile(backupData) {
     const filename = `EPhone-Full-Backup-${new Date().toISOString().split('T')[0]}.json`;
-    if (typeof window.showSaveFilePicker === 'function') {
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+    let writable = null;
+    if (!isMobile && typeof window.showSaveFilePicker === 'function') {
       try {
         const handle = await window.showSaveFilePicker({
           suggestedName: filename,
           types: [{ description: 'JSON 备份', accept: { 'application/json': ['.json'] } }]
         });
-        const writable = await handle.createWritable();
+        writable = await handle.createWritable();
         await writeBackupJsonStream(backupData, chunk => writable.write(chunk));
         await writable.close();
+        const savedFile = await handle.getFile();
+        if (!savedFile.size) throw new Error('保存后的文件为空');
         return true;
       } catch (error) {
+        try { await writable?.abort?.(); } catch (_) {}
         if (error?.name === 'AbortError') return false;
         console.warn('文件保存对话框不可用，回退到 Blob 下载', error);
       }
@@ -470,10 +475,13 @@
     const url = URL.createObjectURL(blob);
     const link = Object.assign(document.createElement('a'), {
       href: url,
-      download: filename
+      download: filename,
+      style: 'display:none'
     });
+    document.body.appendChild(link);
     link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
     return true;
   }
   // 清理指定数据表
